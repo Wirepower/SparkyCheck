@@ -34,6 +34,7 @@ Each sync event posts JSON with:
 - `mode` (`training`)
 - `sync_event` (`test_started`, `step_next`, `step_back`, `result_confirmed`, `session_saved`, `ping`)
 - `test_id`
+- `test_key` (canonical key for test column mapping)
 - `step_title`
 - `step_index`
 - `step_count`
@@ -48,6 +49,16 @@ Each sync event posts JSON with:
 - `rules_version`
 - `firmware_version`
 - `ts_ms`
+
+Canonical `test_key` values (hard-mapped in firmware):
+
+- `earth_continuity_conductors`
+- `insulation_resistance`
+- `polarity`
+- `earth_continuity_cpc`
+- `correct_circuit_connections`
+- `earth_fault_loop_impedance`
+- `rcd_operation`
 
 ---
 
@@ -110,14 +121,14 @@ const HEADERS = [
   "last_clause"
 ];
 
-const TEST_COLUMN_BY_ID = {
-  "0": "earth_continuity_conductors",
-  "1": "insulation_resistance",
-  "2": "polarity",
-  "3": "earth_continuity_cpc",
-  "4": "correct_circuit_connections",
-  "5": "earth_fault_loop_impedance",
-  "6": "rcd_operation"
+const TEST_COLUMNS = {
+  "earth_continuity_conductors": "earth_continuity_conductors",
+  "insulation_resistance": "insulation_resistance",
+  "polarity": "polarity",
+  "earth_continuity_cpc": "earth_continuity_cpc",
+  "correct_circuit_connections": "correct_circuit_connections",
+  "earth_fault_loop_impedance": "earth_fault_loop_impedance",
+  "rcd_operation": "rcd_operation"
 };
 
 function doPost(e) {
@@ -153,7 +164,7 @@ function doPost(e) {
     };
 
     if (data.has_result === true) {
-      const col = TEST_COLUMN_BY_ID[String(data.test_id)];
+      const col = TEST_COLUMNS[String(data.test_key || "")];
       if (col) update[col] = formatResult_(data);
     }
 
@@ -271,7 +282,7 @@ Recommended approach: use Power Automate as the webhook bridge.
    - If not found, use **Create item** (new row).
    - Map JSON fields from trigger body to list columns, including:
      - progress fields (`sync_event`, `current_test`, `current_step`, `current_step_total`)
-     - result columns (update specific test column when `has_result == true`)
+     - result columns (update specific test column when `has_result == true`, selected by `test_key`)
    - Optional: add condition to verify `auth_token`.
 3. Save flow and copy generated HTTP POST URL.
 4. Paste that URL into device **Sync endpoint URL**.

@@ -104,6 +104,19 @@ static char applyLetterCase(char c, bool upper) {
   return c;
 }
 
+static const char* syncTestKeyForId(int testId) {
+  switch (testId) {
+    case VERIFY_CONTINUITY: return "earth_continuity_conductors";
+    case VERIFY_INSULATION: return "insulation_resistance";
+    case VERIFY_POLARITY: return "polarity";
+    case VERIFY_EARTH_CONTINUITY: return "earth_continuity_cpc";
+    case VERIFY_CIRCUIT_CONNECTIONS: return "correct_circuit_connections";
+    case VERIFY_EFLI: return "earth_fault_loop_impedance";
+    case VERIFY_RCD: return "rcd_operation";
+    default: return "";
+  }
+}
+
 static void syncTrainingFlowEvent(const char* event, bool include_result, const char* report_id_or_null) {
   if (AppState_getMode() != APP_MODE_TRAINING) return;
   if (s_selectedTestType < 0 || s_selectedTestType >= VERIFY_TEST_COUNT) return;
@@ -136,6 +149,7 @@ static void syncTrainingFlowEvent(const char* event, bool include_result, const 
   GoogleSyncResult gs;
   gs.sync_event = event ? event : "update";
   gs.test_id = s_selectedTestType;
+  gs.test_key = syncTestKeyForId(s_selectedTestType);
   gs.step_title = stepTitle;
   gs.step_index = stepIndex;
   gs.step_count = count;

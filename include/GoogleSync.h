@@ -12,6 +12,7 @@ extern "C" {
 typedef struct {
   const char* sync_event;   /* e.g. test_started, step_next, step_back, result_confirmed */
   int test_id;
+  const char* test_key;     /* canonical test key for backend column mapping */
   const char* step_title;
   int step_index;           /* 1-based */
   int step_count;

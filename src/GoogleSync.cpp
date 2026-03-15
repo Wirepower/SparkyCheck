@@ -125,6 +125,7 @@ bool GoogleSync_sendResult(const GoogleSyncResult* result) {
   doc["session_id"] = session;
   doc["sync_event"] = result->sync_event ? result->sync_event : "update";
   doc["test_id"] = result->test_id;
+  doc["test_key"] = result->test_key ? result->test_key : "";
   doc["step_title"] = result->step_title ? result->step_title : "";
   doc["step_index"] = result->step_index;
   doc["step_count"] = result->step_count;
@@ -160,6 +161,7 @@ bool GoogleSync_sendPing(void) {
   GoogleSyncResult ping;
   ping.sync_event = "ping";
   ping.test_id = -1;
+  ping.test_key = "";
   ping.step_title = "";
   ping.step_index = 0;
   ping.step_count = 0;
