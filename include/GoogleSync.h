@@ -18,6 +18,9 @@ typedef struct {
   int step_count;
   bool has_result;          /* true when value/result fields are valid */
   const char* session_id;   /* optional override; usually auto-assigned */
+  const char* student_id;
+  unsigned long test_started_ms;
+  unsigned long test_completed_ms;
   const char* report_id;
   const char* test_name;
   const char* value;

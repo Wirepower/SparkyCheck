@@ -24,6 +24,7 @@ struct Row {
 static struct {
   bool active;
   char basename[BASENAME_LEN];
+  char student_id[24];
   int count;
   Row rows[MAX_RESULTS];
 } s_report;
@@ -51,6 +52,11 @@ bool ReportGenerator_begin(const char* job_id_or_null) {
     makeBasename(s_report.basename, BASENAME_LEN);
   s_report.basename[BASENAME_LEN - 1] = '\0';
   return true;
+}
+
+void ReportGenerator_setStudentId(const char* student_id) {
+  strncpy(s_report.student_id, student_id ? student_id : "", sizeof(s_report.student_id) - 1);
+  s_report.student_id[sizeof(s_report.student_id) - 1] = '\0';
 }
 
 void ReportGenerator_addResult(const char* name, const char* value, const char* unit, bool passed, const char* clause) {
@@ -90,6 +96,10 @@ bool ReportGenerator_end(void) {
   if (!fc) { s_report.active = false; return false; }
   snprintf(line, sizeof(line), "Device ID,%s\r\n", device_id);
   if (!writeLine(fc, line)) { fc.close(); s_report.active = false; return false; }
+  if (s_report.student_id[0]) {
+    snprintf(line, sizeof(line), "Student ID,%s\r\n", s_report.student_id);
+    if (!writeLine(fc, line)) { fc.close(); s_report.active = false; return false; }
+  }
   if (!writeLine(fc, "Test,Value,Unit,Result,Clause\r\n")) { fc.close(); s_report.active = false; return false; }
   for (int i = 0; i < s_report.count; i++) {
     Row* r = &s_report.rows[i];
@@ -104,7 +114,10 @@ bool ReportGenerator_end(void) {
   if (!fh) { s_report.active = false; return false; }
   if (!writeLine(fh, "<!DOCTYPE html><html><head><meta charset=\"UTF-8\"><title>SparkyCheck Report</title>")) { fh.close(); s_report.active = false; return false; }
   if (!writeLine(fh, "<style>body{font-family:sans-serif;margin:1rem;} table{border-collapse:collapse;} th,td{border:1px solid #333;padding:6px 10px;} .pass{background:#cfc;} .fail{background:#fcc;}</style></head><body>")) { fh.close(); s_report.active = false; return false; }
-  snprintf(line, sizeof(line), "<h1>SparkyCheck Verification Report</h1><p><strong>Job:</strong> %s &nbsp; <strong>Device:</strong> %s &nbsp; <strong>Rules:</strong> %s</p>", s_report.basename, device_id, rules_ver);
+  if (s_report.student_id[0])
+    snprintf(line, sizeof(line), "<h1>SparkyCheck Verification Report</h1><p><strong>Job:</strong> %s &nbsp; <strong>Device:</strong> %s &nbsp; <strong>Student:</strong> %s &nbsp; <strong>Rules:</strong> %s</p>", s_report.basename, device_id, s_report.student_id, rules_ver);
+  else
+    snprintf(line, sizeof(line), "<h1>SparkyCheck Verification Report</h1><p><strong>Job:</strong> %s &nbsp; <strong>Device:</strong> %s &nbsp; <strong>Rules:</strong> %s</p>", s_report.basename, device_id, rules_ver);
   if (!writeLine(fh, line)) { fh.close(); s_report.active = false; return false; }
   if (!writeLine(fh, "<table><tr><th>Test</th><th>Value</th><th>Unit</th><th>Result</th><th>Clause</th></tr>")) { fh.close(); s_report.active = false; return false; }
   for (int i = 0; i < s_report.count; i++) {

@@ -29,6 +29,9 @@ bool ReportGenerator_begin(const char* job_id_or_null);
 /** Add a result line. */
 void ReportGenerator_addResult(const char* name, const char* value, const char* unit, bool passed, const char* clause);
 
+/** Set student ID metadata for next report (optional). */
+void ReportGenerator_setStudentId(const char* student_id);
+
 /** Finalise and write CSV + HTML. Returns false on write error. */
 bool ReportGenerator_end(void);
 

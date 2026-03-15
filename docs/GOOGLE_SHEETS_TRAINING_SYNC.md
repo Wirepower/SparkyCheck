@@ -41,6 +41,9 @@ Each sync event posts JSON with:
 - `step_index`
 - `step_count`
 - `has_result`
+- `student_id` (normalized on device as `S` + digits)
+- `test_started_ms`
+- `test_completed_ms`
 - `report_id`
 - `test_name`
 - `value`
@@ -109,10 +112,13 @@ const HEADERS = [
   "device_id",
   "session_id",
   "cubicle_id",
+  "student_id",
   "mode",
   "current_test",
   "current_step",
   "current_step_total",
+  "test_started_at",
+  "test_completed_at",
   "earth_continuity_conductors",
   "insulation_resistance",
   "polarity",
@@ -158,6 +164,7 @@ function doPost(e) {
       device_id: data.device_id || "",
       session_id: data.session_id || "",
       cubicle_id: data.cubicle_id || "",
+      student_id: normalizeStudentId_(data.student_id || ""),
       mode: data.mode || "",
       current_test: data.test_name || "",
       current_step: data.step_index || "",
@@ -168,6 +175,13 @@ function doPost(e) {
       ts_ms: data.ts_ms || "",
       last_clause: data.clause || ""
     };
+
+    if (String(data.sync_event || "") === "test_started" && !getCell_(sheet, rowNum, "test_started_at")) {
+      update.test_started_at = nowIso;
+    }
+    if (String(data.sync_event || "") === "result_confirmed" || String(data.sync_event || "") === "session_saved") {
+      update.test_completed_at = nowIso;
+    }
 
     if (data.has_result === true) {
       const col = TEST_COLUMNS[String(data.test_key || "")];
@@ -244,6 +258,20 @@ function writeRowFields_(sheet, rowNum, updateObj) {
   }
 }
 
+function getCell_(sheet, rowNum, key) {
+  const map = getHeaderMap_(sheet);
+  if (!map[key]) return "";
+  return sheet.getRange(rowNum, map[key]).getValue();
+}
+
+function normalizeStudentId_(raw) {
+  const s = String(raw || "").trim().toUpperCase();
+  if (!s) return "";
+  const digits = s.replace(/^S/, "").replace(/[^0-9]/g, "");
+  if (!digits) return "";
+  return `S${digits}`;
+}
+
 function formatResult_(data) {
   const v = data.value || "";
   const u = data.unit || "";
@@ -271,10 +299,13 @@ Recommended approach: use Power Automate as the webhook bridge.
    - `device_id` (Single line text)
    - `session_id` (Single line text)
    - `cubicle_id` (Single line text)
+   - `student_id` (Single line text)
    - `mode` (Single line text)
    - `current_test` (Single line text)
    - `current_step` (Number or Single line text)
    - `current_step_total` (Number or Single line text)
+   - `test_started_at` (Date/Time or Single line text)
+   - `test_completed_at` (Date/Time or Single line text)
    - `report_id` (Single line text)
    - One column per test (for example `earth_continuity_conductors`, `insulation_resistance`, `polarity`, `earth_continuity_cpc`, `correct_circuit_connections`, `earth_fault_loop_impedance`, `rcd_operation`)
    - `rules_version` (Single line text)

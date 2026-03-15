@@ -148,6 +148,9 @@ bool GoogleSync_sendResult(const GoogleSyncResult* result) {
   doc["step_index"] = result->step_index;
   doc["step_count"] = result->step_count;
   doc["has_result"] = result->has_result;
+  doc["student_id"] = result->student_id ? result->student_id : "";
+  doc["test_started_ms"] = result->test_started_ms;
+  doc["test_completed_ms"] = result->test_completed_ms;
   doc["report_id"] = result->report_id ? result->report_id : "";
   doc["test_name"] = result->test_name ? result->test_name : "";
   doc["value"] = (result->has_result && result->value) ? result->value : "";
@@ -185,6 +188,9 @@ bool GoogleSync_sendPing(void) {
   ping.step_count = 0;
   ping.has_result = true;
   ping.session_id = "";
+  ping.student_id = "";
+  ping.test_started_ms = 0;
+  ping.test_completed_ms = 0;
   ping.report_id = "Ping";
   ping.test_name = "Connectivity test";
   ping.value = "N/A";
