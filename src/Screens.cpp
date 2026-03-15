@@ -303,7 +303,7 @@ void Screens_draw(TFT_eSPI* tft, ScreenId id) {
       tft->setTextSize(2);
       tft->setCursor(20, 16);
       tft->print("Reports");
-      static char listBuf[512];
+      static char listBuf[384];  /* Enough for ~20 report names; avoids large BSS */
       int n = ReportGenerator_listReports(listBuf, sizeof(listBuf));
       tft->setTextSize(1);
       tft->setCursor(20, 50);

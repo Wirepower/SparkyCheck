@@ -49,9 +49,8 @@ bool WifiManager_isConnected(void) {
 
 bool WifiManager_getIpString(char* buf, unsigned buf_size) {
   if (!buf || buf_size == 0 || WiFi.status() != WL_CONNECTED) return false;
-  String ip = WiFi.localIP().toString();
-  strncpy(buf, ip.c_str(), buf_size - 1);
-  buf[buf_size - 1] = '\0';
+  IPAddress ip = WiFi.localIP();
+  snprintf(buf, buf_size, "%u.%u.%u.%u", ip[0], ip[1], ip[2], ip[3]);
   return true;
 }
 
