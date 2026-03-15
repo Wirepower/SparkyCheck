@@ -1,0 +1,70 @@
+#include "WifiManager.h"
+#include "AppState.h"
+#include <WiFi.h>
+#include <string.h>
+
+int WifiManager_scan(WifiNetwork* networks, int max_count) {
+  if (!networks || max_count <= 0) return 0;
+  int n = WiFi.scanNetworks();
+  int out = 0;
+  for (int i = 0; i < n && out < max_count; i++) {
+    String s = WiFi.SSID(i);
+    if (s.length() >= WIFI_SSID_LEN) continue;
+    strncpy(networks[out].ssid, s.c_str(), WIFI_SSID_LEN - 1);
+    networks[out].ssid[WIFI_SSID_LEN - 1] = '\0';
+    networks[out].rssi = WiFi.RSSI(i);
+    networks[out].secure = (WiFi.encryptionType(i) != WIFI_AUTH_OPEN) ? 1 : 0;
+    out++;
+  }
+  return out;
+}
+
+bool WifiManager_connect(const char* ssid, const char* pass) {
+  if (!ssid || !ssid[0]) return false;
+  WiFi.disconnect(true);
+  delay(100);
+  WiFi.mode(WIFI_STA);
+  if (pass && pass[0])
+    WiFi.begin(ssid, pass);
+  else
+    WiFi.begin(ssid);
+  for (int i = 0; i < 50; i++) {
+    if (WiFi.status() == WL_CONNECTED) {
+      AppState_setWifiCredentials(ssid, pass ? pass : "");
+      return true;
+    }
+    delay(200);
+  }
+  return false;
+}
+
+void WifiManager_disconnect(bool clear_saved) {
+  WiFi.disconnect(true);
+  if (clear_saved) AppState_setWifiCredentials("", "");
+}
+
+bool WifiManager_isConnected(void) {
+  return WiFi.status() == WL_CONNECTED;
+}
+
+bool WifiManager_getIpString(char* buf, unsigned buf_size) {
+  if (!buf || buf_size == 0 || WiFi.status() != WL_CONNECTED) return false;
+  String ip = WiFi.localIP().toString();
+  strncpy(buf, ip.c_str(), buf_size - 1);
+  buf[buf_size - 1] = '\0';
+  return true;
+}
+
+bool WifiManager_getConnectedSsid(char* buf, unsigned buf_size) {
+  if (!buf || buf_size == 0 || WiFi.status() != WL_CONNECTED) return false;
+  strncpy(buf, WiFi.SSID().c_str(), buf_size - 1);
+  buf[buf_size - 1] = '\0';
+  return true;
+}
+
+void WifiManager_reconnectSaved(void) {
+  char ssid[WIFI_SSID_LEN], pass[WIFI_PASS_LEN];
+  AppState_getWifiCredentials(ssid, sizeof(ssid), pass, sizeof(pass));
+  if (ssid[0] && WiFi.status() != WL_CONNECTED)
+    WifiManager_connect(ssid, pass[0] ? pass : nullptr);
+}

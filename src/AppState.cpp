@@ -1,0 +1,227 @@
+#include "AppState.h"
+#include "Standards.h"
+#include <Preferences.h>
+
+static const char* NVS_NAMESPACE   = "sparky";
+static const char* NVS_KEY_MODE    = "mode";
+static const char* NVS_KEY_PIN    = "pin";
+static const char* NVS_KEY_ROT    = "rot";
+static const char* NVS_KEY_BUZZ   = "buzz";
+static const char* NVS_KEY_WIFI_SSID   = "wifi_ssid";
+static const char* NVS_KEY_WIFI_PASS   = "wifi_pass";
+static const char* NVS_KEY_SMTP_SRV    = "smtp_srv";
+static const char* NVS_KEY_SMTP_PORT   = "smtp_port";
+static const char* NVS_KEY_SMTP_USER   = "smtp_user";
+static const char* NVS_KEY_SMTP_PASS   = "smtp_pass";
+static const char* NVS_KEY_REPORT_TO   = "report_to";
+
+static AppMode s_mode = APP_MODE_TRAINING;
+static int s_rotation = 1;   /* 0=portrait, 1=landscape; default landscape */
+static bool s_buzzer = true;
+static bool s_loaded = false;
+
+void AppState_load(void) {
+  if (s_loaded) return;
+  Preferences prefs;
+  if (prefs.begin(NVS_NAMESPACE, true)) {
+    s_mode = (AppMode)prefs.getUChar(NVS_KEY_MODE, (uint8_t)APP_MODE_TRAINING);
+    s_rotation = prefs.getInt(NVS_KEY_ROT, 1);
+    s_buzzer = prefs.getBool(NVS_KEY_BUZZ, true);
+    prefs.end();
+  }
+  s_loaded = true;
+  Standards_setFieldMode(s_mode == APP_MODE_FIELD);
+}
+
+void AppState_save(void) {
+  Preferences prefs;
+  if (prefs.begin(NVS_NAMESPACE, false)) {
+    prefs.putUChar(NVS_KEY_MODE, (uint8_t)s_mode);
+    prefs.end();
+  }
+}
+
+AppMode AppState_getMode(void) {
+  if (!s_loaded) AppState_load();
+  return s_mode;
+}
+
+void AppState_setMode(AppMode mode) {
+  s_mode = mode;
+  Standards_setFieldMode(mode == APP_MODE_FIELD);
+  AppState_save();
+}
+
+bool AppState_isFieldMode(void) {
+  return AppState_getMode() == APP_MODE_FIELD;
+}
+
+bool AppState_checkPin(uint32_t pin) {
+  return pin == AppState_getPin();
+}
+
+uint32_t AppState_getPin(void) {
+  if (!s_loaded) AppState_load();
+  Preferences prefs;
+  if (prefs.begin(NVS_NAMESPACE, true)) {
+    uint32_t p = prefs.getULong(NVS_KEY_PIN, (uint32_t)APP_STATE_DEFAULT_PIN);
+    prefs.end();
+    return p;
+  }
+  return (uint32_t)APP_STATE_DEFAULT_PIN;  /* 12345 */
+}
+
+void AppState_setPin(uint32_t pin) {
+  Preferences prefs;
+  if (prefs.begin(NVS_NAMESPACE, false)) {
+    prefs.putULong(NVS_KEY_PIN, pin);
+    prefs.end();
+  }
+}
+
+int AppState_getRotation(void) {
+  if (!s_loaded) AppState_load();
+  return s_rotation;
+}
+
+void AppState_setRotation(int rotation) {
+  s_rotation = (rotation != 0) ? 1 : 0;
+  Preferences prefs;
+  if (prefs.begin(NVS_NAMESPACE, false)) {
+    prefs.putInt(NVS_KEY_ROT, s_rotation);
+    prefs.end();
+  }
+}
+
+bool AppState_getBuzzerEnabled(void) {
+  if (!s_loaded) AppState_load();
+  return s_buzzer;
+}
+
+void AppState_setBuzzerEnabled(bool on) {
+  s_buzzer = on;
+  Preferences prefs;
+  if (prefs.begin(NVS_NAMESPACE, false)) {
+    prefs.putBool(NVS_KEY_BUZZ, on);
+    prefs.end();
+  }
+}
+
+void AppState_getWifiCredentials(char* ssid, unsigned ssid_size, char* pass, unsigned pass_size) {
+  if (!ssid || ssid_size == 0) return;
+  ssid[0] = '\0';
+  if (pass && pass_size) pass[0] = '\0';
+  if (!s_loaded) AppState_load();
+  Preferences prefs;
+  if (prefs.begin(NVS_NAMESPACE, true)) {
+    prefs.getString(NVS_KEY_WIFI_SSID, ssid, ssid_size);
+    if (pass && pass_size) prefs.getString(NVS_KEY_WIFI_PASS, pass, pass_size);
+    prefs.end();
+  }
+}
+
+void AppState_setWifiCredentials(const char* ssid, const char* pass) {
+  Preferences prefs;
+  if (prefs.begin(NVS_NAMESPACE, false)) {
+    if (ssid) prefs.putString(NVS_KEY_WIFI_SSID, ssid);
+    if (pass) prefs.putString(NVS_KEY_WIFI_PASS, pass);
+    prefs.end();
+  }
+}
+
+static void getStr(Preferences& prefs, const char* key, char* buf, unsigned size) {
+  prefs.getString(key, buf, size);
+  buf[size - 1] = '\0';
+}
+
+void AppState_getSmtpServer(char* buf, unsigned size) {
+  if (!buf || size == 0) return;
+  buf[0] = '\0';
+  Preferences prefs;
+  if (prefs.begin(NVS_NAMESPACE, true)) {
+    getStr(prefs, NVS_KEY_SMTP_SRV, buf, size);
+    prefs.end();
+  }
+}
+
+void AppState_setSmtpServer(const char* s) {
+  Preferences prefs;
+  if (prefs.begin(NVS_NAMESPACE, false)) {
+    prefs.putString(NVS_KEY_SMTP_SRV, s ? s : "");
+    prefs.end();
+  }
+}
+
+void AppState_getSmtpPort(char* buf, unsigned size) {
+  if (!buf || size == 0) return;
+  buf[0] = '\0';
+  Preferences prefs;
+  if (prefs.begin(NVS_NAMESPACE, true)) {
+    getStr(prefs, NVS_KEY_SMTP_PORT, buf, size);
+    if (!buf[0]) strncpy(buf, "587", size - 1);
+    buf[size - 1] = '\0';
+    prefs.end();
+  }
+}
+
+void AppState_setSmtpPort(const char* s) {
+  Preferences prefs;
+  if (prefs.begin(NVS_NAMESPACE, false)) {
+    prefs.putString(NVS_KEY_SMTP_PORT, s ? s : "587");
+    prefs.end();
+  }
+}
+
+void AppState_getSmtpUser(char* buf, unsigned size) {
+  if (!buf || size == 0) return;
+  buf[0] = '\0';
+  Preferences prefs;
+  if (prefs.begin(NVS_NAMESPACE, true)) {
+    getStr(prefs, NVS_KEY_SMTP_USER, buf, size);
+    prefs.end();
+  }
+}
+
+void AppState_setSmtpUser(const char* s) {
+  Preferences prefs;
+  if (prefs.begin(NVS_NAMESPACE, false)) {
+    prefs.putString(NVS_KEY_SMTP_USER, s ? s : "");
+    prefs.end();
+  }
+}
+
+void AppState_getSmtpPass(char* buf, unsigned size) {
+  if (!buf || size == 0) return;
+  buf[0] = '\0';
+  Preferences prefs;
+  if (prefs.begin(NVS_NAMESPACE, true)) {
+    getStr(prefs, NVS_KEY_SMTP_PASS, buf, size);
+    prefs.end();
+  }
+}
+
+void AppState_setSmtpPass(const char* s) {
+  Preferences prefs;
+  if (prefs.begin(NVS_NAMESPACE, false)) {
+    prefs.putString(NVS_KEY_SMTP_PASS, s ? s : "");
+    prefs.end();
+  }
+}
+
+void AppState_getReportToEmail(char* buf, unsigned size) {
+  if (!buf || size == 0) return;
+  buf[0] = '\0';
+  Preferences prefs;
+  if (prefs.begin(NVS_NAMESPACE, true)) {
+    getStr(prefs, NVS_KEY_REPORT_TO, buf, size);
+    prefs.end();
+  }
+}
+
+void AppState_setReportToEmail(const char* s) {
+  Preferences prefs;
+  if (prefs.begin(NVS_NAMESPACE, false)) {
+    prefs.putString(NVS_KEY_REPORT_TO, s ? s : "");
+    prefs.end();
+  }
+}

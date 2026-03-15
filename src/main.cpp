@@ -2,49 +2,65 @@
 #include <TFT_eSPI.h>
 
 #include "BootScreen.h"
+#include "AppState.h"
+#include "Screens.h"
+#include "ReportGenerator.h"
+#include "Buzzer.h"
+#include "WifiManager.h"
 
 TFT_eSPI tft = TFT_eSPI();
+static ScreenId s_currentScreen = SCREEN_MAIN_MENU;
+static bool s_appReady = false;
 
 void setup() {
   Serial.begin(115200);
-  delay(500);
+  delay(300);
   Serial.println("SparkyCheck – Booting");
 
+  Buzzer_init();
+  AppState_load();
   tft.init();
-  tft.setRotation(1);
+  tft.setRotation(AppState_getRotation());
   tft.fillScreen(TFT_BLACK);
 
-  // First boot screen: creator (Frank) + industry graphic
+  /* Boot 1: Creator + graphic */
   BootScreen::showFirst(tft);
-
-  // Wait for touch or timeout (e.g. 6 seconds)
-  const unsigned long timeout = 6000;
   unsigned long start = millis();
   uint16_t x = 0, y = 0;
-  while (millis() - start < timeout) {
-    if (tft.getTouch(&x, &y)) {
-      Serial.println("Boot screen skipped (touch)");
-      break;
-    }
+  while (millis() - start < 6000) {
+    if (tft.getTouch(&x, &y)) break;
     delay(50);
   }
 
-  // TODO: second boot screen (disclaimer), then main app
-  tft.fillScreen(TFT_BLACK);
-  tft.setTextColor(TFT_WHITE, TFT_BLACK);
-  tft.setTextSize(2);
-  tft.setCursor(20, 20);
-  tft.println("SparkyCheck ready.");
-  tft.setCursor(20, 50);
-  tft.println("(Disclaimer screen next)");
-  Serial.println("Boot complete.");
+  /* Boot 2: Disclaimer (must accept) */
+  BootScreen::showDisclaimer(tft);
+  Buzzer_startupChime();
+
+  ReportGenerator_init();
+  WifiManager_reconnectSaved();
+  Screens_setModeSelectChoice(AppState_getMode() == APP_MODE_FIELD ? 1 : 0);
+  s_currentScreen = SCREEN_MAIN_MENU;
+  tft.setRotation(AppState_getRotation());
+  Screens_draw(&tft, s_currentScreen);
+
+  s_appReady = true;
+  Serial.println("SparkyCheck ready.");
 }
 
 void loop() {
+  if (!s_appReady) return;
+
   uint16_t x = 0, y = 0;
   if (tft.getTouch(&x, &y)) {
-    Serial.printf("Touch: x=%d y=%d\n", x, y);
-    delay(100);
+    ScreenId next = Screens_handleTouch(&tft, s_currentScreen, x, y);
+    if (Screens_didHandleButton() && AppState_getBuzzerEnabled())
+      Buzzer_beepClick();
+    if (next != s_currentScreen) {
+      s_currentScreen = next;
+      tft.setRotation(AppState_getRotation());
+      Screens_draw(&tft, s_currentScreen);
+    }
+    delay(120);
   }
   delay(50);
 }
