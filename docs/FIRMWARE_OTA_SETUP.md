@@ -71,7 +71,7 @@ Yes, GitHub can host the whole OTA flow.
 ### What this repo now includes
 
 - `ota/manifest-stable.json` (stable manifest path)
-- `.github/workflows/ota-release.yml` (manual OTA release pipeline)
+- `.github/workflows/ota-release.yml` (auto OTA pipeline on push to `main`)
 - `scripts/generate_ota_manifest.py` (manifest generator)
 
 ### Required repo setting
@@ -81,7 +81,14 @@ Yes, GitHub can host the whole OTA flow.
 
 ### Release workflow behavior
 
-Run **Actions → OTA Release → Run workflow** with version/channel/rollout inputs.
+Automatic path (default):
+
+- Push firmware code to `main` (`src/`, `include/`, `lib/`, or `platformio.ini` changes).
+- Workflow auto-builds and auto-publishes OTA for `stable` channel.
+
+Manual path (optional):
+
+- Run **Actions → OTA Release → Run workflow** to set custom `version`, `channel`, rollout, and force flag.
 
 It will:
 
@@ -154,15 +161,23 @@ After this bootstrap, updates can be pushed remotely by updating manifest + host
 
 ## 6) Release workflow (each bugfix release)
 
-1. Change `FIRMWARE_VERSION` in `platformio.ini` to a newer value.
-2. Push to GitHub.
-3. Run **Actions → OTA Release** and enter:
-   - `version` (must match `FIRMWARE_VERSION`)
-   - `channel` (`stable` or `beta`)
-   - `rollout_pct` (start small, e.g. 10)
-   - `force` (normally `false`)
-4. Monitor devices.
-5. Re-run with higher `rollout_pct` (25 → 50 → 100).
+### Easiest (fully automatic)
+
+1. Push firmware changes to `main`.
+2. GitHub Actions will:
+   - generate a unique build version for that push,
+   - build firmware,
+   - publish `.bin` as a GitHub Release asset,
+   - update `ota/manifest-stable.json`.
+3. Devices on `stable` update automatically.
+
+### Controlled rollout (optional)
+
+Use manual **OTA Release** workflow dispatch to set:
+
+- `channel` (`stable` / `beta`)
+- `rollout_pct` (for staged release)
+- `force` (if required)
 
 At `100`, all online devices in that channel will update automatically.
 
