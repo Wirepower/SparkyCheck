@@ -11,6 +11,7 @@
 #include <TFT_eSPI.h>
 #include <WiFi.h>
 #include <ctype.h>
+#include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -39,6 +40,33 @@ static char s_studentInput[APP_STATE_DEVICE_ID_LEN] = "";
 static int s_studentInputLen = 0;
 static unsigned long s_testStartedMs = 0;
 static unsigned long s_testCompletedMs = 0;
+static VerifyResultKind s_resultInputKind = RESULT_NONE;
+static char s_resultInput[16] = "";
+static int s_resultInputLen = 0;
+static int s_resultInputUnitIdx = 0;
+
+typedef struct {
+  const char* label;
+  float toCanonical;
+} ResultUnitOption;
+
+static const ResultUnitOption kResultUnitsOhm[] = {
+  { "ohm", 1.0f },
+  { "kOhm", 1000.0f },
+  { "MOhm", 1000000.0f },
+};
+
+static const ResultUnitOption kResultUnitsInsulation[] = {
+  { "ohm", 0.000001f },
+  { "kOhm", 0.001f },
+  { "MOhm", 1.0f },
+  { "GOhm", 1000.0f },
+};
+
+static const ResultUnitOption kResultUnitsRcd[] = {
+  { "ms", 1.0f },
+  { "s", 1000.0f },
+};
 
 /* PIN entry: where to go after correct PIN */
 static ScreenId s_pinSuccessTarget = SCREEN_MODE_SELECT;
@@ -121,6 +149,82 @@ static void showPrompt(TFT_eSPI* tft, const char* line1, const char* line2, uint
 
 static void showSavedPrompt(TFT_eSPI* tft, const char* detail) {
   showPrompt(tft, "Setting saved", detail, kGreen);
+}
+
+static void getResultUnitOptions(VerifyResultKind kind, const ResultUnitOption** out, int* outCount, int* outDefaultIdx) {
+  if (!out || !outCount || !outDefaultIdx) return;
+  switch (kind) {
+    case RESULT_CONTINUITY_OHM:
+    case RESULT_EFLI_OHM:
+      *out = kResultUnitsOhm;
+      *outCount = sizeof(kResultUnitsOhm) / sizeof(kResultUnitsOhm[0]);
+      *outDefaultIdx = 0;
+      return;
+    case RESULT_IR_MOHM:
+    case RESULT_IR_MOHM_SHEATHED:
+      *out = kResultUnitsInsulation;
+      *outCount = sizeof(kResultUnitsInsulation) / sizeof(kResultUnitsInsulation[0]);
+      *outDefaultIdx = 2;
+      return;
+    case RESULT_RCD_MS:
+      *out = kResultUnitsRcd;
+      *outCount = sizeof(kResultUnitsRcd) / sizeof(kResultUnitsRcd[0]);
+      *outDefaultIdx = 0;
+      return;
+    default:
+      *out = kResultUnitsOhm;
+      *outCount = 1;
+      *outDefaultIdx = 0;
+      return;
+  }
+}
+
+static int findResultUnitIndex(const ResultUnitOption* units, int count, const char* label) {
+  if (!units || count <= 0 || !label || !label[0]) return -1;
+  for (int i = 0; i < count; i++) {
+    if (strcmp(units[i].label, label) == 0) return i;
+  }
+  return -1;
+}
+
+static void trimNumberString(char* text) {
+  if (!text) return;
+  int len = (int)strlen(text);
+  while (len > 0 && text[len - 1] == '0') text[--len] = '\0';
+  if (len > 0 && text[len - 1] == '.') text[--len] = '\0';
+  if (len <= 0) strcpy(text, "0");
+}
+
+static void resetResultEntryInput(void) {
+  s_resultInputKind = RESULT_NONE;
+  s_resultInput[0] = '\0';
+  s_resultInputLen = 0;
+  s_resultInputUnitIdx = 0;
+}
+
+static void ensureResultEntryInputState(VerifyResultKind kind) {
+  const ResultUnitOption* units = nullptr;
+  int unitCount = 0;
+  int defaultIdx = 0;
+  getResultUnitOptions(kind, &units, &unitCount, &defaultIdx);
+  if (s_resultInputKind != kind) {
+    s_resultInputKind = kind;
+    s_resultInput[0] = '\0';
+    s_resultInputLen = 0;
+    s_resultInputUnitIdx = defaultIdx;
+    if (s_resultUnit && s_resultUnit[0]) {
+      int idx = findResultUnitIndex(units, unitCount, s_resultUnit);
+      if (idx >= 0) s_resultInputUnitIdx = idx;
+    }
+    if (s_resultUnit && s_resultUnit[0]) {
+      snprintf(s_resultInput, sizeof(s_resultInput), "%.6f", (double)s_resultValue);
+      trimNumberString(s_resultInput);
+      s_resultInputLen = (int)strlen(s_resultInput);
+    }
+    return;
+  }
+  if (s_resultInputUnitIdx < 0 || s_resultInputUnitIdx >= unitCount)
+    s_resultInputUnitIdx = defaultIdx;
 }
 
 static int syncEditMaxLen(void) {
@@ -480,38 +584,55 @@ void Screens_draw(TFT_eSPI* tft, ScreenId id) {
         tft->setCursor(w/2 - 12, btnY + 12);
         tft->print("OK");
       } else if (step.type == STEP_RESULT_ENTRY) {
-        char buf[32];
-        snprintf(buf, sizeof(buf), "%.3f", (double)s_resultValue);
-        tft->setCursor(20, 118);
-        tft->print("Value: ");
-        tft->print(buf);
+        ensureResultEntryInputState(step.resultKind);
+        const ResultUnitOption* units = nullptr;
+        int unitCount = 0;
+        int defaultIdx = 0;
+        getResultUnitOptions(step.resultKind, &units, &unitCount, &defaultIdx);
+        if (s_resultInputUnitIdx < 0 || s_resultInputUnitIdx >= unitCount) s_resultInputUnitIdx = defaultIdx;
+
+        tft->setTextColor(kWhite, kBg);
+        tft->setCursor(20, 98);
+        tft->print("Value:");
+        tft->setCursor(20, 112);
+        tft->print(s_resultInputLen > 0 ? s_resultInput : "(none)");
         tft->print(" ");
-        tft->print(step.unit ? step.unit : "");
-        int bx = 20, by = 148, bw = 64, bh = 32, gap = 8;
-        float presets[6] = { 0 };
-        int nPresets = 0;
-        if (step.resultKind == RESULT_CONTINUITY_OHM || step.resultKind == RESULT_EFLI_OHM) {
-          presets[0]=0.2f; presets[1]=0.35f; presets[2]=0.5f; presets[3]=1.0f; nPresets=4;
-        } else if (step.resultKind == RESULT_IR_MOHM || step.resultKind == RESULT_IR_MOHM_SHEATHED) {
-          presets[0]=0.01f; presets[1]=0.5f; presets[2]=1.0f; presets[3]=5.0f; presets[4]=10.0f; nPresets=5;
-        } else if (step.resultKind == RESULT_RCD_MS) {
-          presets[0]=10.0f; presets[1]=20.0f; presets[2]=30.0f; presets[3]=40.0f; nPresets=4;
+        tft->print(units[s_resultInputUnitIdx].label);
+
+        tft->fillRoundRect(w - 74, 96, 54, 20, 6, kAccent);
+        tft->drawRoundRect(w - 74, 96, 54, 20, 6, kWhite);
+        tft->setTextColor(TFT_BLACK, kAccent);
+        tft->setCursor(w - 60, 102);
+        tft->print("Del");
+
+        int uy = 120, uh = 18, uGap = 4;
+        int uw = (w - 40 - (unitCount - 1) * uGap) / unitCount;
+        for (int i = 0; i < unitCount; i++) {
+          int ux = 20 + i * (uw + uGap);
+          uint16_t bg = (i == s_resultInputUnitIdx) ? kGreen : kBtn;
+          tft->fillRoundRect(ux, uy, uw, uh, 6, bg);
+          tft->drawRoundRect(ux, uy, uw, uh, 6, kWhite);
+          tft->setTextColor(i == s_resultInputUnitIdx ? TFT_BLACK : kWhite, bg);
+          int tx = ux + uw / 2 - ((int)strlen(units[i].label) * 6) / 2;
+          tft->setCursor(tx < ux + 2 ? ux + 2 : tx, uy + 6);
+          tft->print(units[i].label);
         }
-        for (int i = 0; i < nPresets && i < 5; i++) {
-          int kx = bx + i * (bw + gap);
-          tft->fillRoundRect(kx, by, bw, bh, 6, kBtn);
-          tft->drawRoundRect(kx, by, bw, bh, 6, kWhite);
-          tft->setTextColor(kWhite, kBtn);
-          tft->setCursor(kx + 4, by + 8);
-          if (step.resultKind == RESULT_RCD_MS) snprintf(buf, sizeof(buf), "%.0f", (double)presets[i]);
-          else snprintf(buf, sizeof(buf), "%.2f", (double)presets[i]);
-          tft->print(buf);
+
+        const char* keys[12] = { "1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0", "OK" };
+        int cellW = (w - 50) / 3, cellH = 20, gap = 6, startX = 20, startY = 142;
+        for (int row = 0; row < 4; row++) {
+          for (int col = 0; col < 3; col++) {
+            int idx = row * 3 + col;
+            int kx = startX + col * (cellW + gap), ky = startY + row * (cellH + gap);
+            uint16_t bg = (strcmp(keys[idx], "OK") == 0) ? kGreen : kBtn;
+            tft->fillRoundRect(kx, ky, cellW, cellH, 6, bg);
+            tft->drawRoundRect(kx, ky, cellW, cellH, 6, kWhite);
+            tft->setTextColor(strcmp(keys[idx], "OK") == 0 ? TFT_BLACK : kWhite, bg);
+            int tw = (int)strlen(keys[idx]) * 6;
+            tft->setCursor(kx + (cellW - tw) / 2, ky + 6);
+            tft->print(keys[idx]);
+          }
         }
-        tft->fillRoundRect(20, by + bh + 12, w - 40, 44, 8, kGreen);
-        tft->drawRoundRect(20, by + bh + 12, w - 40, 44, 8, kWhite);
-        tft->setTextColor(TFT_BLACK, kGreen);
-        tft->setCursor(w/2 - 28, by + bh + 22);
-        tft->print("Confirm");
       }
       break;
     }
@@ -1362,6 +1483,7 @@ ScreenId Screens_handleTouch(TFT_eSPI* tft, ScreenId current, uint16_t x, uint16
           s_resultLabel = NULL;
           s_resultUnit = NULL;
           s_resultClause = NULL;
+          resetResultEntryInput();
           s_testStartedMs = 0;
           s_testCompletedMs = 0;
           if (AppState_getMode() == APP_MODE_TRAINING) {
@@ -1430,6 +1552,7 @@ ScreenId Screens_handleTouch(TFT_eSPI* tft, ScreenId current, uint16_t x, uint16
           return handled(current);
         }
         syncTrainingFlowEvent("test_cancelled", false, nullptr);
+        resetResultEntryInput();
         return handled(SCREEN_TEST_SELECT);
       }
       if (s_flowPhase == 1) {
@@ -1454,6 +1577,7 @@ ScreenId Screens_handleTouch(TFT_eSPI* tft, ScreenId current, uint16_t x, uint16
           s_resultLabel = NULL;
           s_resultUnit = NULL;
           s_resultClause = NULL;
+          resetResultEntryInput();
           return handled(SCREEN_REPORT_SAVED);
         }
         break;
@@ -1519,37 +1643,86 @@ ScreenId Screens_handleTouch(TFT_eSPI* tft, ScreenId current, uint16_t x, uint16
           return handled(current);
         }
       } else if (step.type == STEP_RESULT_ENTRY) {
-        int bx = 20, by = 148, bw = 64, bh = 32, gap = 8;
-        float presets[5];
-        int nPresets = 0;
-        if (step.resultKind == RESULT_CONTINUITY_OHM || step.resultKind == RESULT_EFLI_OHM) {
-          presets[0]=0.2f; presets[1]=0.35f; presets[2]=0.5f; presets[3]=1.0f; nPresets=4;
-        } else if (step.resultKind == RESULT_IR_MOHM || step.resultKind == RESULT_IR_MOHM_SHEATHED) {
-          presets[0]=0.01f; presets[1]=0.5f; presets[2]=1.0f; presets[3]=5.0f; presets[4]=10.0f; nPresets=5;
-        } else if (step.resultKind == RESULT_RCD_MS) {
-          presets[0]=10.0f; presets[1]=20.0f; presets[2]=30.0f; presets[3]=40.0f; nPresets=4;
+        ensureResultEntryInputState(step.resultKind);
+        const ResultUnitOption* units = nullptr;
+        int unitCount = 0;
+        int defaultIdx = 0;
+        getResultUnitOptions(step.resultKind, &units, &unitCount, &defaultIdx);
+        if (s_resultInputUnitIdx < 0 || s_resultInputUnitIdx >= unitCount) s_resultInputUnitIdx = defaultIdx;
+
+        if (inRect(ix, iy, w - 74, 96, 54, 20)) {
+          if (s_resultInputLen > 0) s_resultInput[--s_resultInputLen] = '\0';
+          Screens_draw(tft, current);
+          return handled(current);
         }
-        for (int i = 0; i < nPresets && i < 5; i++) {
-          int kx = bx + i * (bw + gap);
-          if (inRect(ix, iy, kx, by, bw, bh)) {
-            s_resultValue = presets[i];
+
+        int uy = 120, uh = 18, uGap = 4;
+        int uw = (w - 40 - (unitCount - 1) * uGap) / unitCount;
+        for (int i = 0; i < unitCount; i++) {
+          int ux = 20 + i * (uw + uGap);
+          if (inRect(ix, iy, ux, uy, uw, uh)) {
+            s_resultInputUnitIdx = i;
             Screens_draw(tft, current);
             return handled(current);
           }
         }
-        if (inRect(ix, iy, 20, by + bh + 12, w - 40, 44)) {
-          VerifyResultKind kind = step.resultKind;
-          if (kind == RESULT_IR_MOHM && s_resultIsSheathedHeating) kind = RESULT_IR_MOHM_SHEATHED;
-          s_resultPass = VerificationSteps_validateResult(kind, s_resultValue, s_resultIsSheathedHeating);
-          s_resultLabel = step.resultLabel;
-          s_resultUnit = step.unit;
-          s_resultClause = VerificationSteps_getClauseForResult(step.resultKind);
-          s_flowPhase = 1;
-          s_testCompletedMs = millis();
-          syncTrainingFlowEvent("result_confirmed", true, nullptr);
-          if (AppState_getBuzzerEnabled()) { if (s_resultPass) Buzzer_beepPass(); else Buzzer_beepFail(); }
-          Screens_draw(tft, current);
-          return handled(current);
+
+        const char* keys[12] = { "1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0", "OK" };
+        int cellW = (w - 50) / 3, cellH = 20, gap = 6, startX = 20, startY = 142;
+        for (int row = 0; row < 4; row++) {
+          for (int col = 0; col < 3; col++) {
+            int idx = row * 3 + col;
+            int kx = startX + col * (cellW + gap), ky = startY + row * (cellH + gap);
+            if (!inRect(ix, iy, kx, ky, cellW, cellH)) continue;
+            const char* key = keys[idx];
+            if (strcmp(key, "OK") == 0) {
+              if (s_resultInputLen <= 0) {
+                Buzzer_beepFail();
+                showPrompt(tft, "Enter a value", "before confirming", kRed);
+                Screens_draw(tft, current);
+                return handled(current);
+              }
+              char* endptr = nullptr;
+              float rawValue = strtof(s_resultInput, &endptr);
+              if (endptr == s_resultInput || !endptr || *endptr != '\0' || rawValue < 0.0f) {
+                Buzzer_beepFail();
+                showPrompt(tft, "Invalid value", "Try again", kRed);
+                Screens_draw(tft, current);
+                return handled(current);
+              }
+              float canonicalValue = rawValue * units[s_resultInputUnitIdx].toCanonical;
+              VerifyResultKind kind = step.resultKind;
+              if (kind == RESULT_IR_MOHM && s_resultIsSheathedHeating) kind = RESULT_IR_MOHM_SHEATHED;
+              s_resultPass = VerificationSteps_validateResult(kind, canonicalValue, s_resultIsSheathedHeating);
+              s_resultValue = rawValue;
+              s_resultLabel = step.resultLabel;
+              s_resultUnit = units[s_resultInputUnitIdx].label;
+              s_resultClause = VerificationSteps_getClauseForResult(step.resultKind);
+              s_flowPhase = 1;
+              s_testCompletedMs = millis();
+              syncTrainingFlowEvent("result_confirmed", true, nullptr);
+              if (AppState_getBuzzerEnabled()) { if (s_resultPass) Buzzer_beepPass(); else Buzzer_beepFail(); }
+              Screens_draw(tft, current);
+              return handled(current);
+            } else if (strcmp(key, ".") == 0) {
+              if (!strchr(s_resultInput, '.')) {
+                if (s_resultInputLen == 0 && s_resultInputLen < (int)sizeof(s_resultInput) - 2) {
+                  s_resultInput[s_resultInputLen++] = '0';
+                }
+                if (s_resultInputLen < (int)sizeof(s_resultInput) - 1) {
+                  s_resultInput[s_resultInputLen++] = '.';
+                  s_resultInput[s_resultInputLen] = '\0';
+                }
+              }
+            } else {
+              if (s_resultInputLen < (int)sizeof(s_resultInput) - 1) {
+                s_resultInput[s_resultInputLen++] = key[0];
+                s_resultInput[s_resultInputLen] = '\0';
+              }
+            }
+            Screens_draw(tft, current);
+            return handled(current);
+          }
         }
       }
       break;
