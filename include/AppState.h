@@ -69,6 +69,11 @@ void AppState_setOtaAutoInstallEnabled(bool on);
 #define APP_STATE_TRAINING_SYNC_URL_LEN 192
 #define APP_STATE_TRAINING_SYNC_TOKEN_LEN 96
 #define APP_STATE_TRAINING_SYNC_CUBICLE_LEN 24
+typedef enum {
+  TRAINING_SYNC_TARGET_AUTO = 0,
+  TRAINING_SYNC_TARGET_GOOGLE = 1,
+  TRAINING_SYNC_TARGET_SHAREPOINT = 2
+} TrainingSyncTarget;
 bool AppState_getTrainingSyncEnabled(void);
 void AppState_setTrainingSyncEnabled(bool on);
 void AppState_getTrainingSyncEndpoint(char* buf, unsigned size);
@@ -77,6 +82,10 @@ void AppState_getTrainingSyncToken(char* buf, unsigned size);
 void AppState_setTrainingSyncToken(const char* s);
 void AppState_getTrainingSyncCubicleId(char* buf, unsigned size);
 void AppState_setTrainingSyncCubicleId(const char* s);
+TrainingSyncTarget AppState_getTrainingSyncTarget(void);
+void AppState_setTrainingSyncTarget(TrainingSyncTarget target);
+bool AppState_getEmailReportEnabled(void);
+void AppState_setEmailReportEnabled(bool on);
 
 /** Email (SMTP) settings – device sender. PIN-protected in UI. */
 #define APP_STATE_EMAIL_STR_LEN 64

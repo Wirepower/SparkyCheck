@@ -16,6 +16,8 @@ static const char* NVS_KEY_TRSYNC_EN   = "trsync_en";
 static const char* NVS_KEY_TRSYNC_URL  = "trsync_url";
 static const char* NVS_KEY_TRSYNC_TOK  = "trsync_tok";
 static const char* NVS_KEY_TRSYNC_CUB  = "trsync_cub";
+static const char* NVS_KEY_TRSYNC_TGT  = "trsync_tgt";
+static const char* NVS_KEY_EMAIL_REP   = "email_rep";
 static const char* NVS_KEY_SMTP_SRV    = "smtp_srv";
 static const char* NVS_KEY_SMTP_PORT   = "smtp_port";
 static const char* NVS_KEY_SMTP_USER   = "smtp_user";
@@ -263,6 +265,47 @@ void AppState_setTrainingSyncCubicleId(const char* s) {
   Preferences prefs;
   if (prefs.begin(NVS_NAMESPACE, false)) {
     prefs.putString(NVS_KEY_TRSYNC_CUB, s ? s : "");
+    prefs.end();
+  }
+}
+
+TrainingSyncTarget AppState_getTrainingSyncTarget(void) {
+  Preferences prefs;
+  if (prefs.begin(NVS_NAMESPACE, true)) {
+    int v = prefs.getInt(NVS_KEY_TRSYNC_TGT, (int)TRAINING_SYNC_TARGET_AUTO);
+    prefs.end();
+    if (v < (int)TRAINING_SYNC_TARGET_AUTO || v > (int)TRAINING_SYNC_TARGET_SHAREPOINT)
+      return TRAINING_SYNC_TARGET_AUTO;
+    return (TrainingSyncTarget)v;
+  }
+  return TRAINING_SYNC_TARGET_AUTO;
+}
+
+void AppState_setTrainingSyncTarget(TrainingSyncTarget target) {
+  int v = (int)target;
+  if (v < (int)TRAINING_SYNC_TARGET_AUTO || v > (int)TRAINING_SYNC_TARGET_SHAREPOINT)
+    v = (int)TRAINING_SYNC_TARGET_AUTO;
+  Preferences prefs;
+  if (prefs.begin(NVS_NAMESPACE, false)) {
+    prefs.putInt(NVS_KEY_TRSYNC_TGT, v);
+    prefs.end();
+  }
+}
+
+bool AppState_getEmailReportEnabled(void) {
+  Preferences prefs;
+  if (prefs.begin(NVS_NAMESPACE, true)) {
+    bool out = prefs.getBool(NVS_KEY_EMAIL_REP, false);
+    prefs.end();
+    return out;
+  }
+  return false;
+}
+
+void AppState_setEmailReportEnabled(bool on) {
+  Preferences prefs;
+  if (prefs.begin(NVS_NAMESPACE, false)) {
+    prefs.putBool(NVS_KEY_EMAIL_REP, on);
     prefs.end();
   }
 }

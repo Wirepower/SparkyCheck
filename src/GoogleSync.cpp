@@ -29,6 +29,14 @@ static void ensureSessionId(void) {
            (unsigned long long)(mac & 0xFFFFFFULL), s);
 }
 
+static const char* targetName(TrainingSyncTarget t) {
+  switch (t) {
+    case TRAINING_SYNC_TARGET_GOOGLE: return "google";
+    case TRAINING_SYNC_TARGET_SHAREPOINT: return "sharepoint";
+    default: return "auto";
+  }
+}
+
 void GoogleSync_init(void) {
   s_sessionId[0] = '\0';
   setStatus("Training sync idle.");
@@ -101,6 +109,7 @@ bool GoogleSync_sendResult(const GoogleSyncResult* result) {
   char cubicle[APP_STATE_TRAINING_SYNC_CUBICLE_LEN];
   char deviceId[GOOGLE_SYNC_DEVICE_ID_LEN];
   char rulesVer[16];
+  TrainingSyncTarget target = AppState_getTrainingSyncTarget();
   AppState_getTrainingSyncEndpoint(endpoint, sizeof(endpoint));
   AppState_getTrainingSyncToken(token, sizeof(token));
   AppState_getTrainingSyncCubicleId(cubicle, sizeof(cubicle));
@@ -124,6 +133,8 @@ bool GoogleSync_sendResult(const GoogleSyncResult* result) {
   doc["mode"] = "training";
   doc["session_id"] = session;
   doc["sync_event"] = result->sync_event ? result->sync_event : "update";
+  doc["sync_target"] = targetName(target);
+  doc["email_reporting_enabled"] = AppState_getEmailReportEnabled();
   doc["test_id"] = result->test_id;
   doc["test_key"] = result->test_key ? result->test_key : "";
   doc["step_title"] = result->step_title ? result->step_title : "";

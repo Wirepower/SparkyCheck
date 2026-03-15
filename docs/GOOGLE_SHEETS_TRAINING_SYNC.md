@@ -33,6 +33,8 @@ Each sync event posts JSON with:
 - `cubicle_id`
 - `mode` (`training`)
 - `sync_event` (`test_started`, `step_next`, `step_back`, `result_confirmed`, `session_saved`, `ping`)
+- `sync_target` (`auto`, `google`, `sharepoint`)
+- `email_reporting_enabled` (`true` / `false`)
 - `test_id`
 - `test_key` (canonical key for test column mapping)
 - `step_title`
@@ -68,10 +70,13 @@ On device:
 
 1. Go to **Settings → Firmware updates → Training sync setup (PIN)**.
 2. Configure:
+   - **Email report** channel (On/Off, optional)
+   - **Cloud sync** channel (On/Off, optional)
+   - **Sync target** (Auto / Google Sheets / SharePoint)
    - **Sync endpoint URL** (Apps Script URL or Power Automate HTTP URL)
    - **Auth token** (optional shared secret)
    - **Cubicle ID** (e.g. `CUB-01`)
-3. Toggle **Sync on**.
+3. Enable whichever channel(s) you want. None are required.
 4. Tap **Send test ping**.
 
 Sync only runs in **Training mode** and only when WiFi is connected.

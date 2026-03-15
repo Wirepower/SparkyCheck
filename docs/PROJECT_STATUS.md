@@ -29,7 +29,7 @@ Standards: **AS/NZS 3000:2018** (Section 8), **AS/NZS 3017:2022**, **AS/NZS 3760
 | **Report list** | View saved report basenames from storage |
 | **Report saved** | Confirmation screen with basename; OK → main menu |
 | **Settings** | Screen rotation, WiFi, Buzzer, **About**, **Firmware updates**, Email, Change mode, Change PIN (Training). Back to menu |
-| **Training sync (optional)** | In Training mode, PIN-gated live sync posts step progress and results to a shared endpoint (Google Sheets or SharePoint), updating the same row by session key |
+| **Training reporting channels (optional)** | In Training mode, PIN-gated options for Email report and Cloud sync (Google Sheets/SharePoint). Live sync posts step progress/results and updates the same row by session key |
 | **About** | What SparkyCheck is, created by Frank Offer, current AS/NZS standards in use (editions), rules version |
 | **Firmware updates** | In-app OTA controls: check now, install now, auto-check toggle, auto-install toggle |
 | **Buzzer** | Optional GPIO (`BUZZER_PIN`, default -1); startup chime, pass/fail beeps |

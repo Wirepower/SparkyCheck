@@ -117,6 +117,14 @@ static const char* syncTestKeyForId(int testId) {
   }
 }
 
+static const char* syncTargetLabel(TrainingSyncTarget t) {
+  switch (t) {
+    case TRAINING_SYNC_TARGET_GOOGLE: return "Google Sheets";
+    case TRAINING_SYNC_TARGET_SHAREPOINT: return "SharePoint";
+    default: return "Auto";
+  }
+}
+
 static void syncTrainingFlowEvent(const char* event, bool include_result, const char* report_id_or_null) {
   if (AppState_getMode() != APP_MODE_TRAINING) return;
   if (s_selectedTestType < 0 || s_selectedTestType >= VERIFY_TEST_COUNT) return;
@@ -905,6 +913,7 @@ void Screens_draw(TFT_eSPI* tft, ScreenId id) {
       char cubicle[APP_STATE_TRAINING_SYNC_CUBICLE_LEN];
       char deviceId[GOOGLE_SYNC_DEVICE_ID_LEN];
       char status[GOOGLE_SYNC_STATUS_LEN];
+      TrainingSyncTarget target = AppState_getTrainingSyncTarget();
       AppState_getTrainingSyncEndpoint(endpoint, sizeof(endpoint));
       AppState_getTrainingSyncCubicleId(cubicle, sizeof(cubicle));
       GoogleSync_getDeviceId(deviceId, sizeof(deviceId));
@@ -912,72 +921,96 @@ void Screens_draw(TFT_eSPI* tft, ScreenId id) {
 
       tft->setTextColor(kAccent, kBg);
       tft->setCursor(20, 34);
-      tft->print("Enabled:");
+      tft->print("Email report:");
       tft->setTextColor(kWhite, kBg);
-      tft->setCursor(76, 34);
-      tft->print(AppState_getTrainingSyncEnabled() ? "On" : "Off");
+      tft->setCursor(96, 34);
+      tft->print(AppState_getEmailReportEnabled() ? "On" : "Off");
       tft->setTextColor(kAccent, kBg);
       tft->setCursor(20, 48);
-      tft->print("Endpoint:");
+      tft->print("Cloud sync:");
       tft->setTextColor(kWhite, kBg);
       tft->setCursor(82, 48);
-      tft->print(endpoint[0] ? "Configured" : "Not set");
+      tft->print(AppState_getTrainingSyncEnabled() ? "On" : "Off");
       tft->setTextColor(kAccent, kBg);
       tft->setCursor(20, 62);
-      tft->print("Cubicle:");
+      tft->print("Target:");
       tft->setTextColor(kWhite, kBg);
-      tft->setCursor(74, 62);
-      tft->print(cubicle[0] ? cubicle : "(not set)");
+      tft->setCursor(66, 62);
+      tft->print(syncTargetLabel(target));
       tft->setTextColor(kAccent, kBg);
       tft->setCursor(20, 76);
-      tft->print("Device:");
+      tft->print("Endpoint:");
       tft->setTextColor(kWhite, kBg);
-      tft->setCursor(68, 76);
-      tft->print(deviceId);
+      tft->setCursor(82, 76);
+      tft->print(endpoint[0] ? "Configured" : "Not set");
       tft->setTextColor(kAccent, kBg);
       tft->setCursor(20, 90);
+      tft->print("Cubicle:");
+      tft->setTextColor(kWhite, kBg);
+      tft->setCursor(74, 90);
+      tft->print(cubicle[0] ? cubicle : "(not set)");
+      tft->setTextColor(kAccent, kBg);
+      tft->setCursor(20, 104);
+      tft->print("Device:");
+      tft->setTextColor(kWhite, kBg);
+      tft->setCursor(68, 104);
+      tft->print(deviceId);
+      tft->setTextColor(kAccent, kBg);
+      tft->setCursor(20, 118);
       tft->print("Status:");
       tft->setTextColor(kWhite, kBg);
-      tft->setCursor(20, 104);
+      tft->setCursor(20, 132);
       tft->print(status);
 
-      int y = 122, btnH = 26, gap = 4;
-      tft->fillRoundRect(20, y, w - 40, btnH, 6, kBtn);
-      tft->drawRoundRect(20, y, w - 40, btnH, 6, kWhite);
+      int y = 152, btnH = 22, gap = 3;
+      int half = (w - 50) / 2;
+      tft->fillRoundRect(20, y, half, btnH, 6, kBtn);
+      tft->drawRoundRect(20, y, half, btnH, 6, kWhite);
       tft->setTextColor(kWhite, kBtn);
-      tft->setCursor(28, y + 6);
-      tft->print("Toggle sync on/off");
+      tft->setCursor(26, y + 5);
+      tft->print(AppState_getEmailReportEnabled() ? "Email: On" : "Email: Off");
+      tft->fillRoundRect(30 + half, y, half, btnH, 6, kBtn);
+      tft->drawRoundRect(30 + half, y, half, btnH, 6, kWhite);
+      tft->setCursor(36 + half, y + 5);
+      tft->print(AppState_getTrainingSyncEnabled() ? "Cloud: On" : "Cloud: Off");
       y += btnH + gap;
 
       tft->fillRoundRect(20, y, w - 40, btnH, 6, kBtn);
       tft->drawRoundRect(20, y, w - 40, btnH, 6, kWhite);
-      tft->setCursor(28, y + 6);
+      tft->setTextColor(kWhite, kBtn);
+      tft->setCursor(28, y + 5);
+      tft->print("Cycle sync target (Auto/Google/SharePoint)");
+      y += btnH + gap;
+
+      tft->fillRoundRect(20, y, w - 40, btnH, 6, kBtn);
+      tft->drawRoundRect(20, y, w - 40, btnH, 6, kWhite);
+      tft->setCursor(28, y + 5);
       tft->print("Edit sync endpoint URL");
       y += btnH + gap;
 
       tft->fillRoundRect(20, y, w - 40, btnH, 6, kBtn);
       tft->drawRoundRect(20, y, w - 40, btnH, 6, kWhite);
-      tft->setCursor(28, y + 6);
+      tft->setCursor(28, y + 5);
       tft->print("Edit auth token (optional)");
       y += btnH + gap;
 
       tft->fillRoundRect(20, y, w - 40, btnH, 6, kBtn);
       tft->drawRoundRect(20, y, w - 40, btnH, 6, kWhite);
-      tft->setCursor(28, y + 6);
+      tft->setCursor(28, y + 5);
       tft->print("Edit cubicle ID (e.g. CUB-03)");
       y += btnH + gap;
 
       tft->fillRoundRect(20, y, w - 40, btnH, 6, kGreen);
       tft->drawRoundRect(20, y, w - 40, btnH, 6, kWhite);
       tft->setTextColor(TFT_BLACK, kGreen);
-      tft->setCursor(28, y + 6);
+      tft->setCursor(28, y + 5);
       tft->print("Send test ping");
       y += btnH + gap;
 
-      tft->fillRoundRect(20, y, 80, 26, 6, kBtn);
-      tft->drawRoundRect(20, y, 80, 26, 6, kWhite);
+      tft->fillRoundRect(20, y, 80, btnH, 6, kBtn);
+      tft->drawRoundRect(20, y, 80, btnH, 6, kWhite);
       tft->setTextColor(kWhite, kBtn);
-      tft->setCursor(36, y + 6);
+      tft->setCursor(36, y + 5);
       tft->print("Back");
       break;
     }
@@ -1482,9 +1515,23 @@ ScreenId Screens_handleTouch(TFT_eSPI* tft, ScreenId current, uint16_t x, uint16
         if (inRect(ix, iy, 20, h - 38, 80, 30)) return handled(SCREEN_UPDATES);
         break;
       }
-      int y = 122, btnH = 26, gap = 4;
-      if (inRect(ix, iy, 20, y, w - 40, btnH)) {
+      int y = 152, btnH = 22, gap = 3;
+      int half = (w - 50) / 2;
+      if (inRect(ix, iy, 20, y, half, btnH)) {
+        AppState_setEmailReportEnabled(!AppState_getEmailReportEnabled());
+        Screens_draw(tft, current);
+        return handled(current);
+      }
+      if (inRect(ix, iy, 30 + half, y, half, btnH)) {
         AppState_setTrainingSyncEnabled(!AppState_getTrainingSyncEnabled());
+        Screens_draw(tft, current);
+        return handled(current);
+      }
+      y += btnH + gap;
+      if (inRect(ix, iy, 20, y, w - 40, btnH)) {
+        TrainingSyncTarget t = AppState_getTrainingSyncTarget();
+        t = (TrainingSyncTarget)(((int)t + 1) % 3);
+        AppState_setTrainingSyncTarget(t);
         Screens_draw(tft, current);
         return handled(current);
       }
@@ -1502,7 +1549,7 @@ ScreenId Screens_handleTouch(TFT_eSPI* tft, ScreenId current, uint16_t x, uint16
         return handled(current);
       }
       y += btnH + gap;
-      if (inRect(ix, iy, 20, y, 80, 26)) return handled(SCREEN_UPDATES);
+      if (inRect(ix, iy, 20, y, 80, btnH)) return handled(SCREEN_UPDATES);
       break;
     }
     case SCREEN_TRAINING_SYNC_EDIT: {
