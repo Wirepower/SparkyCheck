@@ -61,6 +61,7 @@ void setup() {
     Screens_setModeSelectChoice(AppState_getMode() == APP_MODE_FIELD ? 1 : 0);
     Screens_setPinSuccessTarget(SCREEN_MODE_SELECT);
     Screens_setPinCancelTarget(SCREEN_MAIN_MENU);
+    Screens_resetPinEntry();
     s_currentScreen = SCREEN_PIN_ENTER;
   } else {
     s_currentScreen = SCREEN_MAIN_MENU;

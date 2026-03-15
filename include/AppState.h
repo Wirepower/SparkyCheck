@@ -17,7 +17,7 @@ typedef enum {
   APP_MODE_FIELD    = 1
 } AppMode;
 
-/** Load saved mode from NVS; default Training. */
+/** Load saved mode from NVS; default Field. */
 void AppState_load(void);
 
 /** Save current mode to NVS. */

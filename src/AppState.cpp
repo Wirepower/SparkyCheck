@@ -25,7 +25,7 @@ static const char* NVS_KEY_SMTP_USER   = "smtp_user";
 static const char* NVS_KEY_SMTP_PASS   = "smtp_pass";
 static const char* NVS_KEY_REPORT_TO   = "report_to";
 
-static AppMode s_mode = APP_MODE_TRAINING;
+static AppMode s_mode = APP_MODE_FIELD;
 static int s_rotation = 1;   /* 0=portrait, 1=landscape; default landscape */
 static bool s_buzzer = true;
 static bool s_loaded = false;
@@ -34,7 +34,7 @@ void AppState_load(void) {
   if (s_loaded) return;
   Preferences prefs;
   if (prefs.begin(NVS_NAMESPACE, true)) {
-    s_mode = (AppMode)prefs.getUChar(NVS_KEY_MODE, (uint8_t)APP_MODE_TRAINING);
+    s_mode = (AppMode)prefs.getUChar(NVS_KEY_MODE, (uint8_t)APP_MODE_FIELD);
     s_rotation = prefs.getInt(NVS_KEY_ROT, 1);
     s_buzzer = prefs.getBool(NVS_KEY_BUZZ, true);
     prefs.end();

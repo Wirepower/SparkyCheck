@@ -46,10 +46,12 @@ static ScreenId s_pinCancelTarget = SCREEN_SETTINGS;
 
 static const int kPinMinLen = 4;
 static const int kPinMaxLen = 8;
+static const int kPinMaxAttempts = 3;
 
 /* PIN entry state (variable length, min 4 digits) */
 static char s_pinDigits[kPinMaxLen + 1] = "";
 static int s_pinLen = 0;
+static int s_pinFailAttempts = 0;
 
 /* Change PIN: step 0 = enter new, step 1 = confirm; buffers for comparison */
 static int s_changePinStep = 0;
@@ -221,6 +223,12 @@ void Screens_setPinSuccessTarget(ScreenId id) {
 
 void Screens_setPinCancelTarget(ScreenId id) {
   s_pinCancelTarget = id;
+}
+
+void Screens_resetPinEntry(void) {
+  s_pinLen = 0;
+  s_pinDigits[0] = '\0';
+  s_pinFailAttempts = 0;
 }
 
 void Screens_draw(TFT_eSPI* tft, ScreenId id) {
@@ -1301,7 +1309,7 @@ ScreenId Screens_handleTouch(TFT_eSPI* tft, ScreenId current, uint16_t x, uint16
       if (inRect(ix, iy, 20, 132, w - 40, 44)) return handled(SCREEN_REPORT_LIST);
       if (inRect(ix, iy, 20, 188, w - 40, 44)) {
         if (AppState_getMode() == APP_MODE_TRAINING && !s_trainingSettingsUnlocked) {
-          s_pinLen = 0; s_pinDigits[0] = '\0';
+          Screens_resetPinEntry();
           Screens_setPinSuccessTarget(SCREEN_SETTINGS);
           Screens_setPinCancelTarget(SCREEN_MAIN_MENU);
           return handled(SCREEN_PIN_ENTER);
@@ -1521,7 +1529,7 @@ ScreenId Screens_handleTouch(TFT_eSPI* tft, ScreenId current, uint16_t x, uint16
       break;
     case SCREEN_SETTINGS: {
       if (AppState_getMode() == APP_MODE_TRAINING && !s_trainingSettingsUnlocked) {
-        s_pinLen = 0; s_pinDigits[0] = '\0';
+        Screens_resetPinEntry();
         Screens_setPinSuccessTarget(SCREEN_SETTINGS);
         Screens_setPinCancelTarget(SCREEN_MAIN_MENU);
         return handled(SCREEN_PIN_ENTER);
@@ -1651,7 +1659,7 @@ ScreenId Screens_handleTouch(TFT_eSPI* tft, ScreenId current, uint16_t x, uint16
       }
       btnY += btnH + gap;
       if (!AppState_isFieldMode() && inRect(ix, iy, 20, btnY, w - 40, btnH)) {
-        s_pinLen = 0; s_pinDigits[0] = '\0';
+        Screens_resetPinEntry();
         Screens_setPinSuccessTarget(SCREEN_TRAINING_SYNC);
         Screens_setPinCancelTarget(SCREEN_UPDATES);
         return handled(SCREEN_PIN_ENTER);
@@ -1797,8 +1805,7 @@ ScreenId Screens_handleTouch(TFT_eSPI* tft, ScreenId current, uint16_t x, uint16
     }
     case SCREEN_PIN_ENTER: {
       if (inRect(ix, iy, w - 70, 8, 50, 28)) {
-        s_pinLen = 0;
-        s_pinDigits[0] = '\0';
+        Screens_resetPinEntry();
         return handled(s_pinCancelTarget);
       }
       int cellW = (w - 50) / 3, cellH = 38, startY = 100, gap = 6;
@@ -1809,8 +1816,7 @@ ScreenId Screens_handleTouch(TFT_eSPI* tft, ScreenId current, uint16_t x, uint16
           int kx = 20 + col * (cellW + gap), ky = startY + row * (cellH + gap);
           if (!inRect(ix, iy, kx, ky, cellW, cellH)) continue;
           if (keys[idx] == 'C') {
-            s_pinLen = 0;
-            s_pinDigits[0] = '\0';
+            Screens_resetPinEntry();
             Screens_draw(tft, current);
             return handled(current);
           }
@@ -1820,16 +1826,29 @@ ScreenId Screens_handleTouch(TFT_eSPI* tft, ScreenId current, uint16_t x, uint16
             for (int i = 0; i < s_pinLen; i++)
               pin = pin * 10 + (s_pinDigits[i] - '0');
             if (AppState_checkPin(pin)) {
-              s_pinLen = 0;
-              s_pinDigits[0] = '\0';
+              Screens_resetPinEntry();
               if (s_pinSuccessTarget == SCREEN_SETTINGS) s_trainingSettingsUnlocked = true;
               if (s_pinSuccessTarget == SCREEN_MODE_SELECT)
                 Screens_setModeSelectChoice(AppState_getMode() == APP_MODE_FIELD ? 1 : 0);
               return handled(s_pinSuccessTarget);
             } else {
               Buzzer_beepFail();
+              s_pinFailAttempts++;
               s_pinLen = 0;
               s_pinDigits[0] = '\0';
+              bool bootModeEntry = (s_pinSuccessTarget == SCREEN_MODE_SELECT && s_pinCancelTarget == SCREEN_MAIN_MENU);
+              if (bootModeEntry && s_pinFailAttempts >= kPinMaxAttempts) {
+                tft->fillScreen(kBg);
+                tft->setTextColor(kWhite, kBg);
+                tft->setTextSize(1);
+                tft->setCursor(20, h / 2 - 12);
+                tft->print("3 unsuccesful login attempts,");
+                tft->setCursor(20, h / 2 + 4);
+                tft->print("continuing boot process");
+                delay(3000);
+                Screens_resetPinEntry();
+                return handled(SCREEN_MAIN_MENU);
+              }
               Screens_draw(tft, current);
               return handled(current);
             }
