@@ -91,6 +91,38 @@ static bool inRect(int x, int y, int rx, int ry, int rw, int rh) {
   return x >= rx && x < rx + rw && y >= ry && y < ry + rh;
 }
 
+static void showPrompt(TFT_eSPI* tft, const char* line1, const char* line2, uint16_t frameColor) {
+  if (!tft || !line1 || !line1[0]) return;
+  int w = getW(tft);
+  int h = getH(tft);
+  bool hasLine2 = (line2 && line2[0]);
+  int boxW = w - 24;
+  int boxH = hasLine2 ? 42 : 30;
+  int boxX = 12;
+  int boxY = h - boxH - 8;
+  tft->fillRoundRect(boxX, boxY, boxW, boxH, 6, kBg);
+  tft->drawRoundRect(boxX, boxY, boxW, boxH, 6, frameColor);
+  tft->setTextSize(1);
+  tft->setTextColor(kWhite, kBg);
+  int tw1 = (int)strlen(line1) * 6;
+  int tx1 = boxX + (boxW - tw1) / 2;
+  if (tx1 < boxX + 4) tx1 = boxX + 4;
+  tft->setCursor(tx1, boxY + (hasLine2 ? 9 : 11));
+  tft->print(line1);
+  if (hasLine2) {
+    int tw2 = (int)strlen(line2) * 6;
+    int tx2 = boxX + (boxW - tw2) / 2;
+    if (tx2 < boxX + 4) tx2 = boxX + 4;
+    tft->setCursor(tx2, boxY + 23);
+    tft->print(line2);
+  }
+  delay(900);
+}
+
+static void showSavedPrompt(TFT_eSPI* tft, const char* detail) {
+  showPrompt(tft, "Setting saved", detail, kGreen);
+}
+
 static int syncEditMaxLen(void) {
   if (s_syncEditField == 1) return APP_STATE_TRAINING_SYNC_TOKEN_LEN;
   if (s_syncEditField == 2) return APP_STATE_TRAINING_SYNC_CUBICLE_LEN;
@@ -1301,6 +1333,7 @@ ScreenId Screens_handleTouch(TFT_eSPI* tft, ScreenId current, uint16_t x, uint16
       if (inRect(ix, iy, w/2 - 60, 220, 120, 44)) {
         AppState_setMode(s_modeSelectChoice == 1 ? APP_MODE_FIELD : APP_MODE_TRAINING);
         s_trainingSettingsUnlocked = false;
+        showSavedPrompt(tft, AppState_isFieldMode() ? "Mode: Field" : "Mode: Training");
         return handled(SCREEN_MAIN_MENU);
       }
       break;
@@ -1542,7 +1575,10 @@ ScreenId Screens_handleTouch(TFT_eSPI* tft, ScreenId current, uint16_t x, uint16
       if (inRect(ix, iy, 20, y, w - 40, btnH)) return handled(SCREEN_WIFI_LIST);
       y += btnH + gap;
       if (inRect(ix, iy, 20, y, w - 40, btnH)) {
-        AppState_setBuzzerEnabled(!AppState_getBuzzerEnabled());
+        bool enabled = !AppState_getBuzzerEnabled();
+        AppState_setBuzzerEnabled(enabled);
+        Screens_draw(tft, current);
+        showSavedPrompt(tft, enabled ? "Buzzer: ON" : "Buzzer: OFF");
         Screens_draw(tft, current);
         return handled(current);
       }
@@ -1567,8 +1603,16 @@ ScreenId Screens_handleTouch(TFT_eSPI* tft, ScreenId current, uint16_t x, uint16
       break;
     }
     case SCREEN_ROTATION:
-      if (inRect(ix, iy, 20, 60, w - 40, 48)) { AppState_setRotation(0); return handled(SCREEN_SETTINGS); }
-      if (inRect(ix, iy, 20, 118, w - 40, 48)) { AppState_setRotation(1); return handled(SCREEN_SETTINGS); }
+      if (inRect(ix, iy, 20, 60, w - 40, 48)) {
+        AppState_setRotation(0);
+        showSavedPrompt(tft, "Display: Portrait");
+        return handled(SCREEN_SETTINGS);
+      }
+      if (inRect(ix, iy, 20, 118, w - 40, 48)) {
+        AppState_setRotation(1);
+        showSavedPrompt(tft, "Display: Landscape");
+        return handled(SCREEN_SETTINGS);
+      }
       if (inRect(ix, iy, 20, 178, 80, 36)) return handled(SCREEN_SETTINGS);
       break;
     case SCREEN_WIFI_LIST: {
@@ -1619,10 +1663,13 @@ ScreenId Screens_handleTouch(TFT_eSPI* tft, ScreenId current, uint16_t x, uint16
         return handled(current);
       }
       if (inRect(ix, iy, 90, ctrlY, 80, 32)) {
-        if (WifiManager_connect(s_selectedSsid, s_wifiPassLen > 0 ? s_wifiPass : ""))
+        if (WifiManager_connect(s_selectedSsid, s_wifiPassLen > 0 ? s_wifiPass : "")) {
           Buzzer_beepPass();
-        else
+          showPrompt(tft, "Wi-Fi connected", s_selectedSsid, kGreen);
+        } else {
           Buzzer_beepFail();
+          showPrompt(tft, "Wi-Fi connect failed", "Check password", kRed);
+        }
         s_selectedSsid[0] = '\0';
         s_wifiPassLen = 0;
         return handled(SCREEN_WIFI_LIST);
@@ -1648,12 +1695,18 @@ ScreenId Screens_handleTouch(TFT_eSPI* tft, ScreenId current, uint16_t x, uint16
       btnY += btnH + gap;
       int half = (w - 50) / 2;
       if (inRect(ix, iy, 20, btnY, half, btnH)) {
-        AppState_setOtaAutoCheckEnabled(!AppState_getOtaAutoCheckEnabled());
+        bool enabled = !AppState_getOtaAutoCheckEnabled();
+        AppState_setOtaAutoCheckEnabled(enabled);
+        Screens_draw(tft, current);
+        showSavedPrompt(tft, enabled ? "Auto-check: ON" : "Auto-check: OFF");
         Screens_draw(tft, current);
         return handled(current);
       }
       if (inRect(ix, iy, 30 + half, btnY, half, btnH)) {
-        AppState_setOtaAutoInstallEnabled(!AppState_getOtaAutoInstallEnabled());
+        bool enabled = !AppState_getOtaAutoInstallEnabled();
+        AppState_setOtaAutoInstallEnabled(enabled);
+        Screens_draw(tft, current);
+        showSavedPrompt(tft, enabled ? "Auto-install: ON" : "Auto-install: OFF");
         Screens_draw(tft, current);
         return handled(current);
       }
@@ -1676,12 +1729,18 @@ ScreenId Screens_handleTouch(TFT_eSPI* tft, ScreenId current, uint16_t x, uint16
       int y = 152, btnH = 22, gap = 3;
       int half = (w - 50) / 2;
       if (inRect(ix, iy, 20, y, half, btnH)) {
-        AppState_setEmailReportEnabled(!AppState_getEmailReportEnabled());
+        bool enabled = !AppState_getEmailReportEnabled();
+        AppState_setEmailReportEnabled(enabled);
+        Screens_draw(tft, current);
+        showSavedPrompt(tft, enabled ? "Email reports: ON" : "Email reports: OFF");
         Screens_draw(tft, current);
         return handled(current);
       }
       if (inRect(ix, iy, 30 + half, y, half, btnH)) {
-        AppState_setTrainingSyncEnabled(!AppState_getTrainingSyncEnabled());
+        bool enabled = !AppState_getTrainingSyncEnabled();
+        AppState_setTrainingSyncEnabled(enabled);
+        Screens_draw(tft, current);
+        showSavedPrompt(tft, enabled ? "Cloud sync: ON" : "Cloud sync: OFF");
         Screens_draw(tft, current);
         return handled(current);
       }
@@ -1690,6 +1749,8 @@ ScreenId Screens_handleTouch(TFT_eSPI* tft, ScreenId current, uint16_t x, uint16
         TrainingSyncTarget t = AppState_getTrainingSyncTarget();
         t = (TrainingSyncTarget)(((int)t + 1) % 3);
         AppState_setTrainingSyncTarget(t);
+        Screens_draw(tft, current);
+        showSavedPrompt(tft, syncTargetLabel(t));
         Screens_draw(tft, current);
         return handled(current);
       }
@@ -1742,10 +1803,16 @@ ScreenId Screens_handleTouch(TFT_eSPI* tft, ScreenId current, uint16_t x, uint16
         return handled(current);
       }
       if (inRect(ix, iy, 130, ctrlY, 60, 28)) {
+        const char* detail = "Setting updated";
         if (s_syncEditField == 0) AppState_setTrainingSyncEndpoint(s_syncEditBuffer);
         else if (s_syncEditField == 1) AppState_setTrainingSyncToken(s_syncEditBuffer);
         else if (s_syncEditField == 2) AppState_setTrainingSyncCubicleId(s_syncEditBuffer);
         else AppState_setDeviceIdOverride(s_syncEditBuffer);
+        if (s_syncEditField == 0) detail = "Endpoint saved";
+        else if (s_syncEditField == 1) detail = "Token saved";
+        else if (s_syncEditField == 2) detail = "Cubicle saved";
+        else detail = "Device label saved";
+        showSavedPrompt(tft, detail);
         return handled(SCREEN_TRAINING_SYNC);
       }
       break;
@@ -1794,11 +1861,18 @@ ScreenId Screens_handleTouch(TFT_eSPI* tft, ScreenId current, uint16_t x, uint16
         return handled(current);
       }
       if (inRect(ix, iy, 78, ctrlY, 60, 28)) {
+        const char* detail = "Email setting saved";
         if (s_editingEmailField == 0) AppState_setSmtpServer(s_editBuffer);
         else if (s_editingEmailField == 1) AppState_setSmtpPort(s_editBuffer);
         else if (s_editingEmailField == 2) AppState_setSmtpUser(s_editBuffer);
         else if (s_editingEmailField == 3) AppState_setSmtpPass(s_editBuffer);
         else AppState_setReportToEmail(s_editBuffer);
+        if (s_editingEmailField == 0) detail = "SMTP server saved";
+        else if (s_editingEmailField == 1) detail = "SMTP port saved";
+        else if (s_editingEmailField == 2) detail = "SMTP user saved";
+        else if (s_editingEmailField == 3) detail = "SMTP pass saved";
+        else detail = "Report email saved";
+        showSavedPrompt(tft, detail);
         return handled(SCREEN_EMAIL_SETTINGS);
       }
       break;
@@ -1898,7 +1972,11 @@ ScreenId Screens_handleTouch(TFT_eSPI* tft, ScreenId current, uint16_t x, uint16
                 for (int i = 0; i < s_newPinLen; i++) pin = pin * 10 + (s_newPinBuf[i] - '0');
                 AppState_setPin(pin);
                 Buzzer_beepPass();
-              } else Buzzer_beepFail();
+                showSavedPrompt(tft, "PIN updated");
+              } else {
+                Buzzer_beepFail();
+                showPrompt(tft, "PIN not changed", "Entries did not match", kRed);
+              }
               s_changePinStep = 0; s_pinLen = 0; s_pinDigits[0] = '\0'; s_newPinBuf[0] = '\0'; s_newPinLen = 0;
               return handled(SCREEN_SETTINGS);
             }
