@@ -1,9 +1,9 @@
 {
   "channel": "stable",
-  "version": "2026.03.15",
-  "firmware_url": "",
-  "md5": "",
-  "rollout_pct": 1,
+  "version": "2026.03.15.4",
+  "firmware_url": "https://github.com/Wirepower/SparkyCheck/releases/download/fw-2026.03.15.4/sparkycheck-2026.03.15.4.bin",
+  "md5": "f7dbb2e018022c02fafffae9d8eb5c9c",
+  "rollout_pct": 100,
   "force": false,
-  "notes": "Bootstrap manifest. Set firmware_url when publishing first OTA release."
+  "notes": "Auto OTA release from commit 80c18df"
 }
