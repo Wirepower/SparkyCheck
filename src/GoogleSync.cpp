@@ -44,6 +44,13 @@ void GoogleSync_init(void) {
 
 void GoogleSync_getDeviceId(char* buf, unsigned size) {
   if (!buf || size == 0) return;
+  char overrideId[APP_STATE_DEVICE_ID_LEN];
+  AppState_getDeviceIdOverride(overrideId, sizeof(overrideId));
+  if (overrideId[0]) {
+    strncpy(buf, overrideId, size - 1);
+    buf[size - 1] = '\0';
+    return;
+  }
   uint64_t mac = ESP.getEfuseMac();
   snprintf(buf, size, "ESP32-%06llX", (unsigned long long)(mac & 0xFFFFFFULL));
 }

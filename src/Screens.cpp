@@ -52,7 +52,7 @@ static int s_editingEmailField = 0;
 static char s_editBuffer[APP_STATE_EMAIL_STR_LEN] = "";
 static int s_editLen = 0;
 
-/* Training sync edit state: field 0=url, 1=token, 2=cubicle */
+/* Training sync edit state: field 0=url, 1=token, 2=cubicle, 3=device id */
 static int s_syncEditField = 0;
 static char s_syncEditBuffer[APP_STATE_TRAINING_SYNC_URL_LEN] = "";
 static int s_syncEditLen = 0;
@@ -82,6 +82,7 @@ static bool inRect(int x, int y, int rx, int ry, int rw, int rh) {
 static int syncEditMaxLen(void) {
   if (s_syncEditField == 1) return APP_STATE_TRAINING_SYNC_TOKEN_LEN;
   if (s_syncEditField == 2) return APP_STATE_TRAINING_SYNC_CUBICLE_LEN;
+  if (s_syncEditField == 3) return APP_STATE_DEVICE_ID_LEN;
   return APP_STATE_TRAINING_SYNC_URL_LEN;
 }
 
@@ -92,7 +93,8 @@ static void loadSyncEditField(int field) {
   s_syncEditBuffer[0] = '\0';
   if (field == 0) AppState_getTrainingSyncEndpoint(s_syncEditBuffer, sizeof(s_syncEditBuffer));
   else if (field == 1) AppState_getTrainingSyncToken(s_syncEditBuffer, sizeof(s_syncEditBuffer));
-  else AppState_getTrainingSyncCubicleId(s_syncEditBuffer, sizeof(s_syncEditBuffer));
+  else if (field == 2) AppState_getTrainingSyncCubicleId(s_syncEditBuffer, sizeof(s_syncEditBuffer));
+  else AppState_getDeviceIdOverride(s_syncEditBuffer, sizeof(s_syncEditBuffer));
   s_syncEditLen = strlen(s_syncEditBuffer);
   if (s_syncEditLen >= syncEditMaxLen()) s_syncEditLen = syncEditMaxLen() - 1;
   s_syncEditBuffer[s_syncEditLen] = '\0';
@@ -1000,6 +1002,12 @@ void Screens_draw(TFT_eSPI* tft, ScreenId id) {
       tft->print("Edit cubicle ID (e.g. CUB-03)");
       y += btnH + gap;
 
+      tft->fillRoundRect(20, y, w - 40, btnH, 6, kBtn);
+      tft->drawRoundRect(20, y, w - 40, btnH, 6, kWhite);
+      tft->setCursor(28, y + 5);
+      tft->print("Edit device ID label (e.g. CUB-03)");
+      y += btnH + gap;
+
       tft->fillRoundRect(20, y, w - 40, btnH, 6, kGreen);
       tft->drawRoundRect(20, y, w - 40, btnH, 6, kWhite);
       tft->setTextColor(TFT_BLACK, kGreen);
@@ -1015,7 +1023,7 @@ void Screens_draw(TFT_eSPI* tft, ScreenId id) {
       break;
     }
     case SCREEN_TRAINING_SYNC_EDIT: {
-      const char* titles[] = { "Sync endpoint URL", "Auth token", "Cubicle ID" };
+      const char* titles[] = { "Sync endpoint URL", "Auth token", "Cubicle ID", "Device ID label" };
       tft->setTextColor(kWhite, kBg);
       tft->setTextSize(1);
       tft->setCursor(20, 8);
@@ -1542,6 +1550,8 @@ ScreenId Screens_handleTouch(TFT_eSPI* tft, ScreenId current, uint16_t x, uint16
       y += btnH + gap;
       if (inRect(ix, iy, 20, y, w - 40, btnH)) { loadSyncEditField(2); return handled(SCREEN_TRAINING_SYNC_EDIT); }
       y += btnH + gap;
+      if (inRect(ix, iy, 20, y, w - 40, btnH)) { loadSyncEditField(3); return handled(SCREEN_TRAINING_SYNC_EDIT); }
+      y += btnH + gap;
       if (inRect(ix, iy, 20, y, w - 40, btnH)) {
         if (GoogleSync_sendPing()) Buzzer_beepPass();
         else Buzzer_beepFail();
@@ -1584,7 +1594,8 @@ ScreenId Screens_handleTouch(TFT_eSPI* tft, ScreenId current, uint16_t x, uint16
       if (inRect(ix, iy, 130, ctrlY, 60, 28)) {
         if (s_syncEditField == 0) AppState_setTrainingSyncEndpoint(s_syncEditBuffer);
         else if (s_syncEditField == 1) AppState_setTrainingSyncToken(s_syncEditBuffer);
-        else AppState_setTrainingSyncCubicleId(s_syncEditBuffer);
+        else if (s_syncEditField == 2) AppState_setTrainingSyncCubicleId(s_syncEditBuffer);
+        else AppState_setDeviceIdOverride(s_syncEditBuffer);
         return handled(SCREEN_TRAINING_SYNC);
       }
       break;

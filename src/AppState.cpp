@@ -18,6 +18,7 @@ static const char* NVS_KEY_TRSYNC_TOK  = "trsync_tok";
 static const char* NVS_KEY_TRSYNC_CUB  = "trsync_cub";
 static const char* NVS_KEY_TRSYNC_TGT  = "trsync_tgt";
 static const char* NVS_KEY_EMAIL_REP   = "email_rep";
+static const char* NVS_KEY_DEVICE_ID   = "device_id";
 static const char* NVS_KEY_SMTP_SRV    = "smtp_srv";
 static const char* NVS_KEY_SMTP_PORT   = "smtp_port";
 static const char* NVS_KEY_SMTP_USER   = "smtp_user";
@@ -265,6 +266,24 @@ void AppState_setTrainingSyncCubicleId(const char* s) {
   Preferences prefs;
   if (prefs.begin(NVS_NAMESPACE, false)) {
     prefs.putString(NVS_KEY_TRSYNC_CUB, s ? s : "");
+    prefs.end();
+  }
+}
+
+void AppState_getDeviceIdOverride(char* buf, unsigned size) {
+  if (!buf || size == 0) return;
+  buf[0] = '\0';
+  Preferences prefs;
+  if (prefs.begin(NVS_NAMESPACE, true)) {
+    getStr(prefs, NVS_KEY_DEVICE_ID, buf, size);
+    prefs.end();
+  }
+}
+
+void AppState_setDeviceIdOverride(const char* s) {
+  Preferences prefs;
+  if (prefs.begin(NVS_NAMESPACE, false)) {
+    prefs.putString(NVS_KEY_DEVICE_ID, s ? s : "");
     prefs.end();
   }
 }

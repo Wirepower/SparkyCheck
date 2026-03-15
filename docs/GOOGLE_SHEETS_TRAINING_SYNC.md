@@ -28,7 +28,7 @@ Back-end should **upsert** the same row (not append every event) using:
 Each sync event posts JSON with:
 
 - `auth_token`
-- `device_id`
+- `device_id` (renamable in settings; defaults to MAC-derived ID)
 - `session_id`
 - `cubicle_id`
 - `mode` (`training`)
@@ -73,6 +73,7 @@ On device:
    - **Email report** channel (On/Off, optional)
    - **Cloud sync** channel (On/Off, optional)
    - **Sync target** (Auto / Google Sheets / SharePoint)
+   - **Device ID label** (optional; set to cubicle number if desired)
    - **Sync endpoint URL** (Apps Script URL or Power Automate HTTP URL)
    - **Auth token** (optional shared secret)
    - **Cubicle ID** (e.g. `CUB-01`)
