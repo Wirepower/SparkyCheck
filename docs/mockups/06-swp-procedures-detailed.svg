@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900">
+  <rect width="1600" height="900" fill="#0b132b"/>
+  <text x="60" y="72" fill="#e2e8f0" font-family="Arial, sans-serif" font-size="44" font-weight="700">SWP Procedures - Detailed Guided Topics</text>
+  <text x="60" y="106" fill="#9fb3c8" font-family="Arial, sans-serif" font-size="24">Motor, Appliance, Heater/Sheathed element (AS/NZS 4836 sequencing)</text>
+
+  <rect x="70" y="140" rx="20" ry="20" width="500" height="720" fill="#1c2541" stroke="#3a506b" stroke-width="3"/>
+  <text x="100" y="190" fill="#e2e8f0" font-size="30" font-family="Arial, sans-serif" font-weight="700">Topics in menu</text>
+  <rect x="100" y="230" rx="10" ry="10" width="440" height="64" fill="#2f3e46"/>
+  <text x="130" y="272" fill="#fff" font-size="24" font-family="Arial, sans-serif">SWP D/R (motor)</text>
+  <rect x="100" y="308" rx="10" ry="10" width="440" height="64" fill="#2f3e46"/>
+  <text x="130" y="350" fill="#fff" font-size="24" font-family="Arial, sans-serif">SWP D/R (appliance)</text>
+  <rect x="100" y="386" rx="10" ry="10" width="440" height="64" fill="#2d6a4f"/>
+  <text x="130" y="428" fill="#fff" font-size="24" font-family="Arial, sans-serif">SWP D/R (heater/sheathed)</text>
+
+  <text x="100" y="500" fill="#93c5fd" font-size="27" font-family="Arial, sans-serif" font-weight="700">All include:</text>
+  <text x="100" y="540" fill="#cbd5e1" font-size="23" font-family="Arial, sans-serif">- Positive identification (Clause 3.1.2)</text>
+  <text x="100" y="575" fill="#cbd5e1" font-size="23" font-family="Arial, sans-serif">- Isolation (Clause 3.2.1)</text>
+  <text x="100" y="610" fill="#cbd5e1" font-size="23" font-family="Arial, sans-serif">- Lock and danger tag (Clause 3.2.8)</text>
+  <text x="100" y="645" fill="#cbd5e1" font-size="23" font-family="Arial, sans-serif">- Prove tester / test dead / re-prove</text>
+  <text x="100" y="680" fill="#cbd5e1" font-size="23" font-family="Arial, sans-serif">- Lead zeroing before continuity checks</text>
+  <text x="100" y="715" fill="#cbd5e1" font-size="23" font-family="Arial, sans-serif">- Common mistakes checkpoint</text>
+
+  <rect x="610" y="140" rx="20" ry="20" width="920" height="720" fill="#1e293b" stroke="#475569" stroke-width="3"/>
+  <text x="645" y="190" fill="#e2e8f0" font-size="30" font-family="Arial, sans-serif" font-weight="700">Example flow structure (simplified visual)</text>
+
+  <rect x="650" y="230" rx="8" ry="8" width="820" height="52" fill="#334155"/>
+  <text x="675" y="264" fill="#fff" font-size="22" font-family="Arial, sans-serif">1) Positive ID of equipment + isolation points + all energy sources</text>
+  <rect x="650" y="292" rx="8" ry="8" width="820" height="52" fill="#334155"/>
+  <text x="675" y="326" fill="#fff" font-size="22" font-family="Arial, sans-serif">2) Physical isolation at correct disconnecting point</text>
+  <rect x="650" y="354" rx="8" ry="8" width="820" height="52" fill="#334155"/>
+  <text x="675" y="388" fill="#fff" font-size="22" font-family="Arial, sans-serif">3) Personal lock + danger tag (name/date/reason)</text>
+  <rect x="650" y="416" rx="8" ry="8" width="820" height="52" fill="#334155"/>
+  <text x="675" y="450" fill="#fff" font-size="22" font-family="Arial, sans-serif">4) Prove tester on known live source</text>
+  <rect x="650" y="478" rx="8" ry="8" width="820" height="52" fill="#334155"/>
+  <text x="675" y="512" fill="#fff" font-size="22" font-family="Arial, sans-serif">5) Test for dead: phase-phase/phase-neutral/phase-earth/neutral-earth</text>
+  <rect x="650" y="540" rx="8" ry="8" width="820" height="52" fill="#334155"/>
+  <text x="675" y="574" fill="#fff" font-size="22" font-family="Arial, sans-serif">6) Re-prove tester on known live source</text>
+  <rect x="650" y="602" rx="8" ry="8" width="820" height="52" fill="#334155"/>
+  <text x="675" y="636" fill="#fff" font-size="22" font-family="Arial, sans-serif">7) Reconnect, zero leads, continuity/IR checks, restore safely</text>
+  <rect x="650" y="664" rx="8" ry="8" width="820" height="52" fill="#2d6a4f"/>
+  <text x="675" y="698" fill="#fff" font-size="22" font-family="Arial, sans-serif">8) Final functional and safety confirmation</text>
+</svg>
+
