@@ -257,7 +257,9 @@ bool OtaUpdate_installPending(void) {
 
   HTTPUpdate updater;
   updater.rebootOnUpdate(true);
+#if defined(ESP_ARDUINO_VERSION_MAJOR) && (ESP_ARDUINO_VERSION_MAJOR >= 3)
   if (s_pending.md5[0]) updater.setMD5(s_pending.md5);
+#endif
   t_httpUpdate_return ret = updater.update(client, s_pending.firmwareUrl, OtaUpdate_getCurrentVersion());
 
   if (ret == HTTP_UPDATE_OK) {
