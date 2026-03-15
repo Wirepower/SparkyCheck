@@ -65,7 +65,7 @@ void AppState_setOtaAutoCheckEnabled(bool on);
 bool AppState_getOtaAutoInstallEnabled(void);
 void AppState_setOtaAutoInstallEnabled(bool on);
 
-/** Training-mode Google Sheets sync settings (optional). */
+/** Training-mode cloud sync settings (optional endpoint). */
 #define APP_STATE_TRAINING_SYNC_URL_LEN 192
 #define APP_STATE_TRAINING_SYNC_TOKEN_LEN 96
 #define APP_STATE_TRAINING_SYNC_CUBICLE_LEN 24

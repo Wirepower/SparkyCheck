@@ -52,7 +52,7 @@ static int s_editingEmailField = 0;
 static char s_editBuffer[APP_STATE_EMAIL_STR_LEN] = "";
 static int s_editLen = 0;
 
-/* Training Google Sheets sync edit state: field 0=url, 1=token, 2=cubicle */
+/* Training sync edit state: field 0=url, 1=token, 2=cubicle */
 static int s_syncEditField = 0;
 static char s_syncEditBuffer[APP_STATE_TRAINING_SYNC_URL_LEN] = "";
 static int s_syncEditLen = 0;
@@ -880,7 +880,7 @@ void Screens_draw(TFT_eSPI* tft, ScreenId id) {
       tft->fillRoundRect(20, y, w - 40, btnH, 6, kBtn);
       tft->drawRoundRect(20, y, w - 40, btnH, 6, kWhite);
       tft->setCursor(28, y + 6);
-      tft->print("Edit Google endpoint URL");
+      tft->print("Edit sync endpoint URL");
       y += btnH + gap;
 
       tft->fillRoundRect(20, y, w - 40, btnH, 6, kBtn);
@@ -910,7 +910,7 @@ void Screens_draw(TFT_eSPI* tft, ScreenId id) {
       break;
     }
     case SCREEN_TRAINING_SYNC_EDIT: {
-      const char* titles[] = { "Google endpoint URL", "Auth token", "Cubicle ID" };
+      const char* titles[] = { "Sync endpoint URL", "Auth token", "Cubicle ID" };
       tft->setTextColor(kWhite, kBg);
       tft->setTextSize(1);
       tft->setCursor(20, 8);

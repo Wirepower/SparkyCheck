@@ -30,7 +30,7 @@ void GoogleSync_getDeviceId(char* buf, unsigned size);
 /** Last sync status for UI display. */
 void GoogleSync_getLastStatus(char* buf, unsigned size);
 
-/** Send one completed test result to configured Google endpoint. */
+/** Send one completed test result to configured sync endpoint. */
 bool GoogleSync_sendResult(const GoogleSyncResult* result);
 
 /** Send a connectivity test row to verify endpoint settings. */
