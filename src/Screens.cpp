@@ -151,7 +151,10 @@ void Screens_draw(TFT_eSPI* tft, ScreenId id) {
       tft->setTextSize(1);
       tft->setTextColor(kAccent, kBg);
       tft->setCursor(20, 38);
-      tft->print("AS/NZS 3000 Sec 8 & 3017");
+      { char scope[96];
+        Standards_getVerificationScopeLine(scope, sizeof(scope));
+        tft->print(scope);
+      }
       int rowH = 36, y = 56;
       for (int i = 0; i < VERIFY_TEST_COUNT; i++) {
         tft->fillRoundRect(20, y, w - 40, rowH - 4, 6, kBtn);

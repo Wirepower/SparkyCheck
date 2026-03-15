@@ -53,6 +53,17 @@ void Standards_setFieldMode(bool field_mode);
 /** Optional: get a version string for reports (e.g. "2026-03" for bundled rules). */
 void Standards_getRulesVersion(char* buf, unsigned buf_size);
 
+/**
+ * UI strings built from current StandardEditions (update StandardsConfig.h when
+ * editions change so these reflect everywhere: Test Select, disclaimer, reports).
+ */
+/** Subtitle under "Select test" (3000 Sec 8 + 3017 editions). */
+void Standards_getVerificationScopeLine(char* buf, unsigned buf_size);
+/** Disclaimer: two lines after "mandatory testing under" (editions for 3000, 3017, 3760). */
+void Standards_getDisclaimerStandardLines(char* line1, unsigned n1, char* line2, unsigned n2);
+/** HTML report footer line (all three edition strings). */
+void Standards_getReportFooterStandardsLine(char* buf, unsigned buf_size);
+
 #ifdef __cplusplus
 }
 #endif

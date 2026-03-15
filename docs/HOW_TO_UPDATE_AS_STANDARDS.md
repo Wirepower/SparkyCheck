@@ -46,7 +46,17 @@ You do **not** need to change main app flow or screen touch logic—the test lis
 3. Open **`src/StandardsConfig.cpp`**.
 4. In **`Standards_getInfo()`**, update any **section** or **title** text if the new standard uses different wording (e.g. Section 8 name or scope).
 
-This is what the **About** screen and any “current standards” text use.
+**Where those editions appear automatically** (no extra edits needed if you only change `StandardEditions` and `Standards_getInfo()`):
+
+| Location | How it gets the text |
+|----------|----------------------|
+| **Settings → About** | Lists each active standard via `Standards_getInfo()` (edition + section/title). |
+| **Start verification → Select test** | Subtitle from `Standards_getVerificationScopeLine()` (3000 Sec 8 + 3017 editions). |
+| **Boot disclaimer** | Two lines from `Standards_getDisclaimerStandardLines()` (all three edition strings). |
+| **HTML reports** | Footer from `Standards_getReportFooterStandardsLine()` (all three editions). |
+| **CSV / report job line** | **Rules version** from `Standards_getRulesVersion()` (bump separately in step 4). |
+
+If you add a **fourth** standard to the enum, you must extend **`Standards_getDisclaimerStandardLines()`**, **`Standards_getReportFooterStandardsLine()`**, and **`Standards_getVerificationScopeLine()`** in `StandardsConfig.cpp` so the new edition appears in disclaimer, reports, and any other built-in lines.
 
 ---
 

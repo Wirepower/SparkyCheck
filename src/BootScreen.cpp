@@ -4,6 +4,7 @@
  */
 
 #include "BootScreen.h"
+#include "Standards.h"
 
 namespace BootScreen {
 
@@ -105,19 +106,23 @@ void showDisclaimer(TFT_eSPI& tft) {
   tft.print("verification or testing device. It does not perform");
   tft.setCursor(20, 64);
   tft.print("or substitute for mandatory testing under");
+  char d1[80], d2[80];
+  Standards_getDisclaimerStandardLines(d1, sizeof(d1), d2, sizeof(d2));
   tft.setCursor(20, 78);
-  tft.print("AS/NZS 3000, 3017 or 3760.");
-  tft.setCursor(20, 96);
-  tft.print("Responsibility for correct and compliant");
+  tft.print(d1);
+  tft.setCursor(20, 92);
+  tft.print(d2);
   tft.setCursor(20, 110);
+  tft.print("Responsibility for correct and compliant");
+  tft.setCursor(20, 124);
   tft.print("inspection and verification remains with the user.");
-  tft.setCursor(20, 128);
+  tft.setCursor(20, 142);
   tft.print("Use approved test equipment; zero leads before use.");
-  tft.setCursor(20, 146);
+  tft.setCursor(20, 160);
   tft.print("By accepting, you acknowledge these terms.");
 
   // Accept button (bottom centre) – must tap to continue
-  const int btnW = 160, btnH = 44, btnY = h - 60;
+  const int btnW = 160, btnH = 44, btnY = h - 52;
   const int btnX = (w - btnW) / 2;
   tft.fillRoundRect(btnX, btnY, btnW, btnH, 6, kGreen);
   tft.drawRoundRect(btnX, btnY, btnW, btnH, 6, kWhite);
