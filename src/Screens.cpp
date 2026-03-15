@@ -444,6 +444,12 @@ void Screens_draw(TFT_eSPI* tft, ScreenId id) {
       tft->setTextSize(2);
       tft->setCursor(20, 10);
       tft->print("Select test");
+      tft->fillRoundRect(w - 62, 8, 48, 24, 6, kBtn);
+      tft->drawRoundRect(w - 62, 8, 48, 24, 6, kWhite);
+      tft->setTextSize(1);
+      tft->setTextColor(kWhite, kBtn);
+      tft->setCursor(w - 56, 12);
+      tft->print("Back");
       tft->setTextSize(1);
       tft->setTextColor(kAccent, kBg);
       tft->setCursor(20, 38);
@@ -451,20 +457,15 @@ void Screens_draw(TFT_eSPI* tft, ScreenId id) {
         Standards_getVerificationScopeLine(scope, sizeof(scope));
         tft->print(scope);
       }
-      int rowH = 20, y = 56;
+      int rowH = 18, y = 48;
       for (int i = 0; i < VERIFY_TEST_COUNT; i++) {
-        tft->fillRoundRect(20, y, w - 40, rowH - 4, 6, kBtn);
-        tft->drawRoundRect(20, y, w - 40, rowH - 4, 6, kWhite);
+        tft->fillRoundRect(20, y, w - 40, rowH - 2, 6, kBtn);
+        tft->drawRoundRect(20, y, w - 40, rowH - 2, 6, kWhite);
         tft->setTextColor(kWhite, kBtn);
-        tft->setCursor(28, y + 4);
+        tft->setCursor(28, y + 5);
         tft->print(VerificationSteps_getTestName((VerifyTestId)i));
         y += rowH;
       }
-      tft->fillRoundRect(20, h - 44, 80, 36, 6, kBtn);
-      tft->drawRoundRect(20, h - 44, 80, 36, 6, kWhite);
-      tft->setTextColor(kWhite, kBtn);
-      tft->setCursor(40, h - 32);
-      tft->print("Back");
       break;
     }
     case SCREEN_STUDENT_ID: {
@@ -1496,9 +1497,10 @@ ScreenId Screens_handleTouch(TFT_eSPI* tft, ScreenId current, uint16_t x, uint16
       }
       break;
     case SCREEN_TEST_SELECT: {
-      int rowH = 20, y0 = 56;
+      if (inRect(ix, iy, w - 62, 8, 48, 24)) return handled(SCREEN_MAIN_MENU);
+      int rowH = 18, y0 = 48;
       for (int i = 0; i < VERIFY_TEST_COUNT; i++) {
-        if (inRect(ix, iy, 20, y0 + i * rowH, w - 40, rowH - 4)) {
+        if (inRect(ix, iy, 20, y0 + i * rowH, w - 40, rowH - 2)) {
           s_selectedTestType = i;
           s_stepIndex = 0;
           s_flowPhase = 0;
@@ -1518,7 +1520,6 @@ ScreenId Screens_handleTouch(TFT_eSPI* tft, ScreenId current, uint16_t x, uint16
           return handled(SCREEN_TEST_FLOW);
         }
       }
-      if (inRect(ix, iy, 20, h - 44, 80, 36)) return handled(SCREEN_MAIN_MENU);
       break;
     }
     case SCREEN_STUDENT_ID: {
