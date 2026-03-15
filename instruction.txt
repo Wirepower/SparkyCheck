@@ -6,6 +6,7 @@ This file is a practical setup guide for:
 2) Device-side training reporting configuration
 3) Google Sheets live sync backend
 4) SharePoint live sync backend
+5) SD-card mass provisioning for classroom rollout
 
 -----------------------------------------------------------------------
 A) What this firmware now does
@@ -38,6 +39,12 @@ A) What this firmware now does
    - Recommended: set this to cubicle label (example: CUB-03).
    - If blank, firmware uses MAC-derived default (ESP32-xxxxxx).
 
+6) SD-first provisioning
+   - On boot, device checks SD card for provisioning config first.
+   - If enabled config exists, settings are applied.
+   - If SD missing or config disabled/invalid, device falls back to existing NVS settings.
+   - Device auto-creates template files on SD when missing.
+
 -----------------------------------------------------------------------
 B) One-time GitHub/OTA setup
 -----------------------------------------------------------------------
@@ -64,20 +71,38 @@ Verify after push:
 C) Device setup (repeat for each physical device)
 -----------------------------------------------------------------------
 
-0) Flash OTA-enabled firmware once (bootstrap)
+0) (Optional, recommended for 10+ cubicles) SD mass provisioning
+   - Insert SD card and boot one device once.
+   - Device creates:
+     /sparkycheck_provisioning_template.json
+     /sparkycheck_provisioning.json
+   - Remove SD card and edit /sparkycheck_provisioning.json on computer.
+   - Set:
+       "enabled": true
+     and fill values under "settings".
+   - Clone this SD to other cards/devices.
+   - On each device boot, SD config is applied automatically.
+
+   Notes:
+   - SD provisioning is "SD first, NVS fallback".
+   - If you want a device-specific label (e.g., CUB-03), set:
+     settings.reporting.cloud_sync.device_id_label
+   - For per-device custom labels, copy baseline SD then edit only that field per card.
+
+1) Flash OTA-enabled firmware once (bootstrap)
    - USB flash once to each existing device.
 
-1) Connect WiFi
+2) Connect WiFi
    - Settings -> WiFi connection
    - Connect to your network
 
-2) OTA settings
+3) OTA settings
    - Settings -> Firmware updates
    - Auto-check ON
    - Auto-install ON (if desired)
    - Check now (optional test)
 
-3) Training reporting setup (PIN-gated)
+4) Training reporting setup (PIN-gated)
    - Settings -> Firmware updates -> Training sync setup (PIN)
 
    Buttons/options:
@@ -90,17 +115,24 @@ C) Device setup (repeat for each physical device)
    - Edit device ID label (example: CUB-03)
    - Send test ping
 
-4) Recommended values
+5) Recommended values
    - Device ID label: cubicle number (CUB-01, CUB-02, ...)
    - Cubicle ID: same as device label (or your preferred code)
    - Auth token: set if backend validates token
 
-5) Training test usage
+6) Training test usage
    - Start verification -> choose test
    - Enter Student ID (digits okay; S auto-added)
    - Continue test
    - Back/Next edits sync the same row
    - End session finalizes sync/report
+
+7) Verify SD provisioning status (recommended)
+   - If expected settings did not apply, check:
+     - SD card inserted correctly
+     - /sparkycheck_provisioning.json exists
+     - JSON is valid
+     - "enabled": true is set
 
 -----------------------------------------------------------------------
 D) Google Sheets backend setup (Apps Script)
@@ -279,4 +311,11 @@ If OTA not applying:
 1) Verify manifest URL public and reachable
 2) Verify release .bin URL reachable
 3) Verify latest action run succeeded
+
+If SD provisioning does not apply:
+1) Confirm SD card mounts on device hardware
+2) Confirm file path is exact: /sparkycheck_provisioning.json
+3) Confirm JSON validity (no trailing commas)
+4) Confirm top-level "enabled": true
+5) Confirm keys are under "settings" object
 

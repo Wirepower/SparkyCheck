@@ -9,6 +9,7 @@
 #include "WifiManager.h"
 #include "OtaUpdate.h"
 #include "GoogleSync.h"
+#include "SdConfig.h"
 
 TFT_eSPI tft = TFT_eSPI();
 static ScreenId s_currentScreen = SCREEN_MAIN_MENU;
@@ -21,6 +22,7 @@ void setup() {
 
   Buzzer_init();
   AppState_load();
+  SdConfig_initAndApply();
   tft.init();
   tft.setRotation(AppState_getRotation());
   tft.fillScreen(TFT_BLACK);
