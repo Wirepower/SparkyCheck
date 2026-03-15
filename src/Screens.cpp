@@ -104,6 +104,52 @@ static char applyLetterCase(char c, bool upper) {
   return c;
 }
 
+static void syncTrainingFlowEvent(const char* event, bool include_result, const char* report_id_or_null) {
+  if (AppState_getMode() != APP_MODE_TRAINING) return;
+  if (s_selectedTestType < 0 || s_selectedTestType >= VERIFY_TEST_COUNT) return;
+
+  VerifyTestId tid = (VerifyTestId)s_selectedTestType;
+  int count = VerificationSteps_getStepCount(tid);
+  if (count <= 0) return;
+
+  VerifyStep step;
+  const char* stepTitle = "";
+  int stepIndex = 0;
+  if (s_flowPhase == 1) {
+    stepTitle = "Result";
+    stepIndex = count;
+  } else {
+    int idx = s_stepIndex;
+    if (idx < 0) idx = 0;
+    if (idx >= count) idx = count - 1;
+    VerificationSteps_getStep(tid, idx, &step);
+    stepTitle = step.title ? step.title : "";
+    stepIndex = idx + 1;
+  }
+
+  char valueBuf[24] = "";
+  if (include_result) {
+    if (s_resultUnit && s_resultUnit[0]) snprintf(valueBuf, sizeof(valueBuf), "%.3f", (double)s_resultValue);
+    else snprintf(valueBuf, sizeof(valueBuf), "Verified");
+  }
+
+  GoogleSyncResult gs;
+  gs.sync_event = event ? event : "update";
+  gs.test_id = s_selectedTestType;
+  gs.step_title = stepTitle;
+  gs.step_index = stepIndex;
+  gs.step_count = count;
+  gs.has_result = include_result;
+  gs.session_id = "";
+  gs.report_id = report_id_or_null ? report_id_or_null : "";
+  gs.test_name = VerificationSteps_getTestName(tid);
+  gs.value = include_result ? valueBuf : "";
+  gs.unit = include_result ? (s_resultUnit ? s_resultUnit : "") : "";
+  gs.passed = s_resultPass;
+  gs.clause = include_result ? (s_resultClause ? s_resultClause : "") : "";
+  GoogleSync_sendResult(&gs);
+}
+
 void Screens_setReportSavedBasename(const char* basename) {
   strncpy(s_reportSavedBasename, basename ? basename : "", sizeof(s_reportSavedBasename) - 1);
   s_reportSavedBasename[sizeof(s_reportSavedBasename) - 1] = '\0';
@@ -211,6 +257,12 @@ void Screens_draw(TFT_eSPI* tft, ScreenId id) {
         tft->setTextSize(2);
         tft->setCursor(20, 16);
         tft->print("Result");
+        tft->fillRoundRect(w - 70, 6, 50, 24, 6, kBtn);
+        tft->drawRoundRect(w - 70, 6, 50, 24, 6, kWhite);
+        tft->setTextColor(kWhite, kBtn);
+        tft->setTextSize(1);
+        tft->setCursor(w - 62, 12);
+        tft->print("Back");
         tft->fillRect(20, 52, w - 40, 72, s_resultPass ? kGreen : kRed);
         tft->setTextColor(TFT_BLACK, s_resultPass ? kGreen : kRed);
         tft->setTextSize(3);
@@ -243,6 +295,12 @@ void Screens_draw(TFT_eSPI* tft, ScreenId id) {
       tft->setTextSize(2);
       tft->setCursor(20, 10);
       tft->print(step.title);
+      tft->fillRoundRect(w - 70, 6, 50, 24, 6, kBtn);
+      tft->drawRoundRect(w - 70, 6, 50, 24, 6, kWhite);
+      tft->setTextColor(kWhite, kBtn);
+      tft->setTextSize(1);
+      tft->setCursor(w - 62, 12);
+      tft->print("Back");
       tft->setTextSize(1);
       tft->setTextColor(kAccent, kBg);
       tft->setCursor(20, 36);
@@ -1114,6 +1172,7 @@ ScreenId Screens_handleTouch(TFT_eSPI* tft, ScreenId current, uint16_t x, uint16
           s_resultLabel = NULL;
           s_resultUnit = NULL;
           s_resultClause = NULL;
+          syncTrainingFlowEvent("test_started", false, nullptr);
           return handled(SCREEN_TEST_FLOW);
         }
       }
@@ -1121,6 +1180,24 @@ ScreenId Screens_handleTouch(TFT_eSPI* tft, ScreenId current, uint16_t x, uint16
       break;
     }
     case SCREEN_TEST_FLOW: {
+      int count = VerificationSteps_getStepCount((VerifyTestId)s_selectedTestType);
+      if (inRect(ix, iy, w - 70, 6, 50, 24)) {
+        if (s_flowPhase == 1) {
+          s_flowPhase = 0;
+          s_stepIndex = (count > 0) ? count - 1 : 0;
+          syncTrainingFlowEvent("step_back", false, nullptr);
+          Screens_draw(tft, current);
+          return handled(current);
+        }
+        if (s_stepIndex > 0) {
+          s_stepIndex--;
+          syncTrainingFlowEvent("step_back", false, nullptr);
+          Screens_draw(tft, current);
+          return handled(current);
+        }
+        syncTrainingFlowEvent("test_cancelled", false, nullptr);
+        return handled(SCREEN_TEST_SELECT);
+      }
       if (s_flowPhase == 1) {
         if (inRect(ix, iy, 20, h - 52, w - 40, 44)) {
           ReportGenerator_begin(nullptr);
@@ -1133,14 +1210,7 @@ ScreenId Screens_handleTouch(TFT_eSPI* tft, ScreenId current, uint16_t x, uint16
           ReportGenerator_end();
           char base[48];
           ReportGenerator_getLastBasename(base, sizeof(base));
-          GoogleSyncResult gs;
-          gs.report_id = base;
-          gs.test_name = s_resultLabel ? s_resultLabel : "Test";
-          gs.value = valBuf;
-          gs.unit = s_resultUnit ? s_resultUnit : "";
-          gs.passed = s_resultPass;
-          gs.clause = s_resultClause ? s_resultClause : "";
-          if (AppState_getMode() == APP_MODE_TRAINING) GoogleSync_sendResult(&gs);
+          syncTrainingFlowEvent("session_saved", true, base);
           Screens_setReportSavedBasename(base);
           s_flowPhase = 0;
           s_stepIndex = 0;
@@ -1153,7 +1223,6 @@ ScreenId Screens_handleTouch(TFT_eSPI* tft, ScreenId current, uint16_t x, uint16
         }
         break;
       }
-      int count = VerificationSteps_getStepCount((VerifyTestId)s_selectedTestType);
       if (s_stepIndex >= count) break;
       VerifyStep step;
       VerificationSteps_getStep((VerifyTestId)s_selectedTestType, s_stepIndex, &step);
@@ -1167,6 +1236,9 @@ ScreenId Screens_handleTouch(TFT_eSPI* tft, ScreenId current, uint16_t x, uint16
             s_resultUnit = "";
             VerificationSteps_getStep((VerifyTestId)s_selectedTestType, count - 1, &step);
             s_resultClause = step.clause;
+            syncTrainingFlowEvent("result_confirmed", true, nullptr);
+          } else {
+            syncTrainingFlowEvent("step_next", false, nullptr);
           }
           Screens_draw(tft, current);
           return handled(current);
@@ -1183,6 +1255,9 @@ ScreenId Screens_handleTouch(TFT_eSPI* tft, ScreenId current, uint16_t x, uint16
             s_resultUnit = "";
             VerificationSteps_getStep((VerifyTestId)s_selectedTestType, count - 1, &step);
             s_resultClause = step.clause;
+            syncTrainingFlowEvent("result_confirmed", true, nullptr);
+          } else {
+            syncTrainingFlowEvent("step_next", false, nullptr);
           }
           Screens_draw(tft, current);
           return handled(current);
@@ -1198,6 +1273,9 @@ ScreenId Screens_handleTouch(TFT_eSPI* tft, ScreenId current, uint16_t x, uint16
             s_resultUnit = "";
             VerificationSteps_getStep((VerifyTestId)s_selectedTestType, count - 1, &step);
             s_resultClause = step.clause;
+            syncTrainingFlowEvent("result_confirmed", true, nullptr);
+          } else {
+            syncTrainingFlowEvent("step_next", false, nullptr);
           }
           Screens_draw(tft, current);
           return handled(current);
@@ -1229,6 +1307,7 @@ ScreenId Screens_handleTouch(TFT_eSPI* tft, ScreenId current, uint16_t x, uint16
           s_resultUnit = step.unit;
           s_resultClause = VerificationSteps_getClauseForResult(step.resultKind);
           s_flowPhase = 1;
+          syncTrainingFlowEvent("result_confirmed", true, nullptr);
           if (AppState_getBuzzerEnabled()) { if (s_resultPass) Buzzer_beepPass(); else Buzzer_beepFail(); }
           Screens_draw(tft, current);
           return handled(current);

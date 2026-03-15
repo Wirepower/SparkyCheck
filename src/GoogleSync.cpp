@@ -13,6 +13,7 @@
 #include <string.h>
 
 static char s_lastStatus[GOOGLE_SYNC_STATUS_LEN] = "Training sync idle.";
+static char s_sessionId[32] = "";
 
 static void setStatus(const char* text) {
   if (!text) text = "";
@@ -20,7 +21,16 @@ static void setStatus(const char* text) {
   s_lastStatus[sizeof(s_lastStatus) - 1] = '\0';
 }
 
+static void ensureSessionId(void) {
+  if (s_sessionId[0]) return;
+  uint64_t mac = ESP.getEfuseMac();
+  unsigned long s = millis() / 1000UL;
+  snprintf(s_sessionId, sizeof(s_sessionId), "TS-%06llX-%lu",
+           (unsigned long long)(mac & 0xFFFFFFULL), s);
+}
+
 void GoogleSync_init(void) {
+  s_sessionId[0] = '\0';
   setStatus("Training sync idle.");
 }
 
@@ -101,19 +111,31 @@ bool GoogleSync_sendResult(const GoogleSyncResult* result) {
     setStatus("Sync skipped: endpoint empty.");
     return false;
   }
+  const char* session = result->session_id;
+  if (!session || !session[0]) {
+    ensureSessionId();
+    session = s_sessionId;
+  }
 
   StaticJsonDocument<768> doc;
   doc["auth_token"] = token;
   doc["device_id"] = deviceId;
   doc["cubicle_id"] = cubicle;
   doc["mode"] = "training";
+  doc["session_id"] = session;
+  doc["sync_event"] = result->sync_event ? result->sync_event : "update";
+  doc["test_id"] = result->test_id;
+  doc["step_title"] = result->step_title ? result->step_title : "";
+  doc["step_index"] = result->step_index;
+  doc["step_count"] = result->step_count;
+  doc["has_result"] = result->has_result;
   doc["report_id"] = result->report_id ? result->report_id : "";
   doc["test_name"] = result->test_name ? result->test_name : "";
-  doc["value"] = result->value ? result->value : "";
-  doc["unit"] = result->unit ? result->unit : "";
-  doc["result"] = result->passed ? "PASS" : "FAIL";
-  doc["passed"] = result->passed;
-  doc["clause"] = result->clause ? result->clause : "";
+  doc["value"] = (result->has_result && result->value) ? result->value : "";
+  doc["unit"] = (result->has_result && result->unit) ? result->unit : "";
+  doc["result"] = result->has_result ? (result->passed ? "PASS" : "FAIL") : "";
+  doc["passed"] = result->has_result ? result->passed : false;
+  doc["clause"] = (result->has_result && result->clause) ? result->clause : "";
   doc["rules_version"] = rulesVer;
   doc["firmware_version"] = OtaUpdate_getCurrentVersion();
   doc["ts_ms"] = (uint32_t)millis();
@@ -136,6 +158,13 @@ bool GoogleSync_sendResult(const GoogleSyncResult* result) {
 
 bool GoogleSync_sendPing(void) {
   GoogleSyncResult ping;
+  ping.sync_event = "ping";
+  ping.test_id = -1;
+  ping.step_title = "";
+  ping.step_index = 0;
+  ping.step_count = 0;
+  ping.has_result = true;
+  ping.session_id = "";
   ping.report_id = "Ping";
   ping.test_name = "Connectivity test";
   ping.value = "N/A";
@@ -143,4 +172,15 @@ bool GoogleSync_sendPing(void) {
   ping.passed = true;
   ping.clause = "";
   return GoogleSync_sendResult(&ping);
+}
+
+void GoogleSync_resetSession(void) {
+  s_sessionId[0] = '\0';
+}
+
+void GoogleSync_getSessionId(char* buf, unsigned size) {
+  if (!buf || size == 0) return;
+  ensureSessionId();
+  strncpy(buf, s_sessionId, size - 1);
+  buf[size - 1] = '\0';
 }
