@@ -332,4 +332,5 @@ Recommended approach: use Power Automate as the webhook bridge.
 - This keeps firmware simple and lets you swap backend (Google/SharePoint) without firmware changes.
 - Use `device_id + session_id` as your unique key so Back/Next updates modify the same row live.
 - `session_id` is stable for the device runtime (new after reboot, or when firmware calls session reset).
+- If device is offline, events are queued locally and retried automatically when WiFi reconnects.
 

@@ -57,6 +57,8 @@ void setup() {
 void loop() {
   if (!s_appReady) return;
 
+  GoogleSync_tick();
+
   uint16_t x = 0, y = 0;
   if (tft.getTouch(&x, &y)) {
     ScreenId next = Screens_handleTouch(&tft, s_currentScreen, x, y);

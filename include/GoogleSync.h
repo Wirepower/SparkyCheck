@@ -47,6 +47,9 @@ bool GoogleSync_sendResult(const GoogleSyncResult* result);
 /** Send a connectivity test row to verify endpoint settings. */
 bool GoogleSync_sendPing(void);
 
+/** Background queue flush; call regularly from loop(). */
+void GoogleSync_tick(void);
+
 /** Clear current training sync session ID (new row key on next event). */
 void GoogleSync_resetSession(void);
 

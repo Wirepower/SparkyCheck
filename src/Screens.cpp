@@ -69,6 +69,7 @@ static int s_networkCount = 0;
 static char s_selectedSsid[WIFI_SSID_LEN] = "";
 static char s_wifiPass[WIFI_PASS_LEN] = "";
 static int s_wifiPassLen = 0;
+static bool s_trainingSettingsUnlocked = false;
 
 static int getW(TFT_eSPI* tft) { return tft->width(); }
 static int getH(TFT_eSPI* tft) { return tft->height(); }
@@ -530,9 +531,9 @@ void Screens_draw(TFT_eSPI* tft, ScreenId id) {
         else if (i == 2) label = "Buzzer (sound)";
         else if (i == 3) label = "About";
         else if (i == 4) label = "Firmware updates";
-        else if (i == 5) label = field ? "Email settings" : "Email settings (PIN)";
-        else if (i == 6) label = field ? "Change operating mode" : "Change operating mode (PIN)";
-        else label = "Change PIN (PIN)";
+        else if (i == 5) label = "Email settings";
+        else if (i == 6) label = "Change operating mode";
+        else label = "Change PIN";
         tft->fillRoundRect(20, y, btnW, btnH, 6, kBtn);
         tft->drawRoundRect(20, y, btnW, btnH, 6, kWhite);
         tft->setTextColor(kWhite, kBtn);
@@ -1281,7 +1282,14 @@ ScreenId Screens_handleTouch(TFT_eSPI* tft, ScreenId current, uint16_t x, uint16
     case SCREEN_MAIN_MENU:
       if (inRect(ix, iy, 20, 76, w - 40, 44)) return handled(SCREEN_TEST_SELECT);
       if (inRect(ix, iy, 20, 132, w - 40, 44)) return handled(SCREEN_REPORT_LIST);
-      if (inRect(ix, iy, 20, 188, w - 40, 44)) return handled(SCREEN_SETTINGS);
+      if (inRect(ix, iy, 20, 188, w - 40, 44)) {
+        if (AppState_getMode() == APP_MODE_TRAINING && !s_trainingSettingsUnlocked) {
+          s_pinLen = 0; s_pinDigits[0] = '\0';
+          Screens_setPinSuccessTarget(SCREEN_SETTINGS);
+          return handled(SCREEN_PIN_ENTER);
+        }
+        return handled(SCREEN_SETTINGS);
+      }
       break;
     case SCREEN_TEST_SELECT: {
       int rowH = 36, y0 = 56;
@@ -1494,6 +1502,11 @@ ScreenId Screens_handleTouch(TFT_eSPI* tft, ScreenId current, uint16_t x, uint16
       if (inRect(ix, iy, 20, h - 52, 100, 40)) return handled(SCREEN_MAIN_MENU);
       break;
     case SCREEN_SETTINGS: {
+      if (AppState_getMode() == APP_MODE_TRAINING && !s_trainingSettingsUnlocked) {
+        s_pinLen = 0; s_pinDigits[0] = '\0';
+        Screens_setPinSuccessTarget(SCREEN_SETTINGS);
+        return handled(SCREEN_PIN_ENTER);
+      }
       int btnH = 30, gap = 2, y = 42;
       bool field = AppState_isFieldMode();
       int nRows = field ? 7 : 8;
@@ -1511,27 +1524,19 @@ ScreenId Screens_handleTouch(TFT_eSPI* tft, ScreenId current, uint16_t x, uint16
       y += btnH + gap;
       if (inRect(ix, iy, 20, y, w - 40, btnH)) return handled(SCREEN_UPDATES);
       y += btnH + gap;
-      if (inRect(ix, iy, 20, y, w - 40, btnH)) {
-        if (field) return handled(SCREEN_EMAIL_SETTINGS);
-        s_pinLen = 0; s_pinDigits[0] = '\0';
-        Screens_setPinSuccessTarget(SCREEN_EMAIL_SETTINGS);
-        return handled(SCREEN_PIN_ENTER);
-      }
+      if (inRect(ix, iy, 20, y, w - 40, btnH)) return handled(SCREEN_EMAIL_SETTINGS);
       y += btnH + gap;
       if (inRect(ix, iy, 20, y, w - 40, btnH)) {
-        if (field) { Screens_setModeSelectChoice(AppState_getMode() == APP_MODE_FIELD ? 1 : 0); return handled(SCREEN_MODE_SELECT); }
-        s_pinLen = 0; s_pinDigits[0] = '\0';
-        Screens_setPinSuccessTarget(SCREEN_MODE_SELECT);
-        return handled(SCREEN_PIN_ENTER);
+        Screens_setModeSelectChoice(AppState_getMode() == APP_MODE_FIELD ? 1 : 0);
+        return handled(SCREEN_MODE_SELECT);
       }
       y += btnH + gap;
-      if (!field && inRect(ix, iy, 20, y, w - 40, btnH)) {
-        s_pinLen = 0; s_pinDigits[0] = '\0';
-        Screens_setPinSuccessTarget(SCREEN_CHANGE_PIN);
-        return handled(SCREEN_PIN_ENTER);
-      }
+      if (!field && inRect(ix, iy, 20, y, w - 40, btnH)) return handled(SCREEN_CHANGE_PIN);
       { int backY = 42 + nRows * (btnH + gap);
-        if (inRect(ix, iy, 20, backY, 80, 28)) return handled(SCREEN_MAIN_MENU); }
+        if (inRect(ix, iy, 20, backY, 80, 28)) {
+          s_trainingSettingsUnlocked = false;
+          return handled(SCREEN_MAIN_MENU);
+        } }
       break;
     }
     case SCREEN_ROTATION:
@@ -1774,6 +1779,7 @@ ScreenId Screens_handleTouch(TFT_eSPI* tft, ScreenId current, uint16_t x, uint16
       if (inRect(ix, iy, w - 70, 8, 50, 28)) {
         s_pinLen = 0;
         s_pinDigits[0] = '\0';
+        if (s_pinSuccessTarget == SCREEN_SETTINGS) return handled(SCREEN_MAIN_MENU);
         return handled(SCREEN_SETTINGS);
       }
       int cellW = (w - 50) / 3, cellH = 38, startY = 100, gap = 6;
@@ -1797,6 +1803,7 @@ ScreenId Screens_handleTouch(TFT_eSPI* tft, ScreenId current, uint16_t x, uint16
             if (AppState_checkPin(pin)) {
               s_pinLen = 0;
               s_pinDigits[0] = '\0';
+              if (s_pinSuccessTarget == SCREEN_SETTINGS) s_trainingSettingsUnlocked = true;
               if (s_pinSuccessTarget == SCREEN_MODE_SELECT)
                 Screens_setModeSelectChoice(AppState_getMode() == APP_MODE_FIELD ? 1 : 0);
               return handled(s_pinSuccessTarget);

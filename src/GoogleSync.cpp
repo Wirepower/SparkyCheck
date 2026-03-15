@@ -8,12 +8,17 @@
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <HTTPClient.h>
+#include <LittleFS.h>
 #include <WiFiClientSecure.h>
 #include <stdio.h>
 #include <string.h>
 
 static char s_lastStatus[GOOGLE_SYNC_STATUS_LEN] = "Training sync idle.";
 static char s_sessionId[32] = "";
+static bool s_fsReady = false;
+static unsigned long s_nextFlushMs = 0;
+static const char* kQueuePath = "/sync_queue.ndjson";
+static const char* kQueueTmpPath = "/sync_queue.tmp";
 
 static void setStatus(const char* text) {
   if (!text) text = "";
@@ -37,8 +42,74 @@ static const char* targetName(TrainingSyncTarget t) {
   }
 }
 
+static bool postPayload(const char* endpoint, const String& payload, int* httpCode);
+
+static bool ensureFsReady(void) {
+  if (s_fsReady) return true;
+  s_fsReady = LittleFS.begin(true);
+  return s_fsReady;
+}
+
+static bool queueAppend(const String& payload) {
+  if (!ensureFsReady()) return false;
+  File f = LittleFS.open(kQueuePath, "a");
+  if (!f) return false;
+  f.print(payload);
+  f.print('\n');
+  f.close();
+  return true;
+}
+
+static bool flushQueue(const char* endpoint) {
+  if (!endpoint || !endpoint[0]) return false;
+  if (!ensureFsReady()) return false;
+  if (!LittleFS.exists(kQueuePath)) return true;
+
+  File in = LittleFS.open(kQueuePath, "r");
+  if (!in) return false;
+  File out = LittleFS.open(kQueueTmpPath, "w");
+  if (!out) { in.close(); return false; }
+
+  bool stillSending = true;
+  int queuedLeft = 0;
+  while (in.available()) {
+    String line = in.readStringUntil('\n');
+    line.trim();
+    if (!line.length()) continue;
+
+    if (stillSending) {
+      int code = 0;
+      if (postPayload(endpoint, line, &code)) continue;
+      stillSending = false;
+    }
+    out.print(line);
+    out.print('\n');
+    queuedLeft++;
+  }
+  in.close();
+  out.close();
+
+  if (stillSending) {
+    LittleFS.remove(kQueuePath);
+    LittleFS.remove(kQueueTmpPath);
+    return true;
+  }
+
+  LittleFS.remove(kQueuePath);
+  if (!LittleFS.rename(kQueueTmpPath, kQueuePath)) {
+    setStatus("Queue flush failed (rename).");
+    return false;
+  }
+  char msg[GOOGLE_SYNC_STATUS_LEN];
+  snprintf(msg, sizeof(msg), "Queue pending: %d", queuedLeft);
+  setStatus(msg);
+  return false;
+}
+
 void GoogleSync_init(void) {
   s_sessionId[0] = '\0';
+  s_nextFlushMs = 0;
+  ensureFsReady();
   setStatus("Training sync idle.");
 }
 
@@ -106,10 +177,6 @@ bool GoogleSync_sendResult(const GoogleSyncResult* result) {
     setStatus("Sync skipped: disabled.");
     return false;
   }
-  if (!WifiManager_isConnected()) {
-    setStatus("Sync skipped: WiFi disconnected.");
-    return false;
-  }
 
   char endpoint[APP_STATE_TRAINING_SYNC_URL_LEN];
   char token[APP_STATE_TRAINING_SYNC_TOKEN_LEN];
@@ -164,11 +231,36 @@ bool GoogleSync_sendResult(const GoogleSyncResult* result) {
 
   String payload;
   serializeJson(doc, payload);
+
+  if (WifiManager_isConnected()) {
+    flushQueue(endpoint);
+  }
+
+  if (!WifiManager_isConnected()) {
+    if (queueAppend(payload)) {
+      setStatus("Queued offline (no WiFi).");
+    } else {
+      setStatus("Queue failed (no WiFi).");
+    }
+    return false;
+  }
+
   int code = 0;
   bool ok = postPayload(endpoint, payload, &code);
   if (ok) {
     setStatus("Training sync sent.");
     return true;
+  }
+
+  if (queueAppend(payload)) {
+    if (code > 0) {
+      char msg[GOOGLE_SYNC_STATUS_LEN];
+      snprintf(msg, sizeof(msg), "Queued after HTTP %d", code);
+      setStatus(msg);
+    } else {
+      setStatus("Queued after send failure.");
+    }
+    return false;
   }
 
   char msg[GOOGLE_SYNC_STATUS_LEN];
@@ -198,6 +290,20 @@ bool GoogleSync_sendPing(void) {
   ping.passed = true;
   ping.clause = "";
   return GoogleSync_sendResult(&ping);
+}
+
+void GoogleSync_tick(void) {
+  if (AppState_isFieldMode()) return;
+  if (!AppState_getTrainingSyncEnabled()) return;
+  if (!WifiManager_isConnected()) return;
+  unsigned long now = millis();
+  if (now < s_nextFlushMs) return;
+  s_nextFlushMs = now + 5000UL;
+
+  char endpoint[APP_STATE_TRAINING_SYNC_URL_LEN];
+  AppState_getTrainingSyncEndpoint(endpoint, sizeof(endpoint));
+  if (!endpoint[0]) return;
+  flushQueue(endpoint);
 }
 
 void GoogleSync_resetSession(void) {

@@ -22,10 +22,15 @@ A) What this firmware now does
    - Sync target selector: Auto / Google Sheets / SharePoint
    - None of these channels are required.
 
+2b) Training settings protection
+   - In Training mode, Settings access is PIN-protected before any settings can be changed.
+   - Students can run tests, but cannot alter configuration without PIN.
+
 3) Live training sync behavior
    - Sends events while student progresses:
      test_started, step_next, step_back, result_confirmed, session_saved, ping
    - Back-end should UPSERT one row by (device_id + session_id), not append on every event.
+   - If device is offline, sync events are queued locally and retried automatically when WiFi returns.
 
 4) Student ID flow
    - In Training mode, before each test starts, device prompts for Student ID.
@@ -303,6 +308,7 @@ If no cloud rows appear:
 3) Token matches backend?
 4) Device has WiFi?
 5) Backend accepts anonymous/public POST from device network?
+6) If previously offline, wait for queue flush cycle (~5s) after reconnect
 
 If rows append instead of update:
 1) Ensure backend uses UPSERT by device_id + session_id
