@@ -56,6 +56,7 @@ A) What this firmware now does
    - Device opens PIN screen.
    - Enter PIN:
      - Default: 12345
+     - PIN length: minimum 4 digits
      - If changed previously, use the changed PIN.
    - After PIN success, choose mode and confirm.
    - Mode is saved and remains until this hidden process is repeated.

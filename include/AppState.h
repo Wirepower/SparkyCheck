@@ -32,10 +32,10 @@ void AppState_setMode(AppMode mode);
 /** True if Field mode (3760 active). */
 bool AppState_isFieldMode(void);
 
-/** Default PIN (5 digits). Change via AppState_setPin() from protected menu. */
+/** Default PIN (minimum 4 digits). Change via AppState_setPin() from protected menu. */
 #define APP_STATE_DEFAULT_PIN 12345
 
-/** Check if the given PIN is correct (5-digit, for protected menu in Training mode). */
+/** Check if the given PIN is correct (for protected menu in Training mode). */
 bool AppState_checkPin(uint32_t pin);
 
 /** Get stored PIN (returns default if never set). */

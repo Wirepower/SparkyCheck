@@ -44,13 +44,16 @@ static unsigned long s_testCompletedMs = 0;
 static ScreenId s_pinSuccessTarget = SCREEN_MODE_SELECT;
 static ScreenId s_pinCancelTarget = SCREEN_SETTINGS;
 
-/* PIN entry state (5-digit PIN) */
-static char s_pinDigits[6] = "";
+static const int kPinMinLen = 4;
+static const int kPinMaxLen = 8;
+
+/* PIN entry state (variable length, min 4 digits) */
+static char s_pinDigits[kPinMaxLen + 1] = "";
 static int s_pinLen = 0;
 
 /* Change PIN: step 0 = enter new, step 1 = confirm; buffers for comparison */
 static int s_changePinStep = 0;
-static char s_newPinBuf[6] = "";
+static char s_newPinBuf[kPinMaxLen + 1] = "";
 static int s_newPinLen = 0;
 
 /* Email settings edit: which field (0=server,1=port,2=user,3=pass,4=reportTo) and buffer */
@@ -1194,9 +1197,13 @@ void Screens_draw(TFT_eSPI* tft, ScreenId id) {
       tft->print("Enter PIN");
       tft->setTextSize(1);
       tft->setCursor(20, 40);
-      tft->print("5 digits (authorised users only):");
-      char disp[6] = "*****";
-      for (int i = 0; i < s_pinLen && i < 5; i++) disp[i] = s_pinDigits[i];
+      tft->print("Minimum 4 digits (authorised users only):");
+      char disp[kPinMaxLen + 1];
+      int dlen = s_pinLen;
+      if (dlen > kPinMaxLen) dlen = kPinMaxLen;
+      for (int i = 0; i < dlen; i++) disp[i] = '*';
+      disp[dlen] = '\0';
+      if (dlen == 0) strcpy(disp, "(none)");
       tft->setTextSize(2);
       tft->setCursor(20, 62);
       tft->print(disp);
@@ -1233,9 +1240,13 @@ void Screens_draw(TFT_eSPI* tft, ScreenId id) {
       tft->print(s_changePinStep == 0 ? "New PIN" : "Confirm PIN");
       tft->setTextSize(1);
       tft->setCursor(20, 38);
-      tft->print("Enter 5 digits");
-      char disp[6] = "*****";
-      for (int i = 0; i < s_pinLen && i < 5; i++) disp[i] = s_pinDigits[i];
+      tft->print("Enter min 4 digits");
+      char disp[kPinMaxLen + 1];
+      int dlen = s_pinLen;
+      if (dlen > kPinMaxLen) dlen = kPinMaxLen;
+      for (int i = 0; i < dlen; i++) disp[i] = '*';
+      disp[dlen] = '\0';
+      if (dlen == 0) strcpy(disp, "(none)");
       tft->setTextSize(2);
       tft->setCursor(20, 58);
       tft->print(disp);
@@ -1804,9 +1815,9 @@ ScreenId Screens_handleTouch(TFT_eSPI* tft, ScreenId current, uint16_t x, uint16
             return handled(current);
           }
           if (keys[idx] == 'E') {
-            if (s_pinLen != 5) break;
+            if (s_pinLen < kPinMinLen) break;
             uint32_t pin = 0;
-            for (int i = 0; i < 5; i++)
+            for (int i = 0; i < s_pinLen; i++)
               pin = pin * 10 + (s_pinDigits[i] - '0');
             if (AppState_checkPin(pin)) {
               s_pinLen = 0;
@@ -1823,7 +1834,7 @@ ScreenId Screens_handleTouch(TFT_eSPI* tft, ScreenId current, uint16_t x, uint16
               return handled(current);
             }
           }
-          if (keys[idx] >= '0' && keys[idx] <= '9' && s_pinLen < 5) {
+          if (keys[idx] >= '0' && keys[idx] <= '9' && s_pinLen < kPinMaxLen) {
             s_pinDigits[s_pinLen++] = keys[idx];
             s_pinDigits[s_pinLen] = '\0';
             Screens_draw(tft, current);
@@ -1851,19 +1862,21 @@ ScreenId Screens_handleTouch(TFT_eSPI* tft, ScreenId current, uint16_t x, uint16
             return handled(current);
           }
           if (keys[idx] == 'E') {
-            if (s_pinLen != 5) break;
+            if (s_pinLen < kPinMinLen) break;
             if (s_changePinStep == 0) {
-              memcpy(s_newPinBuf, s_pinDigits, 6);
-              s_newPinLen = 5;
+              memcpy(s_newPinBuf, s_pinDigits, s_pinLen);
+              s_newPinBuf[s_pinLen] = '\0';
+              s_newPinLen = s_pinLen;
               s_changePinStep = 1;
               s_pinLen = 0; s_pinDigits[0] = '\0';
               Screens_draw(tft, current);
               return handled(current);
             } else {
-              bool match = (s_pinLen == 5 && strncmp(s_pinDigits, s_newPinBuf, 5) == 0);
+              bool match = (s_pinLen == s_newPinLen && s_pinLen >= kPinMinLen &&
+                            strncmp(s_pinDigits, s_newPinBuf, s_newPinLen) == 0);
               if (match) {
                 uint32_t pin = 0;
-                for (int i = 0; i < 5; i++) pin = pin * 10 + (s_newPinBuf[i] - '0');
+                for (int i = 0; i < s_newPinLen; i++) pin = pin * 10 + (s_newPinBuf[i] - '0');
                 AppState_setPin(pin);
                 Buzzer_beepPass();
               } else Buzzer_beepFail();
@@ -1871,7 +1884,7 @@ ScreenId Screens_handleTouch(TFT_eSPI* tft, ScreenId current, uint16_t x, uint16
               return handled(SCREEN_SETTINGS);
             }
           }
-          if (keys[idx] >= '0' && keys[idx] <= '9' && s_pinLen < 5) {
+          if (keys[idx] >= '0' && keys[idx] <= '9' && s_pinLen < kPinMaxLen) {
             s_pinDigits[s_pinLen++] = keys[idx];
             s_pinDigits[s_pinLen] = '\0';
             Screens_draw(tft, current);
