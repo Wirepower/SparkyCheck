@@ -9,6 +9,8 @@
 
 namespace BootScreen {
 
+static const char* kCreatorCredit = "Created by Frank Offer 2026";
+
 // Colours (TFT_eSPI 16-bit RGB565)
 static const uint16_t kBgDark    = 0x18E3;  // Dark blue-grey
 static const uint16_t kBgMid     = 0x2D6A;  // Mid blue
@@ -75,7 +77,7 @@ void showFirst(TFT_eSPI& tft) {
   // Creator line – bottom right
   tft.setTextColor(kAccentDim, kBgMid);
   tft.setTextSize(1);
-  const char* credit = "Created by Frank Offer 2026";
+  const char* credit = kCreatorCredit;
   int tw = (int)strlen(credit) * 6;  // Text size 1 default width
   int th = 8;                         // Text size 1 default height
   tft.setCursor(w - tw - 12, h - th - 10);
@@ -86,6 +88,18 @@ void showFirst(TFT_eSPI& tft) {
   tft.setTextSize(1);
   tft.setCursor(w / 2 - 55, h - 22);
   tft.print("Touch to continue");
+}
+
+bool isCreatorCreditTouchRegion(TFT_eSPI& tft, int x, int y) {
+  const int w = tft.width();
+  const int h = tft.height();
+  int tw = (int)strlen(kCreatorCredit) * 6;
+  int th = 8;
+  int rx = w - tw - 16;
+  int ry = h - th - 14;
+  int rw = tw + 8;
+  int rh = th + 8;
+  return x >= rx && x < rx + rw && y >= ry && y < ry + rh;
 }
 
 void showDisclaimer(TFT_eSPI& tft) {
