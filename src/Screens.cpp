@@ -40,6 +40,7 @@ static char s_studentInput[APP_STATE_DEVICE_ID_LEN] = "";
 static int s_studentInputLen = 0;
 static unsigned long s_testStartedMs = 0;
 static unsigned long s_testCompletedMs = 0;
+static float s_rcdRequiredMaxMs = 0.0f;
 static VerifyResultKind s_resultInputKind = RESULT_NONE;
 static char s_resultInput[16] = "";
 static int s_resultInputLen = 0;
@@ -167,6 +168,7 @@ static void getResultUnitOptions(VerifyResultKind kind, const ResultUnitOption**
       *outDefaultIdx = 2;
       return;
     case RESULT_RCD_MS:
+    case RESULT_RCD_REQUIRED_MAX_MS:
       *out = kResultUnitsRcd;
       *outCount = sizeof(kResultUnitsRcd) / sizeof(kResultUnitsRcd[0]);
       *outDefaultIdx = 0;
@@ -200,6 +202,7 @@ static void resetResultEntryInput(void) {
   s_resultInput[0] = '\0';
   s_resultInputLen = 0;
   s_resultInputUnitIdx = 0;
+  s_rcdRequiredMaxMs = 0.0f;
 }
 
 static void ensureResultEntryInputState(VerifyResultKind kind) {
@@ -212,6 +215,12 @@ static void ensureResultEntryInputState(VerifyResultKind kind) {
     s_resultInput[0] = '\0';
     s_resultInputLen = 0;
     s_resultInputUnitIdx = defaultIdx;
+    if (kind == RESULT_RCD_REQUIRED_MAX_MS && s_rcdRequiredMaxMs > 0.0f) {
+      snprintf(s_resultInput, sizeof(s_resultInput), "%.6f", (double)s_rcdRequiredMaxMs);
+      trimNumberString(s_resultInput);
+      s_resultInputLen = (int)strlen(s_resultInput);
+      return;
+    }
     if (s_resultUnit && s_resultUnit[0]) {
       int idx = findResultUnitIndex(units, unitCount, s_resultUnit);
       if (idx >= 0) s_resultInputUnitIdx = idx;
@@ -282,6 +291,8 @@ static const char* syncTestKeyForId(int testId) {
     case VERIFY_CIRCUIT_CONNECTIONS: return "correct_circuit_connections";
     case VERIFY_EFLI: return "earth_fault_loop_impedance";
     case VERIFY_RCD: return "rcd_operation";
+    case VERIFY_SWP_DISCONNECT_RECONNECT_MOTOR: return "swp_disconnect_reconnect_motor";
+    case VERIFY_SWP_DISCONNECT_RECONNECT_APPLIANCE: return "swp_disconnect_reconnect_appliance";
     default: return "";
   }
 }
@@ -439,12 +450,12 @@ void Screens_draw(TFT_eSPI* tft, ScreenId id) {
         Standards_getVerificationScopeLine(scope, sizeof(scope));
         tft->print(scope);
       }
-      int rowH = 36, y = 56;
+      int rowH = 24, y = 56;
       for (int i = 0; i < VERIFY_TEST_COUNT; i++) {
         tft->fillRoundRect(20, y, w - 40, rowH - 4, 6, kBtn);
         tft->drawRoundRect(20, y, w - 40, rowH - 4, 6, kWhite);
         tft->setTextColor(kWhite, kBtn);
-        tft->setCursor(28, y + 10);
+        tft->setCursor(28, y + 6);
         tft->print(VerificationSteps_getTestName((VerifyTestId)i));
         y += rowH;
       }
@@ -523,6 +534,12 @@ void Screens_draw(TFT_eSPI* tft, ScreenId id) {
           snprintf(buf, sizeof(buf), "%s: Verified", s_resultLabel ? s_resultLabel : "Test");
         tft->print(buf);
         tft->setCursor(20, 154);
+        if (s_selectedTestType == (int)VERIFY_RCD && s_rcdRequiredMaxMs > 0.0f) {
+          char crit[64];
+          snprintf(crit, sizeof(crit), "Criterion: <= %.3f ms", (double)s_rcdRequiredMaxMs);
+          tft->print(crit);
+          tft->setCursor(20, 166);
+        }
         tft->print(s_resultClause ? s_resultClause : "");
         int btnY = h - 52;
         tft->fillRoundRect(20, btnY, w - 40, 44, 8, kAccent);
@@ -592,6 +609,12 @@ void Screens_draw(TFT_eSPI* tft, ScreenId id) {
         if (s_resultInputUnitIdx < 0 || s_resultInputUnitIdx >= unitCount) s_resultInputUnitIdx = defaultIdx;
 
         tft->setTextColor(kWhite, kBg);
+        if (step.resultKind == RESULT_RCD_MS && s_rcdRequiredMaxMs > 0.0f) {
+          char reqBuf[44];
+          snprintf(reqBuf, sizeof(reqBuf), "Required max: %.3f ms", (double)s_rcdRequiredMaxMs);
+          tft->setCursor(20, 84);
+          tft->print(reqBuf);
+        }
         tft->setCursor(20, 98);
         tft->print("Value:");
         tft->setCursor(20, 112);
@@ -1472,7 +1495,7 @@ ScreenId Screens_handleTouch(TFT_eSPI* tft, ScreenId current, uint16_t x, uint16
       }
       break;
     case SCREEN_TEST_SELECT: {
-      int rowH = 36, y0 = 56;
+      int rowH = 24, y0 = 56;
       for (int i = 0; i < VERIFY_TEST_COUNT; i++) {
         if (inRect(ix, iy, 20, y0 + i * rowH, w - 40, rowH - 4)) {
           s_selectedTestType = i;
@@ -1693,7 +1716,34 @@ ScreenId Screens_handleTouch(TFT_eSPI* tft, ScreenId current, uint16_t x, uint16
               float canonicalValue = rawValue * units[s_resultInputUnitIdx].toCanonical;
               VerifyResultKind kind = step.resultKind;
               if (kind == RESULT_IR_MOHM && s_resultIsSheathedHeating) kind = RESULT_IR_MOHM_SHEATHED;
-              s_resultPass = VerificationSteps_validateResult(kind, canonicalValue, s_resultIsSheathedHeating);
+              if (kind == RESULT_RCD_REQUIRED_MAX_MS) {
+                s_rcdRequiredMaxMs = canonicalValue;
+                s_stepIndex++;
+                s_resultInputKind = RESULT_NONE;
+                s_resultInputLen = 0;
+                s_resultInput[0] = '\0';
+                if (s_stepIndex >= count) {
+                  s_resultPass = true;
+                  s_resultValue = rawValue;
+                  s_resultLabel = step.resultLabel;
+                  s_resultUnit = units[s_resultInputUnitIdx].label;
+                  s_resultClause = VerificationSteps_getClauseForResult(step.resultKind);
+                  s_flowPhase = 1;
+                  s_testCompletedMs = millis();
+                  syncTrainingFlowEvent("result_confirmed", true, nullptr);
+                  if (AppState_getBuzzerEnabled()) Buzzer_beepPass();
+                  Screens_draw(tft, current);
+                } else {
+                  syncTrainingFlowEvent("step_next", false, nullptr);
+                  showSavedPrompt(tft, "Required max saved");
+                  Screens_draw(tft, current);
+                }
+                return handled(current);
+              }
+              if (kind == RESULT_RCD_MS && s_rcdRequiredMaxMs > 0.0f)
+                s_resultPass = (canonicalValue >= 0.0f && canonicalValue <= s_rcdRequiredMaxMs);
+              else
+                s_resultPass = VerificationSteps_validateResult(kind, canonicalValue, s_resultIsSheathedHeating);
               s_resultValue = rawValue;
               s_resultLabel = step.resultLabel;
               s_resultUnit = units[s_resultInputUnitIdx].label;

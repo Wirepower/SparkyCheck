@@ -19,7 +19,9 @@ static const char* s_testNames[] = {
   "Earth continuity (CPC)",
   "Correct circuit connections",
   "Earth fault loop impedance",
-  "RCD operation"
+  "RCD operation",
+  "SWP D/R procedure (motor)",
+  "SWP D/R procedure (appliance)"
 };
 
 static const VerifyStep s_continuity[] = {
@@ -62,7 +64,36 @@ static const VerifyStep s_efli[] = {
 static const VerifyStep s_rcd[] = {
   { STEP_SAFETY, "Safety", "RCD test may trip supply. Ensure no critical loads will be affected. Use RCD tester as per manufacturer.", "AS/NZS 3000 Clause 8.3.10; 3017", RESULT_NONE, NULL, NULL },
   { STEP_VERIFY_YESNO, "Ready to test", "Is the RCD tester connected and circuit energised? Ready to record trip time?", "AS/NZS 3000 Clause 8.3.10", RESULT_NONE, NULL, NULL },
-  { STEP_RESULT_ENTRY, "RCD trip time", "Perform RCD operation test. Enter trip time (ms). Max 30 ms typical.", "AS/NZS 3000 Clause 8.3.10; 3017", RESULT_RCD_MS, "RCD trip time", "ms" },
+  { STEP_INFO, "Installation context", "Determine installation-specific RCD requirements before testing. Check AS/NZS 3000 Clause 2.6 and local/state regulations (special locations such as medical areas can require different settings, e.g. 10 mA).", "AS/NZS 3000 Clause 2.6; AS/NZS 3017", RESULT_NONE, NULL, NULL },
+  { STEP_VERIFY_YESNO, "Requirements confirmed", "Have you confirmed the required RCD rating and required maximum trip/disconnection time for this installation?", "AS/NZS 3000 Clause 2.6; AS/NZS 3017", RESULT_NONE, NULL, NULL },
+  { STEP_RESULT_ENTRY, "Required maximum trip time", "Enter the REQUIRED maximum trip/disconnection time for this installation from the applicable regulation.", "AS/NZS 3000 Clause 2.6; AS/NZS 3017", RESULT_RCD_REQUIRED_MAX_MS, "RCD required maximum", "ms" },
+  { STEP_RESULT_ENTRY, "RCD trip time", "Perform RCD operation test and enter measured trip time.", "AS/NZS 3000 Clause 8.3.10; 3017", RESULT_RCD_MS, "RCD trip time", "ms" },
+};
+
+static const VerifyStep s_swp_motor[] = {
+  { STEP_SAFETY, "SWP safety setup", "Confirm PPE is worn, hazards are controlled, and all relevant personnel are notified before starting motor disconnect/reconnect.", "AS/NZS 4836", RESULT_NONE, NULL, NULL },
+  { STEP_INFO, "Identify and isolate", "Identify the correct supply and equipment. Lock off the correct circuit breaker and secure the key.", "AS/NZS 4836", RESULT_NONE, NULL, NULL },
+  { STEP_INFO, "Prove tester", "Prove your voltage tester on a known live source before testing.", "AS/NZS 4836", RESULT_NONE, NULL, NULL },
+  { STEP_INFO, "Test dead", "Verify isolation at the motor terminals: Active-Earth, Active-Neutral, and Neutral-Earth as applicable.", "AS/NZS 4836", RESULT_NONE, NULL, NULL },
+  { STEP_INFO, "Re-prove tester", "Re-test the voltage tester on a known live source after proving dead.", "AS/NZS 4836", RESULT_NONE, NULL, NULL },
+  { STEP_INFO, "Disconnect and identify", "Disconnect motor conductors and identify/tag each conductor before reconnection.", "AS/NZS 4836", RESULT_NONE, NULL, NULL },
+  { STEP_INFO, "Reconnect correctly", "Reconnect conductors to the correct terminals as per manufacturer wiring diagram; secure all terminations.", "AS/NZS 3000 Section 8", RESULT_NONE, NULL, NULL },
+  { STEP_INFO, "Earth continuity", "After reconnection, confirm earth continuity from known earth to motor frame and state reading with units.", "AS/NZS 3000 Clause 8.3.5; AS/NZS 3017", RESULT_NONE, NULL, NULL },
+  { STEP_INFO, "Restore supply safely", "Refit covers/guards, notify personnel, remove lock-off, and restore supply safely.", "AS/NZS 4836", RESULT_NONE, NULL, NULL },
+  { STEP_VERIFY_YESNO, "Functional check complete", "Have you completed a functional run check (correct operation, no abnormal noise/conditions) and confirmed area is safe?", "AS/NZS 4836", RESULT_NONE, NULL, NULL },
+};
+
+static const VerifyStep s_swp_appliance[] = {
+  { STEP_SAFETY, "SWP safety setup", "Confirm PPE is worn, hazards are controlled, and all relevant personnel are notified before starting appliance disconnect/reconnect.", "AS/NZS 4836", RESULT_NONE, NULL, NULL },
+  { STEP_INFO, "Identify and isolate", "Identify the correct supply and appliance. Lock off the correct circuit breaker and secure the key.", "AS/NZS 4836", RESULT_NONE, NULL, NULL },
+  { STEP_INFO, "Prove tester", "Prove your voltage tester on a known live source before testing.", "AS/NZS 4836", RESULT_NONE, NULL, NULL },
+  { STEP_INFO, "Test dead", "Verify isolation at the appliance supply points: Active-Earth, Active-Neutral, and Neutral-Earth as applicable.", "AS/NZS 4836", RESULT_NONE, NULL, NULL },
+  { STEP_INFO, "Re-prove tester", "Re-test the voltage tester on a known live source after proving dead.", "AS/NZS 4836", RESULT_NONE, NULL, NULL },
+  { STEP_INFO, "Disconnect/reconnect wiring", "Disconnect then reconnect appliance wiring in accordance with manufacturer instructions and terminal markings.", "AS/NZS 3000 Section 8", RESULT_NONE, NULL, NULL },
+  { STEP_INFO, "Earth continuity", "Confirm earth continuity from known earth to appliance frame and state reading with units.", "AS/NZS 3000 Clause 8.3.5; AS/NZS 3017", RESULT_NONE, NULL, NULL },
+  { STEP_INFO, "Insulation resistance", "Perform IR test from live terminals to earth/frame and record reading with units and permissible value.", "AS/NZS 3000 Clause 8.3.6; AS/NZS 3017", RESULT_NONE, NULL, NULL },
+  { STEP_INFO, "Restore supply safely", "Secure all covers, notify relevant personnel, remove lock-off, and restore supply safely.", "AS/NZS 4836", RESULT_NONE, NULL, NULL },
+  { STEP_VERIFY_YESNO, "Final safety confirmation", "Have you confirmed the appliance is operating safely and all work is complete?", "AS/NZS 4836", RESULT_NONE, NULL, NULL },
 };
 
 static const VerifyStep* s_steps[VERIFY_TEST_COUNT] = {
@@ -72,7 +103,9 @@ static const VerifyStep* s_steps[VERIFY_TEST_COUNT] = {
   s_earth_continuity,
   s_circuit_connections,
   s_efli,
-  s_rcd
+  s_rcd,
+  s_swp_motor,
+  s_swp_appliance
 };
 
 static const int s_stepCounts[VERIFY_TEST_COUNT] = {
@@ -83,6 +116,8 @@ static const int s_stepCounts[VERIFY_TEST_COUNT] = {
   sizeof(s_circuit_connections) / sizeof(s_circuit_connections[0]),
   sizeof(s_efli) / sizeof(s_efli[0]),
   sizeof(s_rcd) / sizeof(s_rcd[0]),
+  sizeof(s_swp_motor) / sizeof(s_swp_motor[0]),
+  sizeof(s_swp_appliance) / sizeof(s_swp_appliance[0]),
 };
 
 const char* VerificationSteps_getTestName(VerifyTestId id) {
@@ -105,6 +140,7 @@ bool VerificationSteps_validateResult(VerifyResultKind kind, float value, bool i
     case RESULT_CONTINUITY_OHM: return TestLimits_continuityPass(value);
     case RESULT_IR_MOHM: return TestLimits_insulationPass(value, false);
     case RESULT_IR_MOHM_SHEATHED: return TestLimits_insulationPass(value, true);
+    case RESULT_RCD_REQUIRED_MAX_MS: return value > 0.0f;
     case RESULT_RCD_MS: return TestLimits_rcdTripTimePass(value);
     case RESULT_EFLI_OHM: return TestLimits_efliPass(value);
     default: return false;
@@ -116,6 +152,7 @@ const char* VerificationSteps_getClauseForResult(VerifyResultKind kind) {
     case RESULT_CONTINUITY_OHM: return "AS/NZS 3000 Clause 8.3.5";
     case RESULT_IR_MOHM:
     case RESULT_IR_MOHM_SHEATHED: return "AS/NZS 3000 Clause 8.3.6";
+    case RESULT_RCD_REQUIRED_MAX_MS: return "AS/NZS 3000 Clause 2.6";
     case RESULT_RCD_MS: return "AS/NZS 3000 Clause 8.3.10";
     case RESULT_EFLI_OHM: return "AS/NZS 3000 Clause 8.3.9";
     default: return "";
