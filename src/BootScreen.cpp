@@ -5,6 +5,7 @@
 
 #include "BootScreen.h"
 #include "Standards.h"
+#include <string.h>
 
 namespace BootScreen {
 
@@ -36,8 +37,8 @@ void drawIndustryGraphic(TFT_eSPI& tft, int centerX, int centerY, int size) {
   int  x2    = cx + leg;
   int  y2    = cy - leg;
   for (int d = -tickW; d <= tickW; d++) {
-    tft.drawLine(x0 + d, y0, x1 + d, y1);
-    tft.drawLine(x1 + d, y1, x2 + d, y2);
+    tft.drawLine(x0 + d, y0, x1 + d, y1, kGreen);
+    tft.drawLine(x1 + d, y1, x2 + d, y2, kGreen);
   }
   tft.fillTriangle(x0, y0, x1, y1, x2, y2, kGreen);
   tft.drawTriangle(x0, y0, x1, y1, x2, y2, kWhite);
@@ -75,8 +76,8 @@ void showFirst(TFT_eSPI& tft) {
   tft.setTextColor(kAccentDim, kBgMid);
   tft.setTextSize(1);
   const char* credit = "Created by Frank Offer 2026";
-  uint16_t tw = 0, th = 0;
-  tft.getTextBounds(credit, 0, 0, nullptr, nullptr, &tw, &th);
+  int tw = (int)strlen(credit) * 6;  // Text size 1 default width
+  int th = 8;                         // Text size 1 default height
   tft.setCursor(w - tw - 12, h - th - 10);
   tft.print(credit);
 
