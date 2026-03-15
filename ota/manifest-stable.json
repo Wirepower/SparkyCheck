@@ -1,0 +1,9 @@
+{
+  "channel": "stable",
+  "version": "2026.03.15",
+  "firmware_url": "",
+  "md5": "",
+  "rollout_pct": 1,
+  "force": false,
+  "notes": "Bootstrap manifest. Set firmware_url when publishing first OTA release."
+}

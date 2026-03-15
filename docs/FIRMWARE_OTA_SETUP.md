@@ -37,6 +37,12 @@ Example:
 -DOTA_CHANNEL=\"stable\"
 ```
 
+This repository is already configured to:
+
+`https://raw.githubusercontent.com/Wirepower/SparkyCheck/main/ota/manifest-stable.json`
+
+If your repository path changes, update that URL.
+
 TLS:
 
 - Current default is `OTA_TLS_INSECURE=1` (encrypted transport, no certificate pinning).
@@ -44,7 +50,51 @@ TLS:
 
 ---
 
-## 2) Host firmware binaries + manifest
+## 2) Where devices retrieve updates from
+
+Devices do **not** pull binaries directly from GitHub by themselves first. They do this in two steps:
+
+1. Fetch the manifest URL from `OTA_MANIFEST_URL` (or NVS override).
+2. Read `firmware_url` inside the manifest and download that `.bin`.
+
+So your deployment needs:
+
+- a stable manifest URL (constant),
+- a reachable `.bin` URL (changes each release).
+
+---
+
+## 3) GitHub setup (recommended)
+
+Yes, GitHub can host the whole OTA flow.
+
+### What this repo now includes
+
+- `ota/manifest-stable.json` (stable manifest path)
+- `.github/workflows/ota-release.yml` (manual OTA release pipeline)
+- `scripts/generate_ota_manifest.py` (manifest generator)
+
+### Required repo setting
+
+- Repository should be **public** for direct unauthenticated device downloads from raw/release URLs.
+  - If private, devices cannot read raw/release URLs without auth (not implemented in firmware).
+
+### Release workflow behavior
+
+Run **Actions → OTA Release → Run workflow** with version/channel/rollout inputs.
+
+It will:
+
+1. Build firmware (`pio run`).
+2. Create release asset: `sparkycheck-<version>.bin`.
+3. Compute MD5.
+4. Update `ota/manifest-<channel>.json`.
+5. Commit/push manifest update.
+6. Create/update GitHub Release tag `fw-<version>` with the `.bin` asset.
+
+---
+
+## 4) Manifest format
 
 You need a stable HTTPS location for:
 
@@ -59,7 +109,9 @@ Common options:
 
 ---
 
-## 3) Manifest format
+Example `firmware_url` using this repo’s GitHub release assets:
+
+`https://github.com/Wirepower/SparkyCheck/releases/download/fw-2026.03.16/sparkycheck-2026.03.16.bin`
 
 Example:
 
@@ -67,7 +119,7 @@ Example:
 {
   "channel": "stable",
   "version": "2026.03.16",
-  "firmware_url": "https://your-host.example.com/sparkycheck/sparkycheck-2026.03.16.bin",
+  "firmware_url": "https://github.com/Wirepower/SparkyCheck/releases/download/fw-2026.03.16/sparkycheck-2026.03.16.bin",
   "md5": "6f5902ac237024bdd0c176cb93063dc4",
   "rollout_pct": 100,
   "force": false,
@@ -87,12 +139,12 @@ Fields:
 
 ---
 
-## 4) Provision devices (one-time bootstrap)
+## 5) Provision devices (one-time bootstrap)
 
 1. Flash/update all devices once to firmware containing this OTA module.
 2. Ensure each device has WiFi credentials in **Settings → WiFi connection**.
 3. In **Settings → Firmware updates**, confirm:
-   - Manifest URL is configured.
+   - Manifest URL is configured (`OTA_MANIFEST_URL` build flag).
    - Auto-check is ON.
    - Auto-install is ON (default in this implementation).
 
@@ -100,22 +152,23 @@ After this bootstrap, updates can be pushed remotely by updating manifest + host
 
 ---
 
-## 5) Release workflow (each bugfix release)
+## 6) Release workflow (each bugfix release)
 
-1. Change `FIRMWARE_VERSION` to a newer value.
-2. Build firmware: `pio run`.
-3. Locate generated `.bin` in `.pio/build/<env>/`.
-4. Compute MD5 of `.bin`.
-5. Upload `.bin` to your OTA host.
-6. Update `manifest.json` to the new version and URL.
-7. Start with staged rollout (for example `rollout_pct: 10`).
-8. Monitor fleet behavior, then move to `25`, `50`, `100`.
+1. Change `FIRMWARE_VERSION` in `platformio.ini` to a newer value.
+2. Push to GitHub.
+3. Run **Actions → OTA Release** and enter:
+   - `version` (must match `FIRMWARE_VERSION`)
+   - `channel` (`stable` or `beta`)
+   - `rollout_pct` (start small, e.g. 10)
+   - `force` (normally `false`)
+4. Monitor devices.
+5. Re-run with higher `rollout_pct` (25 → 50 → 100).
 
 At `100`, all online devices in that channel will update automatically.
 
 ---
 
-## 6) Recommended fleet model
+## 7) Recommended fleet model
 
 - Use **channels**:
   - `beta` for internal testers
@@ -125,7 +178,7 @@ At `100`, all online devices in that channel will update automatically.
 
 ---
 
-## 7) Operational notes
+## 8) Operational notes
 
 - Devices check on boot (auto-flow).
 - Manual controls available in **Settings → Firmware updates**:

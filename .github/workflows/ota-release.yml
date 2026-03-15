@@ -1,0 +1,107 @@
+name: OTA Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Firmware version (must match FIRMWARE_VERSION in build)"
+        required: true
+        type: string
+      channel:
+        description: "Update channel"
+        required: true
+        default: "stable"
+        type: choice
+        options:
+          - stable
+          - beta
+      rollout_pct:
+        description: "Rollout percentage (1-100)"
+        required: true
+        default: "100"
+        type: string
+      force:
+        description: "Force install this update"
+        required: true
+        default: false
+        type: boolean
+      notes:
+        description: "Release notes (optional)"
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    env:
+      BOARD_ENV: esp32-s3-devkitc-1
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install PlatformIO
+        run: pip install platformio
+
+      - name: Build firmware
+        run: pio run -e "$BOARD_ENV"
+
+      - name: Prepare release files
+        id: prep
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${{ inputs.version }}"
+          CHANNEL="${{ inputs.channel }}"
+          TAG="fw-${VERSION}"
+          ASSET="sparkycheck-${VERSION}.bin"
+          BIN=".pio/build/${BOARD_ENV}/firmware.bin"
+          if [ ! -f "$BIN" ]; then
+            echo "Expected firmware binary not found: $BIN" >&2
+            exit 1
+          fi
+          cp "$BIN" "$ASSET"
+          MD5="$(md5sum "$ASSET" | awk '{print $1}')"
+          URL="https://github.com/${{ github.repository }}/releases/download/${TAG}/${ASSET}"
+          MANIFEST="ota/manifest-${CHANNEL}.json"
+          python scripts/generate_ota_manifest.py \
+            --output "$MANIFEST" \
+            --channel "$CHANNEL" \
+            --version "$VERSION" \
+            --firmware-url "$URL" \
+            --md5 "$MD5" \
+            --rollout-pct "${{ inputs.rollout_pct }}" \
+            --force "${{ inputs.force }}" \
+            --notes "${{ inputs.notes }}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "asset=${ASSET}" >> "$GITHUB_OUTPUT"
+
+      - name: Commit updated manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add ota/manifest-${{ inputs.channel }}.json
+          if git diff --cached --quiet; then
+            echo "No manifest changes to commit."
+          else
+            git commit -m "Publish OTA manifest ${{ inputs.channel }} ${{ inputs.version }}"
+            git push
+          fi
+
+      - name: Create or update GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.prep.outputs.tag }}
+          name: SparkyCheck ${{ inputs.version }}
+          body: ${{ inputs.notes }}
+          files: ${{ steps.prep.outputs.asset }}
