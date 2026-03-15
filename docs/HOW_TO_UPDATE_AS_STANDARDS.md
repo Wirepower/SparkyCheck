@@ -119,7 +119,7 @@ The device will now use the new editions, limits, steps, and rules version.
 ### Option B: OTA (over-the-air)
 
 1. Perform all the file changes above and build the firmware as usual.
-2. Use your normal OTA method (e.g. PlatformIO OTA upload, or an in-app “Check for updates” flow if you add one).
+2. Use your normal OTA method (e.g. PlatformIO OTA upload, or in-app from **Settings → Firmware updates**).
 3. Ensure the device is on **WiFi** (e.g. via **Settings → WiFi connection**).
 4. Upload the new firmware image to the device.
 

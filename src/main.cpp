@@ -7,6 +7,7 @@
 #include "ReportGenerator.h"
 #include "Buzzer.h"
 #include "WifiManager.h"
+#include "OtaUpdate.h"
 
 TFT_eSPI tft = TFT_eSPI();
 static ScreenId s_currentScreen = SCREEN_MAIN_MENU;
@@ -38,6 +39,8 @@ void setup() {
 
   ReportGenerator_init();
   WifiManager_reconnectSaved();
+  OtaUpdate_init();
+  OtaUpdate_runAutoFlow();
   Screens_setModeSelectChoice(AppState_getMode() == APP_MODE_FIELD ? 1 : 0);
   s_currentScreen = SCREEN_MAIN_MENU;
   tft.setRotation(AppState_getRotation());

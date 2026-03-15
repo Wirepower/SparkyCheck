@@ -28,9 +28,9 @@ Standards: **AS/NZS 3000:2018** (Section 8), **AS/NZS 3017:2022**, **AS/NZS 3760
 | **Report generation** | CSV + styled HTML to LittleFS (`/reports/Job_&lt;timestamp&gt;.csv` and `.html`); clause refs, rules version |
 | **Report list** | View saved report basenames from storage |
 | **Report saved** | Confirmation screen with basename; OK → main menu |
-| **Settings** | Screen rotation, WiFi, Buzzer, **About**, **How to update**, Email, Change mode, Change PIN (Training). Back to menu |
+| **Settings** | Screen rotation, WiFi, Buzzer, **About**, **Firmware updates**, Email, Change mode, Change PIN (Training). Back to menu |
 | **About** | What SparkyCheck is, created by Frank Offer, current AS/NZS standards in use (editions), rules version |
-| **How to update** | User-facing instructions: updates started from Settings; WiFi needed for OTA; new standards come with firmware; reports show rules version |
+| **Firmware updates** | In-app OTA controls: check now, install now, auto-check toggle, auto-install toggle |
 | **Buzzer** | Optional GPIO (`BUZZER_PIN`, default -1); startup chime, pass/fail beeps |
 | **Standards** | 3000, 3017, 3760; mode-aware; updatable editions and limits |
 
@@ -56,7 +56,7 @@ Standards: **AS/NZS 3000:2018** (Section 8), **AS/NZS 3017:2022**, **AS/NZS 3760
 | 1 | More tests | IR, polarity, earth, RCD (with limits in TestLimits); multi-step sequence |
 | 2 | Report export | Wi‑Fi hotspot download, BT, email, USB mass storage |
 | 3 | SD card | Use SD instead of/with LittleFS; browse, delete, format |
-| 4 | OTA | Wi‑Fi firmware update |
+| 4 | OTA hardening | Add certificate pinning (`OTA_TLS_INSECURE=0`) and rollout telemetry |
 | 5 | Buzzer GPIO | Set `BUZZER_PIN` in build flags or `Buzzer.h` if hardware present |
 | 6 | Numeric keypad | For arbitrary continuity/IR entry instead of preset buttons |
 | 7 | Change PIN | Allow teacher to set a new PIN from Settings (after entering current PIN) |

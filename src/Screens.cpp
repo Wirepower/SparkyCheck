@@ -4,6 +4,7 @@
 #include "TestLimits.h"
 #include "Buzzer.h"
 #include "WifiManager.h"
+#include "OtaUpdate.h"
 #include "Standards.h"
 #include "VerificationSteps.h"
 #include <TFT_eSPI.h>
@@ -345,7 +346,7 @@ void Screens_draw(TFT_eSPI* tft, ScreenId id) {
         else if (i == 1) label = "WiFi connection";
         else if (i == 2) label = "Buzzer (sound)";
         else if (i == 3) label = "About";
-        else if (i == 4) label = "How to update";
+        else if (i == 4) label = "Firmware updates";
         else if (i == 5) label = field ? "Email settings" : "Email settings (PIN)";
         else if (i == 6) label = field ? "Change operating mode" : "Change operating mode (PIN)";
         else label = "Change PIN (PIN)";
@@ -669,22 +670,92 @@ void Screens_draw(TFT_eSPI* tft, ScreenId id) {
       tft->setTextColor(kWhite, kBg);
       tft->setTextSize(2);
       tft->setCursor(20, 8);
-      tft->print("How to update");
+      tft->print("Firmware updates");
       tft->setTextSize(1);
+
       tft->setTextColor(kAccent, kBg);
       tft->setCursor(20, 34);
-      tft->print("Updates are started from Settings.");
+      tft->print("Current firmware:");
       tft->setTextColor(kWhite, kBg);
-      tft->setCursor(20, 52);
-      tft->print("Firmware (OTA): Connect to WiFi first (Settings > WiFi connection). Then use your usual method to install a new firmware image (e.g. PlatformIO OTA upload, or a future in-app check).");
-      tft->setCursor(20, 88);
-      tft->print("When AS/NZS standards are revised, new firmware may include updated test steps and pass/fail limits. Install the latest firmware when available to stay current.");
-      tft->setCursor(20, 118);
-      tft->print("Reports show the rules version in use so you can confirm which standard set was applied.");
-      tft->fillRoundRect(20, h - 44, 80, 36, 6, kBtn);
-      tft->drawRoundRect(20, h - 44, 80, 36, 6, kWhite);
+      tft->setCursor(150, 34);
+      tft->print(OtaUpdate_getCurrentVersion());
+
+      tft->setTextColor(kAccent, kBg);
+      tft->setCursor(20, 50);
+      tft->print("Auto-check:");
+      tft->setTextColor(kWhite, kBg);
+      tft->setCursor(92, 50);
+      tft->print(AppState_getOtaAutoCheckEnabled() ? "On" : "Off");
+
+      tft->setTextColor(kAccent, kBg);
+      tft->setCursor(20, 64);
+      tft->print("Auto-install:");
+      tft->setTextColor(kWhite, kBg);
+      tft->setCursor(92, 64);
+      tft->print(AppState_getOtaAutoInstallEnabled() ? "On" : "Off");
+
+      char manifestUrl[APP_STATE_OTA_URL_LEN];
+      OtaUpdate_getManifestUrl(manifestUrl, sizeof(manifestUrl));
+      tft->setTextColor(kAccent, kBg);
+      tft->setCursor(20, 78);
+      tft->print("Manifest URL:");
+      tft->setTextColor(kWhite, kBg);
+      tft->setCursor(20, 92);
+      tft->print(manifestUrl[0] ? "Configured" : "Not configured");
+
+      char status[OTA_STATUS_LEN];
+      OtaUpdate_getLastStatus(status, sizeof(status));
+      tft->setTextColor(kAccent, kBg);
+      tft->setCursor(20, 108);
+      tft->print("Status:");
+      tft->setTextColor(kWhite, kBg);
+      tft->setCursor(20, 122);
+      tft->print(status);
+
+      char pending[OTA_VERSION_LEN];
+      OtaUpdate_getPendingVersion(pending, sizeof(pending));
+      if (pending[0]) {
+        tft->setTextColor(kAccent, kBg);
+        tft->setCursor(20, 138);
+        tft->print("Pending:");
+        tft->setTextColor(kWhite, kBg);
+        tft->setCursor(74, 138);
+        tft->print(pending);
+      }
+
+      int btnY = 156;
+      tft->fillRoundRect(20, btnY, w - 40, 34, 6, kGreen);
+      tft->drawRoundRect(20, btnY, w - 40, 34, 6, kWhite);
+      tft->setTextColor(TFT_BLACK, kGreen);
+      tft->setCursor(w / 2 - 36, btnY + 10);
+      tft->print("Check now");
+
+      btnY += 38;
+      uint16_t installColor = OtaUpdate_hasPendingUpdate() ? kAccent : kBtn;
+      uint16_t installText = OtaUpdate_hasPendingUpdate() ? TFT_BLACK : kWhite;
+      tft->fillRoundRect(20, btnY, w - 40, 34, 6, installColor);
+      tft->drawRoundRect(20, btnY, w - 40, 34, 6, kWhite);
+      tft->setTextColor(installText, installColor);
+      tft->setCursor(w / 2 - 34, btnY + 10);
+      tft->print("Install now");
+
+      btnY += 38;
+      int half = (w - 50) / 2;
+      tft->fillRoundRect(20, btnY, half, 34, 6, kBtn);
+      tft->drawRoundRect(20, btnY, half, 34, 6, kWhite);
       tft->setTextColor(kWhite, kBtn);
-      tft->setCursor(40, h - 32);
+      tft->setCursor(26, btnY + 10);
+      tft->print("Toggle auto-check");
+      tft->fillRoundRect(30 + half, btnY, half, 34, 6, kBtn);
+      tft->drawRoundRect(30 + half, btnY, half, 34, 6, kWhite);
+      tft->setCursor(36 + half, btnY + 10);
+      tft->print("Toggle auto-install");
+
+      btnY += 44;
+      tft->fillRoundRect(20, btnY, 80, 36, 6, kBtn);
+      tft->drawRoundRect(20, btnY, 80, 36, 6, kWhite);
+      tft->setTextColor(kWhite, kBtn);
+      tft->setCursor(40, btnY + 12);
       tft->print("Back");
       break;
     }
@@ -1029,9 +1100,35 @@ ScreenId Screens_handleTouch(TFT_eSPI* tft, ScreenId current, uint16_t x, uint16
     case SCREEN_ABOUT:
       if (inRect(ix, iy, 20, h - 44, 80, 36)) return handled(SCREEN_SETTINGS);
       break;
-    case SCREEN_UPDATES:
-      if (inRect(ix, iy, 20, h - 44, 80, 36)) return handled(SCREEN_SETTINGS);
+    case SCREEN_UPDATES: {
+      int btnY = 156;
+      if (inRect(ix, iy, 20, btnY, w - 40, 34)) {
+        OtaUpdate_checkNow();
+        Screens_draw(tft, current);
+        return handled(current);
+      }
+      btnY += 38;
+      if (inRect(ix, iy, 20, btnY, w - 40, 34)) {
+        if (OtaUpdate_hasPendingUpdate()) OtaUpdate_installPending();
+        Screens_draw(tft, current);
+        return handled(current);
+      }
+      btnY += 38;
+      int half = (w - 50) / 2;
+      if (inRect(ix, iy, 20, btnY, half, 34)) {
+        AppState_setOtaAutoCheckEnabled(!AppState_getOtaAutoCheckEnabled());
+        Screens_draw(tft, current);
+        return handled(current);
+      }
+      if (inRect(ix, iy, 30 + half, btnY, half, 34)) {
+        AppState_setOtaAutoInstallEnabled(!AppState_getOtaAutoInstallEnabled());
+        Screens_draw(tft, current);
+        return handled(current);
+      }
+      btnY += 44;
+      if (inRect(ix, iy, 20, btnY, 80, 36)) return handled(SCREEN_SETTINGS);
       break;
+    }
     case SCREEN_EMAIL_SETTINGS: {
       int editY = 38 + 5 * 28 + 6;
       for (int i = 0; i < 5; i++) {

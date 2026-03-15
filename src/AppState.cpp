@@ -9,6 +9,9 @@ static const char* NVS_KEY_ROT    = "rot";
 static const char* NVS_KEY_BUZZ   = "buzz";
 static const char* NVS_KEY_WIFI_SSID   = "wifi_ssid";
 static const char* NVS_KEY_WIFI_PASS   = "wifi_pass";
+static const char* NVS_KEY_OTA_URL     = "ota_url";
+static const char* NVS_KEY_OTA_AUTO    = "ota_auto";
+static const char* NVS_KEY_OTA_INSTALL = "ota_inst";
 static const char* NVS_KEY_SMTP_SRV    = "smtp_srv";
 static const char* NVS_KEY_SMTP_PORT   = "smtp_port";
 static const char* NVS_KEY_SMTP_USER   = "smtp_user";
@@ -125,6 +128,60 @@ void AppState_setWifiCredentials(const char* ssid, const char* pass) {
   if (prefs.begin(NVS_NAMESPACE, false)) {
     if (ssid) prefs.putString(NVS_KEY_WIFI_SSID, ssid);
     if (pass) prefs.putString(NVS_KEY_WIFI_PASS, pass);
+    prefs.end();
+  }
+}
+
+void AppState_getOtaManifestUrl(char* buf, unsigned size) {
+  if (!buf || size == 0) return;
+  buf[0] = '\0';
+  Preferences prefs;
+  if (prefs.begin(NVS_NAMESPACE, true)) {
+    prefs.getString(NVS_KEY_OTA_URL, buf, size);
+    prefs.end();
+  }
+}
+
+void AppState_setOtaManifestUrl(const char* s) {
+  Preferences prefs;
+  if (prefs.begin(NVS_NAMESPACE, false)) {
+    prefs.putString(NVS_KEY_OTA_URL, s ? s : "");
+    prefs.end();
+  }
+}
+
+bool AppState_getOtaAutoCheckEnabled(void) {
+  Preferences prefs;
+  if (prefs.begin(NVS_NAMESPACE, true)) {
+    bool out = prefs.getBool(NVS_KEY_OTA_AUTO, true);
+    prefs.end();
+    return out;
+  }
+  return true;
+}
+
+void AppState_setOtaAutoCheckEnabled(bool on) {
+  Preferences prefs;
+  if (prefs.begin(NVS_NAMESPACE, false)) {
+    prefs.putBool(NVS_KEY_OTA_AUTO, on);
+    prefs.end();
+  }
+}
+
+bool AppState_getOtaAutoInstallEnabled(void) {
+  Preferences prefs;
+  if (prefs.begin(NVS_NAMESPACE, true)) {
+    bool out = prefs.getBool(NVS_KEY_OTA_INSTALL, true);
+    prefs.end();
+    return out;
+  }
+  return true;
+}
+
+void AppState_setOtaAutoInstallEnabled(bool on) {
+  Preferences prefs;
+  if (prefs.begin(NVS_NAMESPACE, false)) {
+    prefs.putBool(NVS_KEY_OTA_INSTALL, on);
     prefs.end();
   }
 }
