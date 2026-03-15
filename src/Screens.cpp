@@ -293,6 +293,7 @@ static const char* syncTestKeyForId(int testId) {
     case VERIFY_RCD: return "rcd_operation";
     case VERIFY_SWP_DISCONNECT_RECONNECT_MOTOR: return "swp_disconnect_reconnect_motor";
     case VERIFY_SWP_DISCONNECT_RECONNECT_APPLIANCE: return "swp_disconnect_reconnect_appliance";
+    case VERIFY_SWP_DISCONNECT_RECONNECT_HEATER_SHEATHED: return "swp_disconnect_reconnect_heater_sheathed";
     default: return "";
   }
 }
@@ -450,12 +451,12 @@ void Screens_draw(TFT_eSPI* tft, ScreenId id) {
         Standards_getVerificationScopeLine(scope, sizeof(scope));
         tft->print(scope);
       }
-      int rowH = 24, y = 56;
+      int rowH = 20, y = 56;
       for (int i = 0; i < VERIFY_TEST_COUNT; i++) {
         tft->fillRoundRect(20, y, w - 40, rowH - 4, 6, kBtn);
         tft->drawRoundRect(20, y, w - 40, rowH - 4, 6, kWhite);
         tft->setTextColor(kWhite, kBtn);
-        tft->setCursor(28, y + 6);
+        tft->setCursor(28, y + 4);
         tft->print(VerificationSteps_getTestName((VerifyTestId)i));
         y += rowH;
       }
@@ -1495,7 +1496,7 @@ ScreenId Screens_handleTouch(TFT_eSPI* tft, ScreenId current, uint16_t x, uint16
       }
       break;
     case SCREEN_TEST_SELECT: {
-      int rowH = 24, y0 = 56;
+      int rowH = 20, y0 = 56;
       for (int i = 0; i < VERIFY_TEST_COUNT; i++) {
         if (inRect(ix, iy, 20, y0 + i * rowH, w - 40, rowH - 4)) {
           s_selectedTestType = i;

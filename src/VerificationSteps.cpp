@@ -21,7 +21,8 @@ static const char* s_testNames[] = {
   "Earth fault loop impedance",
   "RCD operation",
   "SWP D/R procedure (motor)",
-  "SWP D/R procedure (appliance)"
+  "SWP D/R procedure (appliance)",
+  "SWP D/R procedure (heater/sheathed)"
 };
 
 static const VerifyStep s_continuity[] = {
@@ -78,6 +79,7 @@ static const VerifyStep s_swp_motor[] = {
   { STEP_INFO, "Re-prove tester", "Re-test the voltage tester on a known live source after proving dead.", "AS/NZS 4836", RESULT_NONE, NULL, NULL },
   { STEP_INFO, "Disconnect and identify", "Disconnect motor conductors and identify/tag each conductor before reconnection.", "AS/NZS 4836", RESULT_NONE, NULL, NULL },
   { STEP_INFO, "Reconnect correctly", "Reconnect conductors to the correct terminals as per manufacturer wiring diagram; secure all terminations.", "AS/NZS 3000 Section 8", RESULT_NONE, NULL, NULL },
+  { STEP_INFO, "Zero continuity leads", "Before continuity testing, zero/compensate test leads and confirm tester is functioning correctly.", "AS/NZS 3000 Clause 8.3.5; AS/NZS 3017", RESULT_NONE, NULL, NULL },
   { STEP_INFO, "Earth continuity", "After reconnection, confirm earth continuity from known earth to motor frame and state reading with units.", "AS/NZS 3000 Clause 8.3.5; AS/NZS 3017", RESULT_NONE, NULL, NULL },
   { STEP_INFO, "Restore supply safely", "Refit covers/guards, notify personnel, remove lock-off, and restore supply safely.", "AS/NZS 4836", RESULT_NONE, NULL, NULL },
   { STEP_VERIFY_YESNO, "Functional check complete", "Have you completed a functional run check (correct operation, no abnormal noise/conditions) and confirmed area is safe?", "AS/NZS 4836", RESULT_NONE, NULL, NULL },
@@ -90,10 +92,25 @@ static const VerifyStep s_swp_appliance[] = {
   { STEP_INFO, "Test dead", "Verify isolation at the appliance supply points: Active-Earth, Active-Neutral, and Neutral-Earth as applicable.", "AS/NZS 4836", RESULT_NONE, NULL, NULL },
   { STEP_INFO, "Re-prove tester", "Re-test the voltage tester on a known live source after proving dead.", "AS/NZS 4836", RESULT_NONE, NULL, NULL },
   { STEP_INFO, "Disconnect/reconnect wiring", "Disconnect then reconnect appliance wiring in accordance with manufacturer instructions and terminal markings.", "AS/NZS 3000 Section 8", RESULT_NONE, NULL, NULL },
+  { STEP_INFO, "Zero continuity leads", "Before continuity testing, zero/compensate test leads and confirm tester is functioning correctly.", "AS/NZS 3000 Clause 8.3.5; AS/NZS 3017", RESULT_NONE, NULL, NULL },
   { STEP_INFO, "Earth continuity", "Confirm earth continuity from known earth to appliance frame and state reading with units.", "AS/NZS 3000 Clause 8.3.5; AS/NZS 3017", RESULT_NONE, NULL, NULL },
   { STEP_INFO, "Insulation resistance", "Perform IR test from live terminals to earth/frame and record reading with units and permissible value.", "AS/NZS 3000 Clause 8.3.6; AS/NZS 3017", RESULT_NONE, NULL, NULL },
   { STEP_INFO, "Restore supply safely", "Secure all covers, notify relevant personnel, remove lock-off, and restore supply safely.", "AS/NZS 4836", RESULT_NONE, NULL, NULL },
   { STEP_VERIFY_YESNO, "Final safety confirmation", "Have you confirmed the appliance is operating safely and all work is complete?", "AS/NZS 4836", RESULT_NONE, NULL, NULL },
+};
+
+static const VerifyStep s_swp_heater_sheathed[] = {
+  { STEP_SAFETY, "SWP safety setup", "Confirm PPE is worn, hazards are controlled, and all relevant personnel are notified before starting heater/sheathed element disconnect/reconnect.", "AS/NZS 4836", RESULT_NONE, NULL, NULL },
+  { STEP_INFO, "Identify and isolate", "Identify the correct supply and heater/sheathed element circuit. Lock off the correct circuit breaker and secure the key.", "AS/NZS 4836", RESULT_NONE, NULL, NULL },
+  { STEP_INFO, "Prove tester", "Prove your voltage tester on a known live source before testing.", "AS/NZS 4836", RESULT_NONE, NULL, NULL },
+  { STEP_INFO, "Test dead", "Verify isolation at element terminals: Active-Earth, Active-Neutral, and Neutral-Earth as applicable.", "AS/NZS 4836", RESULT_NONE, NULL, NULL },
+  { STEP_INFO, "Re-prove tester", "Re-test the voltage tester on a known live source after proving dead.", "AS/NZS 4836", RESULT_NONE, NULL, NULL },
+  { STEP_INFO, "Disconnect/reconnect wiring", "Disconnect then reconnect heater/sheathed element wiring as per manufacturer wiring data and terminal markings.", "AS/NZS 3000 Section 8", RESULT_NONE, NULL, NULL },
+  { STEP_INFO, "Zero continuity leads", "Before continuity testing, zero/compensate test leads and confirm tester is functioning correctly.", "AS/NZS 3000 Clause 8.3.5; AS/NZS 3017", RESULT_NONE, NULL, NULL },
+  { STEP_INFO, "Earth continuity", "Confirm earth continuity from known earth to equipment frame and state reading with units.", "AS/NZS 3000 Clause 8.3.5; AS/NZS 3017", RESULT_NONE, NULL, NULL },
+  { STEP_INFO, "Insulation resistance", "Perform IR test; for sheathed heating elements verify minimum requirement applicable to this installation (e.g. 0.01 MOhm where applicable). Record value and units.", "AS/NZS 3000 Clause 8.3.6; AS/NZS 3017", RESULT_NONE, NULL, NULL },
+  { STEP_INFO, "Restore supply safely", "Secure all covers, notify relevant personnel, remove lock-off, and restore supply safely.", "AS/NZS 4836", RESULT_NONE, NULL, NULL },
+  { STEP_VERIFY_YESNO, "Final safety confirmation", "Have you confirmed safe operation and completed all SWP checks for the heater/sheathed element?", "AS/NZS 4836", RESULT_NONE, NULL, NULL },
 };
 
 static const VerifyStep* s_steps[VERIFY_TEST_COUNT] = {
@@ -105,7 +122,8 @@ static const VerifyStep* s_steps[VERIFY_TEST_COUNT] = {
   s_efli,
   s_rcd,
   s_swp_motor,
-  s_swp_appliance
+  s_swp_appliance,
+  s_swp_heater_sheathed
 };
 
 static const int s_stepCounts[VERIFY_TEST_COUNT] = {
@@ -118,6 +136,7 @@ static const int s_stepCounts[VERIFY_TEST_COUNT] = {
   sizeof(s_rcd) / sizeof(s_rcd[0]),
   sizeof(s_swp_motor) / sizeof(s_swp_motor[0]),
   sizeof(s_swp_appliance) / sizeof(s_swp_appliance[0]),
+  sizeof(s_swp_heater_sheathed) / sizeof(s_swp_heater_sheathed[0]),
 };
 
 const char* VerificationSteps_getTestName(VerifyTestId id) {
