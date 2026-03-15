@@ -1,0 +1,332 @@
+SparkyCheck setup instructions (OTA + device reporting + Google/SharePoint)
+=======================================================================
+
+This file is a practical setup guide for:
+1) OTA firmware updates to all devices
+2) Device-side training reporting configuration
+3) Google Sheets live sync backend
+4) SharePoint live sync backend
+5) SD-card mass provisioning for classroom rollout
+
+-----------------------------------------------------------------------
+A) What this firmware now does
+-----------------------------------------------------------------------
+
+1) OTA (firmware updates)
+   - Devices check a manifest URL and install newer firmware.
+   - GitHub Action publishes .bin + updates manifest.
+
+2) Training reporting channels (optional, independent)
+   - Email report toggle: ON/OFF (optional channel)
+   - Cloud sync toggle: ON/OFF (optional channel)
+   - Sync target selector: Auto / Google Sheets / SharePoint
+   - None of these channels are required.
+
+2b) Training settings protection
+   - In Training mode, Settings access is PIN-protected before any settings can be changed.
+   - Students can run tests, but cannot alter configuration without PIN.
+
+3) Live training sync behavior
+   - Sends events while student progresses:
+     test_started, step_next, step_back, result_confirmed, session_saved, ping
+   - Back-end should UPSERT one row by (device_id + session_id), not append on every event.
+   - If device is offline, sync events are queued locally and retried automatically when WiFi returns.
+
+4) Student ID flow
+   - In Training mode, before each test starts, device prompts for Student ID.
+   - ID is normalized to S + digits:
+       "3635697" -> "S3635697"
+       "s3635697" -> "S3635697"
+   - Each test creates a new session row (new row per test).
+
+5) Device ID label
+   - Unique device ID can be renamed in settings.
+   - Recommended: set this to cubicle label (example: CUB-03).
+   - If blank, firmware uses MAC-derived default (ESP32-xxxxxx).
+
+6) SD-first provisioning
+   - On boot, device checks SD card for provisioning config first.
+   - If enabled config exists, settings are applied.
+   - If SD missing or config disabled/invalid, device falls back to existing NVS settings.
+   - Device auto-creates template files on SD when missing.
+
+-----------------------------------------------------------------------
+B) One-time GitHub/OTA setup
+-----------------------------------------------------------------------
+
+1) Ensure repo is PUBLIC (or host manifest/bin on public URLs).
+2) Ensure GitHub Actions are enabled with write permissions.
+3) OTA workflow in repo:
+   .github/workflows/ota-release.yml
+4) Stable manifest path:
+   ota/manifest-stable.json
+
+Automatic behavior:
+- Push firmware changes to main.
+- OTA Release action builds firmware and publishes release asset:
+  sparkycheck-<version>.bin
+- Manifest is updated to that asset URL.
+
+Verify after push:
+1) Actions -> OTA Release is green
+2) Releases contains new .bin asset
+3) ota/manifest-stable.json has updated version + firmware_url
+
+-----------------------------------------------------------------------
+C) Device setup (repeat for each physical device)
+-----------------------------------------------------------------------
+
+0) (Optional, recommended for 10+ cubicles) SD mass provisioning
+   - Insert SD card and boot one device once.
+   - Device creates:
+     /sparkycheck_provisioning_template.json
+     /sparkycheck_provisioning.json
+   - Remove SD card and edit /sparkycheck_provisioning.json on computer.
+   - Set:
+       "enabled": true
+     and fill values under "settings".
+   - Clone this SD to other cards/devices.
+   - On each device boot, SD config is applied automatically.
+
+   Notes:
+   - SD provisioning is "SD first, NVS fallback".
+   - If you want a device-specific label (e.g., CUB-03), set:
+     settings.reporting.cloud_sync.device_id_label
+   - For per-device custom labels, copy baseline SD then edit only that field per card.
+
+1) Flash OTA-enabled firmware once (bootstrap)
+   - USB flash once to each existing device.
+
+2) Connect WiFi
+   - Settings -> WiFi connection
+   - Connect to your network
+
+3) OTA settings
+   - Settings -> Firmware updates
+   - Auto-check ON
+   - Auto-install ON (if desired)
+   - Check now (optional test)
+
+4) Training reporting setup (PIN-gated)
+   - Settings -> Firmware updates -> Training sync setup (PIN)
+
+   Buttons/options:
+   - Email: On/Off
+   - Cloud: On/Off
+   - Cycle sync target (Auto/Google/SharePoint)
+   - Edit sync endpoint URL
+   - Edit auth token (optional)
+   - Edit cubicle ID (example: CUB-03)
+   - Edit device ID label (example: CUB-03)
+   - Send test ping
+
+5) Recommended values
+   - Device ID label: cubicle number (CUB-01, CUB-02, ...)
+   - Cubicle ID: same as device label (or your preferred code)
+   - Auth token: set if backend validates token
+
+6) Training test usage
+   - Start verification -> choose test
+   - Enter Student ID (digits okay; S auto-added)
+   - Continue test
+   - Back/Next edits sync the same row
+   - End session finalizes sync/report
+
+7) Verify SD provisioning status (recommended)
+   - If expected settings did not apply, check:
+     - SD card inserted correctly
+     - /sparkycheck_provisioning.json exists
+     - JSON is valid
+     - "enabled": true is set
+
+8) Field mode report storage
+   - In Field mode, generated reports are saved to:
+     - LittleFS: /reports/<Job>.csv and /reports/<Job>.html
+     - SD card: /reports/<Job>.csv and /reports/<Job>.html (if SD present)
+
+-----------------------------------------------------------------------
+D) Google Sheets backend setup (Apps Script)
+-----------------------------------------------------------------------
+
+1) Go to https://script.new
+2) Create script project (example name: SparkyCheck Training Sync)
+3) Paste script from:
+   docs/GOOGLE_SHEETS_TRAINING_SYNC.md
+   (Option A section, latest full script)
+4) Set AUTH_TOKEN in script (optional, recommended)
+5) Deploy:
+   Deploy -> New deployment
+   Type: Web app
+   Execute as: Me
+   Who has access: Anyone
+6) Copy Web App URL
+7) Put URL into device setting:
+   Training sync setup -> Edit sync endpoint URL
+
+How row updates work:
+- Script creates sheet + headers if missing.
+- Script upserts by (device_id + session_id).
+- Only relevant test column is populated using test_key.
+- test_started_at and test_completed_at are managed from sync events.
+
+Expected key columns in Google Sheet:
+- device_id, session_id, cubicle_id, student_id
+- current_test, current_step, current_step_total
+- test_started_at, test_completed_at
+- one column per test:
+  earth_continuity_conductors
+  insulation_resistance
+  polarity
+  earth_continuity_cpc
+  correct_circuit_connections
+  earth_fault_loop_impedance
+  rcd_operation
+
+-----------------------------------------------------------------------
+E) SharePoint backend setup (Power Automate)
+-----------------------------------------------------------------------
+
+Recommended architecture:
+Device -> HTTP endpoint (Power Automate trigger) -> SharePoint List upsert
+
+1) Create SharePoint List
+   Suggested columns:
+   - timestamp_iso (Single line text)
+   - last_event (Single line text)
+   - device_id (Single line text)
+   - session_id (Single line text)
+   - cubicle_id (Single line text)
+   - student_id (Single line text)
+   - mode (Single line text)
+   - current_test (Single line text)
+   - current_step (Number or text)
+   - current_step_total (Number or text)
+   - test_started_at (Date/Time or text)
+   - test_completed_at (Date/Time or text)
+   - report_id (Single line text)
+   - rules_version (Single line text)
+   - firmware_version (Single line text)
+   - ts_ms (Number or text)
+   - last_clause (Single line text)
+   - test result columns:
+     earth_continuity_conductors
+     insulation_resistance
+     polarity
+     earth_continuity_cpc
+     correct_circuit_connections
+     earth_fault_loop_impedance
+     rcd_operation
+
+2) Build flow in Power Automate
+   - Trigger: When an HTTP request is received
+   - Parse JSON body
+   - Optional token check (auth_token)
+   - Get items filtered by device_id + session_id
+   - If found: Update item
+   - If not found: Create item
+   - Map test result to the column indicated by test_key
+
+3) Save flow and copy HTTP POST URL
+4) On device:
+   - Set Sync target = SharePoint (or Auto)
+   - Set Sync endpoint URL = flow URL
+   - Set token if used
+   - Send test ping
+
+-----------------------------------------------------------------------
+F) Payload fields sent by firmware (for backend mapping)
+-----------------------------------------------------------------------
+
+Core identity:
+- auth_token
+- device_id
+- session_id
+- cubicle_id
+- student_id
+
+Event/progress:
+- sync_event
+- sync_target
+- email_reporting_enabled
+- test_id
+- test_key
+- test_name
+- step_title
+- step_index
+- step_count
+- has_result
+
+Result/timing:
+- value
+- unit
+- result
+- passed
+- clause
+- test_started_ms
+- test_completed_ms
+- report_id
+
+Versioning:
+- rules_version
+- firmware_version
+- ts_ms
+
+-----------------------------------------------------------------------
+G) Validation checklist
+-----------------------------------------------------------------------
+
+1) Device:
+   - WiFi connected
+   - Device ID label set
+   - Student ID prompt appears before each test (Training mode)
+
+2) Backend connectivity:
+   - Send test ping returns success in status line
+
+3) Live updates:
+   - Start test -> row appears
+   - Next/Back -> same row updates
+   - Result confirmed -> relevant test column populated
+   - New test -> new row
+
+4) Student ID normalization:
+   - Enter 3635697 on device
+   - Backend row shows S3635697
+
+5) OTA:
+   - Push to main
+   - Action green
+   - New release .bin published
+
+-----------------------------------------------------------------------
+H) Troubleshooting
+-----------------------------------------------------------------------
+
+If no cloud rows appear:
+1) Cloud toggle ON?
+2) Endpoint URL correct?
+3) Token matches backend?
+4) Device has WiFi?
+5) Backend accepts anonymous/public POST from device network?
+6) If previously offline, wait for queue flush cycle (~5s) after reconnect
+
+If rows append instead of update:
+1) Ensure backend uses UPSERT by device_id + session_id
+2) Do not append blindly on every event
+
+If student ID missing:
+1) Ensure Training mode is active
+2) Ensure Student ID entered and Start pressed on Student ID screen
+
+If OTA not applying:
+1) Verify manifest URL public and reachable
+2) Verify release .bin URL reachable
+3) Verify latest action run succeeded
+
+If SD provisioning does not apply:
+1) Confirm SD card mounts on device hardware
+2) Confirm file path is exact: /sparkycheck_provisioning.json
+3) Confirm JSON validity (no trailing commas)
+4) Confirm top-level "enabled": true
+5) Confirm keys are under "settings" object
+

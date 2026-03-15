@@ -8,6 +8,8 @@
 #include "Buzzer.h"
 #include "WifiManager.h"
 #include "OtaUpdate.h"
+#include "GoogleSync.h"
+#include "SdConfig.h"
 
 TFT_eSPI tft = TFT_eSPI();
 static ScreenId s_currentScreen = SCREEN_MAIN_MENU;
@@ -20,6 +22,7 @@ void setup() {
 
   Buzzer_init();
   AppState_load();
+  SdConfig_initAndApply();
   tft.init();
   tft.setRotation(AppState_getRotation());
   tft.fillScreen(TFT_BLACK);
@@ -40,6 +43,7 @@ void setup() {
   ReportGenerator_init();
   WifiManager_reconnectSaved();
   OtaUpdate_init();
+  GoogleSync_init();
   OtaUpdate_runAutoFlow();
   Screens_setModeSelectChoice(AppState_getMode() == APP_MODE_FIELD ? 1 : 0);
   s_currentScreen = SCREEN_MAIN_MENU;
@@ -52,6 +56,8 @@ void setup() {
 
 void loop() {
   if (!s_appReady) return;
+
+  GoogleSync_tick();
 
   uint16_t x = 0, y = 0;
   if (tft.getTouch(&x, &y)) {

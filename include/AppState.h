@@ -65,6 +65,31 @@ void AppState_setOtaAutoCheckEnabled(bool on);
 bool AppState_getOtaAutoInstallEnabled(void);
 void AppState_setOtaAutoInstallEnabled(bool on);
 
+/** Training-mode cloud sync settings (optional endpoint). */
+#define APP_STATE_TRAINING_SYNC_URL_LEN 192
+#define APP_STATE_TRAINING_SYNC_TOKEN_LEN 96
+#define APP_STATE_TRAINING_SYNC_CUBICLE_LEN 24
+#define APP_STATE_DEVICE_ID_LEN 24
+typedef enum {
+  TRAINING_SYNC_TARGET_AUTO = 0,
+  TRAINING_SYNC_TARGET_GOOGLE = 1,
+  TRAINING_SYNC_TARGET_SHAREPOINT = 2
+} TrainingSyncTarget;
+bool AppState_getTrainingSyncEnabled(void);
+void AppState_setTrainingSyncEnabled(bool on);
+void AppState_getTrainingSyncEndpoint(char* buf, unsigned size);
+void AppState_setTrainingSyncEndpoint(const char* s);
+void AppState_getTrainingSyncToken(char* buf, unsigned size);
+void AppState_setTrainingSyncToken(const char* s);
+void AppState_getTrainingSyncCubicleId(char* buf, unsigned size);
+void AppState_setTrainingSyncCubicleId(const char* s);
+void AppState_getDeviceIdOverride(char* buf, unsigned size);
+void AppState_setDeviceIdOverride(const char* s);
+TrainingSyncTarget AppState_getTrainingSyncTarget(void);
+void AppState_setTrainingSyncTarget(TrainingSyncTarget target);
+bool AppState_getEmailReportEnabled(void);
+void AppState_setEmailReportEnabled(bool on);
+
 /** Email (SMTP) settings – device sender. PIN-protected in UI. */
 #define APP_STATE_EMAIL_STR_LEN 64
 void AppState_getSmtpServer(char* buf, unsigned size);
