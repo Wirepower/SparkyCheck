@@ -5,10 +5,12 @@
 #include "Buzzer.h"
 #include "WifiManager.h"
 #include "OtaUpdate.h"
+#include "GoogleSync.h"
 #include "Standards.h"
 #include "VerificationSteps.h"
 #include <TFT_eSPI.h>
 #include <WiFi.h>
+#include <ctype.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -50,6 +52,12 @@ static int s_editingEmailField = 0;
 static char s_editBuffer[APP_STATE_EMAIL_STR_LEN] = "";
 static int s_editLen = 0;
 
+/* Training Google Sheets sync edit state: field 0=url, 1=token, 2=cubicle */
+static int s_syncEditField = 0;
+static char s_syncEditBuffer[APP_STATE_TRAINING_SYNC_URL_LEN] = "";
+static int s_syncEditLen = 0;
+static bool s_syncEditUpper = false;
+
 /* WiFi list / password state */
 static WifiNetwork s_networks[WIFI_MAX_SSIDS];
 static int s_networkCount = 0;
@@ -69,6 +77,31 @@ bool Screens_didHandleButton(void) {
 
 static bool inRect(int x, int y, int rx, int ry, int rw, int rh) {
   return x >= rx && x < rx + rw && y >= ry && y < ry + rh;
+}
+
+static int syncEditMaxLen(void) {
+  if (s_syncEditField == 1) return APP_STATE_TRAINING_SYNC_TOKEN_LEN;
+  if (s_syncEditField == 2) return APP_STATE_TRAINING_SYNC_CUBICLE_LEN;
+  return APP_STATE_TRAINING_SYNC_URL_LEN;
+}
+
+static void loadSyncEditField(int field) {
+  s_syncEditField = field;
+  s_syncEditUpper = false;
+  s_syncEditLen = 0;
+  s_syncEditBuffer[0] = '\0';
+  if (field == 0) AppState_getTrainingSyncEndpoint(s_syncEditBuffer, sizeof(s_syncEditBuffer));
+  else if (field == 1) AppState_getTrainingSyncToken(s_syncEditBuffer, sizeof(s_syncEditBuffer));
+  else AppState_getTrainingSyncCubicleId(s_syncEditBuffer, sizeof(s_syncEditBuffer));
+  s_syncEditLen = strlen(s_syncEditBuffer);
+  if (s_syncEditLen >= syncEditMaxLen()) s_syncEditLen = syncEditMaxLen() - 1;
+  s_syncEditBuffer[s_syncEditLen] = '\0';
+}
+
+static char applyLetterCase(char c, bool upper) {
+  if (!upper) return c;
+  if (c >= 'a' && c <= 'z') return (char)(c - 'a' + 'A');
+  return c;
 }
 
 void Screens_setReportSavedBasename(const char* basename) {
@@ -716,46 +749,254 @@ void Screens_draw(TFT_eSPI* tft, ScreenId id) {
       OtaUpdate_getPendingVersion(pending, sizeof(pending));
       if (pending[0]) {
         tft->setTextColor(kAccent, kBg);
-        tft->setCursor(20, 138);
+        tft->setCursor(20, 136);
         tft->print("Pending:");
         tft->setTextColor(kWhite, kBg);
-        tft->setCursor(74, 138);
+        tft->setCursor(74, 136);
         tft->print(pending);
       }
 
-      int btnY = 156;
-      tft->fillRoundRect(20, btnY, w - 40, 34, 6, kGreen);
-      tft->drawRoundRect(20, btnY, w - 40, 34, 6, kWhite);
+      if (!AppState_isFieldMode()) {
+        tft->setTextColor(kAccent, kBg);
+        tft->setCursor(20, 136);
+        tft->print("Training sync:");
+        tft->setTextColor(kWhite, kBg);
+        tft->setCursor(102, 136);
+        tft->print(AppState_getTrainingSyncEnabled() ? "On" : "Off");
+      }
+
+      int btnY = 150, btnH = 30, gap = 6;
+      tft->fillRoundRect(20, btnY, w - 40, btnH, 6, kGreen);
+      tft->drawRoundRect(20, btnY, w - 40, btnH, 6, kWhite);
       tft->setTextColor(TFT_BLACK, kGreen);
-      tft->setCursor(w / 2 - 36, btnY + 10);
+      tft->setCursor(w / 2 - 36, btnY + 8);
       tft->print("Check now");
 
-      btnY += 38;
+      btnY += btnH + gap;
       uint16_t installColor = OtaUpdate_hasPendingUpdate() ? kAccent : kBtn;
       uint16_t installText = OtaUpdate_hasPendingUpdate() ? TFT_BLACK : kWhite;
-      tft->fillRoundRect(20, btnY, w - 40, 34, 6, installColor);
-      tft->drawRoundRect(20, btnY, w - 40, 34, 6, kWhite);
+      tft->fillRoundRect(20, btnY, w - 40, btnH, 6, installColor);
+      tft->drawRoundRect(20, btnY, w - 40, btnH, 6, kWhite);
       tft->setTextColor(installText, installColor);
-      tft->setCursor(w / 2 - 34, btnY + 10);
+      tft->setCursor(w / 2 - 34, btnY + 8);
       tft->print("Install now");
 
-      btnY += 38;
+      btnY += btnH + gap;
       int half = (w - 50) / 2;
-      tft->fillRoundRect(20, btnY, half, 34, 6, kBtn);
-      tft->drawRoundRect(20, btnY, half, 34, 6, kWhite);
+      tft->fillRoundRect(20, btnY, half, btnH, 6, kBtn);
+      tft->drawRoundRect(20, btnY, half, btnH, 6, kWhite);
       tft->setTextColor(kWhite, kBtn);
-      tft->setCursor(26, btnY + 10);
+      tft->setCursor(26, btnY + 8);
       tft->print("Toggle auto-check");
-      tft->fillRoundRect(30 + half, btnY, half, 34, 6, kBtn);
-      tft->drawRoundRect(30 + half, btnY, half, 34, 6, kWhite);
-      tft->setCursor(36 + half, btnY + 10);
+      tft->fillRoundRect(30 + half, btnY, half, btnH, 6, kBtn);
+      tft->drawRoundRect(30 + half, btnY, half, btnH, 6, kWhite);
+      tft->setCursor(36 + half, btnY + 8);
       tft->print("Toggle auto-install");
 
-      btnY += 44;
-      tft->fillRoundRect(20, btnY, 80, 36, 6, kBtn);
-      tft->drawRoundRect(20, btnY, 80, 36, 6, kWhite);
+      btnY += btnH + gap;
+      if (!AppState_isFieldMode()) {
+        tft->fillRoundRect(20, btnY, w - 40, btnH, 6, kBtn);
+        tft->drawRoundRect(20, btnY, w - 40, btnH, 6, kWhite);
+        tft->setTextColor(kWhite, kBtn);
+        tft->setCursor(w / 2 - 74, btnY + 8);
+        tft->print("Training sync setup (PIN)");
+        btnY += btnH + gap;
+      }
+
+      tft->fillRoundRect(20, btnY, 80, 26, 6, kBtn);
+      tft->drawRoundRect(20, btnY, 80, 26, 6, kWhite);
       tft->setTextColor(kWhite, kBtn);
-      tft->setCursor(40, btnY + 12);
+      tft->setCursor(40, btnY + 6);
+      tft->print("Back");
+      break;
+    }
+    case SCREEN_TRAINING_SYNC: {
+      tft->setTextColor(kWhite, kBg);
+      tft->setTextSize(2);
+      tft->setCursor(20, 8);
+      tft->print("Training sync");
+      tft->setTextSize(1);
+
+      if (AppState_isFieldMode()) {
+        tft->setTextColor(kAccent, kBg);
+        tft->setCursor(20, 42);
+        tft->print("This feature is only available in Training mode.");
+        tft->fillRoundRect(20, h - 38, 80, 30, 6, kBtn);
+        tft->drawRoundRect(20, h - 38, 80, 30, 6, kWhite);
+        tft->setTextColor(kWhite, kBtn);
+        tft->setCursor(36, h - 30);
+        tft->print("Back");
+        break;
+      }
+
+      char endpoint[APP_STATE_TRAINING_SYNC_URL_LEN];
+      char cubicle[APP_STATE_TRAINING_SYNC_CUBICLE_LEN];
+      char deviceId[GOOGLE_SYNC_DEVICE_ID_LEN];
+      char status[GOOGLE_SYNC_STATUS_LEN];
+      AppState_getTrainingSyncEndpoint(endpoint, sizeof(endpoint));
+      AppState_getTrainingSyncCubicleId(cubicle, sizeof(cubicle));
+      GoogleSync_getDeviceId(deviceId, sizeof(deviceId));
+      GoogleSync_getLastStatus(status, sizeof(status));
+
+      tft->setTextColor(kAccent, kBg);
+      tft->setCursor(20, 34);
+      tft->print("Enabled:");
+      tft->setTextColor(kWhite, kBg);
+      tft->setCursor(76, 34);
+      tft->print(AppState_getTrainingSyncEnabled() ? "On" : "Off");
+      tft->setTextColor(kAccent, kBg);
+      tft->setCursor(20, 48);
+      tft->print("Endpoint:");
+      tft->setTextColor(kWhite, kBg);
+      tft->setCursor(82, 48);
+      tft->print(endpoint[0] ? "Configured" : "Not set");
+      tft->setTextColor(kAccent, kBg);
+      tft->setCursor(20, 62);
+      tft->print("Cubicle:");
+      tft->setTextColor(kWhite, kBg);
+      tft->setCursor(74, 62);
+      tft->print(cubicle[0] ? cubicle : "(not set)");
+      tft->setTextColor(kAccent, kBg);
+      tft->setCursor(20, 76);
+      tft->print("Device:");
+      tft->setTextColor(kWhite, kBg);
+      tft->setCursor(68, 76);
+      tft->print(deviceId);
+      tft->setTextColor(kAccent, kBg);
+      tft->setCursor(20, 90);
+      tft->print("Status:");
+      tft->setTextColor(kWhite, kBg);
+      tft->setCursor(20, 104);
+      tft->print(status);
+
+      int y = 122, btnH = 26, gap = 4;
+      tft->fillRoundRect(20, y, w - 40, btnH, 6, kBtn);
+      tft->drawRoundRect(20, y, w - 40, btnH, 6, kWhite);
+      tft->setTextColor(kWhite, kBtn);
+      tft->setCursor(28, y + 6);
+      tft->print("Toggle sync on/off");
+      y += btnH + gap;
+
+      tft->fillRoundRect(20, y, w - 40, btnH, 6, kBtn);
+      tft->drawRoundRect(20, y, w - 40, btnH, 6, kWhite);
+      tft->setCursor(28, y + 6);
+      tft->print("Edit Google endpoint URL");
+      y += btnH + gap;
+
+      tft->fillRoundRect(20, y, w - 40, btnH, 6, kBtn);
+      tft->drawRoundRect(20, y, w - 40, btnH, 6, kWhite);
+      tft->setCursor(28, y + 6);
+      tft->print("Edit auth token (optional)");
+      y += btnH + gap;
+
+      tft->fillRoundRect(20, y, w - 40, btnH, 6, kBtn);
+      tft->drawRoundRect(20, y, w - 40, btnH, 6, kWhite);
+      tft->setCursor(28, y + 6);
+      tft->print("Edit cubicle ID (e.g. CUB-03)");
+      y += btnH + gap;
+
+      tft->fillRoundRect(20, y, w - 40, btnH, 6, kGreen);
+      tft->drawRoundRect(20, y, w - 40, btnH, 6, kWhite);
+      tft->setTextColor(TFT_BLACK, kGreen);
+      tft->setCursor(28, y + 6);
+      tft->print("Send test ping");
+      y += btnH + gap;
+
+      tft->fillRoundRect(20, y, 80, 26, 6, kBtn);
+      tft->drawRoundRect(20, y, 80, 26, 6, kWhite);
+      tft->setTextColor(kWhite, kBtn);
+      tft->setCursor(36, y + 6);
+      tft->print("Back");
+      break;
+    }
+    case SCREEN_TRAINING_SYNC_EDIT: {
+      const char* titles[] = { "Google endpoint URL", "Auth token", "Cubicle ID" };
+      tft->setTextColor(kWhite, kBg);
+      tft->setTextSize(1);
+      tft->setCursor(20, 8);
+      tft->print(titles[s_syncEditField]);
+      tft->setCursor(20, 28);
+      if (s_syncEditField == 1)
+        tft->print(s_syncEditLen > 0 ? "********" : "(not set)");
+      else
+        tft->print(s_syncEditLen > 0 ? s_syncEditBuffer : "(tap keys)");
+
+      int cellW = (w - 56) / 10, cellH = 24, startY = 48, gap = 4;
+      const char* row0 = "1234567890";
+      const char* row1 = "qwertyuiop";
+      const char* row2 = "asdfghjkl";
+      const char* row3 = "zxcvbnm";
+      const char* row4 = "@.-_/:?&";
+
+      for (int col = 0; col < 10; col++) {
+        int kx = 20 + col * (cellW + gap);
+        tft->fillRoundRect(kx, startY, cellW, cellH, 4, kBtn);
+        tft->drawRoundRect(kx, startY, cellW, cellH, 4, kWhite);
+        char c[2] = { row0[col], '\0' };
+        tft->setTextColor(kWhite, kBtn);
+        tft->setCursor(kx + 2, startY + 4);
+        tft->print(c);
+      }
+      startY += cellH + gap;
+      for (int col = 0; col < 10; col++) {
+        int kx = 20 + col * (cellW + gap);
+        tft->fillRoundRect(kx, startY, cellW, cellH, 4, kBtn);
+        tft->drawRoundRect(kx, startY, cellW, cellH, 4, kWhite);
+        char c[2] = { applyLetterCase(row1[col], s_syncEditUpper), '\0' };
+        tft->setCursor(kx + 2, startY + 4);
+        tft->print(c);
+      }
+      startY += cellH + gap;
+      for (int col = 0; col < 9; col++) {
+        int kx = 20 + col * (cellW + gap);
+        tft->fillRoundRect(kx, startY, cellW, cellH, 4, kBtn);
+        tft->drawRoundRect(kx, startY, cellW, cellH, 4, kWhite);
+        char c[2] = { applyLetterCase(row2[col], s_syncEditUpper), '\0' };
+        tft->setCursor(kx + 2, startY + 4);
+        tft->print(c);
+      }
+      startY += cellH + gap;
+      for (int col = 0; col < 7; col++) {
+        int kx = 20 + col * (cellW + gap);
+        tft->fillRoundRect(kx, startY, cellW, cellH, 4, kBtn);
+        tft->drawRoundRect(kx, startY, cellW, cellH, 4, kWhite);
+        char c[2] = { applyLetterCase(row3[col], s_syncEditUpper), '\0' };
+        tft->setCursor(kx + 2, startY + 4);
+        tft->print(c);
+      }
+      startY += cellH + gap;
+      for (int col = 0; col < 8; col++) {
+        int kx = 20 + col * (cellW + gap);
+        tft->fillRoundRect(kx, startY, cellW, cellH, 4, kBtn);
+        tft->drawRoundRect(kx, startY, cellW, cellH, 4, kWhite);
+        char c[2] = { row4[col], '\0' };
+        tft->setCursor(kx + 2, startY + 4);
+        tft->print(c);
+      }
+
+      startY += cellH + gap + 4;
+      tft->fillRoundRect(20, startY, 50, 28, 6, kAccent);
+      tft->drawRoundRect(20, startY, 50, 28, 6, kWhite);
+      tft->setTextColor(TFT_BLACK, kAccent);
+      tft->setCursor(24, startY + 6);
+      tft->print("Del");
+
+      tft->fillRoundRect(78, startY, 44, 28, 6, kBtn);
+      tft->drawRoundRect(78, startY, 44, 28, 6, kWhite);
+      tft->setTextColor(kWhite, kBtn);
+      tft->setCursor(86, startY + 6);
+      tft->print("Aa");
+
+      tft->fillRoundRect(130, startY, 60, 28, 6, kGreen);
+      tft->drawRoundRect(130, startY, 60, 28, 6, kWhite);
+      tft->setTextColor(TFT_BLACK, kGreen);
+      tft->setCursor(142, startY + 6);
+      tft->print("Save");
+
+      tft->fillRoundRect(w - 62, 6, 48, 24, 6, kBtn);
+      tft->drawRoundRect(w - 62, 6, 48, 24, 6, kWhite);
+      tft->setTextColor(kWhite, kBtn);
+      tft->setCursor(w - 56, 10);
       tft->print("Back");
       break;
     }
@@ -892,6 +1133,14 @@ ScreenId Screens_handleTouch(TFT_eSPI* tft, ScreenId current, uint16_t x, uint16
           ReportGenerator_end();
           char base[48];
           ReportGenerator_getLastBasename(base, sizeof(base));
+          GoogleSyncResult gs;
+          gs.report_id = base;
+          gs.test_name = s_resultLabel ? s_resultLabel : "Test";
+          gs.value = valBuf;
+          gs.unit = s_resultUnit ? s_resultUnit : "";
+          gs.passed = s_resultPass;
+          gs.clause = s_resultClause ? s_resultClause : "";
+          if (AppState_getMode() == APP_MODE_TRAINING) GoogleSync_sendResult(&gs);
           Screens_setReportSavedBasename(base);
           s_flowPhase = 0;
           s_stepIndex = 0;
@@ -1101,32 +1350,103 @@ ScreenId Screens_handleTouch(TFT_eSPI* tft, ScreenId current, uint16_t x, uint16
       if (inRect(ix, iy, 20, h - 44, 80, 36)) return handled(SCREEN_SETTINGS);
       break;
     case SCREEN_UPDATES: {
-      int btnY = 156;
-      if (inRect(ix, iy, 20, btnY, w - 40, 34)) {
+      int btnY = 150, btnH = 30, gap = 6;
+      if (inRect(ix, iy, 20, btnY, w - 40, btnH)) {
         OtaUpdate_checkNow();
         Screens_draw(tft, current);
         return handled(current);
       }
-      btnY += 38;
-      if (inRect(ix, iy, 20, btnY, w - 40, 34)) {
+      btnY += btnH + gap;
+      if (inRect(ix, iy, 20, btnY, w - 40, btnH)) {
         if (OtaUpdate_hasPendingUpdate()) OtaUpdate_installPending();
         Screens_draw(tft, current);
         return handled(current);
       }
-      btnY += 38;
+      btnY += btnH + gap;
       int half = (w - 50) / 2;
-      if (inRect(ix, iy, 20, btnY, half, 34)) {
+      if (inRect(ix, iy, 20, btnY, half, btnH)) {
         AppState_setOtaAutoCheckEnabled(!AppState_getOtaAutoCheckEnabled());
         Screens_draw(tft, current);
         return handled(current);
       }
-      if (inRect(ix, iy, 30 + half, btnY, half, 34)) {
+      if (inRect(ix, iy, 30 + half, btnY, half, btnH)) {
         AppState_setOtaAutoInstallEnabled(!AppState_getOtaAutoInstallEnabled());
         Screens_draw(tft, current);
         return handled(current);
       }
-      btnY += 44;
-      if (inRect(ix, iy, 20, btnY, 80, 36)) return handled(SCREEN_SETTINGS);
+      btnY += btnH + gap;
+      if (!AppState_isFieldMode() && inRect(ix, iy, 20, btnY, w - 40, btnH)) {
+        s_pinLen = 0; s_pinDigits[0] = '\0';
+        Screens_setPinSuccessTarget(SCREEN_TRAINING_SYNC);
+        return handled(SCREEN_PIN_ENTER);
+      }
+      if (!AppState_isFieldMode()) btnY += btnH + gap;
+      if (inRect(ix, iy, 20, btnY, 80, 26)) return handled(SCREEN_SETTINGS);
+      break;
+    }
+    case SCREEN_TRAINING_SYNC: {
+      if (AppState_isFieldMode()) {
+        if (inRect(ix, iy, 20, h - 38, 80, 30)) return handled(SCREEN_UPDATES);
+        break;
+      }
+      int y = 122, btnH = 26, gap = 4;
+      if (inRect(ix, iy, 20, y, w - 40, btnH)) {
+        AppState_setTrainingSyncEnabled(!AppState_getTrainingSyncEnabled());
+        Screens_draw(tft, current);
+        return handled(current);
+      }
+      y += btnH + gap;
+      if (inRect(ix, iy, 20, y, w - 40, btnH)) { loadSyncEditField(0); return handled(SCREEN_TRAINING_SYNC_EDIT); }
+      y += btnH + gap;
+      if (inRect(ix, iy, 20, y, w - 40, btnH)) { loadSyncEditField(1); return handled(SCREEN_TRAINING_SYNC_EDIT); }
+      y += btnH + gap;
+      if (inRect(ix, iy, 20, y, w - 40, btnH)) { loadSyncEditField(2); return handled(SCREEN_TRAINING_SYNC_EDIT); }
+      y += btnH + gap;
+      if (inRect(ix, iy, 20, y, w - 40, btnH)) {
+        if (GoogleSync_sendPing()) Buzzer_beepPass();
+        else Buzzer_beepFail();
+        Screens_draw(tft, current);
+        return handled(current);
+      }
+      y += btnH + gap;
+      if (inRect(ix, iy, 20, y, 80, 26)) return handled(SCREEN_UPDATES);
+      break;
+    }
+    case SCREEN_TRAINING_SYNC_EDIT: {
+      if (inRect(ix, iy, w - 62, 6, 48, 24)) return handled(SCREEN_TRAINING_SYNC);
+      int cellW = (w - 56) / 10, cellH = 24, startY = 48, gap = 4;
+      const char* rows[] = { "1234567890", "qwertyuiop", "asdfghjkl", "zxcvbnm", "@.-_/:?&" };
+      int cols[] = { 10, 10, 9, 7, 8 };
+      int maxLen = syncEditMaxLen();
+      for (int row = 0; row < 5; row++) {
+        for (int col = 0; col < cols[row]; col++) {
+          int kx = 20 + col * (cellW + gap), ky = startY + row * (cellH + gap);
+          if (!inRect(ix, iy, kx, ky, cellW, cellH) || s_syncEditLen >= maxLen - 1) continue;
+          char c = rows[row][col];
+          if (row >= 1 && row <= 3) c = applyLetterCase(c, s_syncEditUpper);
+          s_syncEditBuffer[s_syncEditLen++] = c;
+          s_syncEditBuffer[s_syncEditLen] = '\0';
+          Screens_draw(tft, current);
+          return handled(current);
+        }
+      }
+      int ctrlY = startY + 5 * (cellH + gap) + 4;
+      if (inRect(ix, iy, 20, ctrlY, 50, 28)) {
+        if (s_syncEditLen > 0) s_syncEditBuffer[--s_syncEditLen] = '\0';
+        Screens_draw(tft, current);
+        return handled(current);
+      }
+      if (inRect(ix, iy, 78, ctrlY, 44, 28)) {
+        s_syncEditUpper = !s_syncEditUpper;
+        Screens_draw(tft, current);
+        return handled(current);
+      }
+      if (inRect(ix, iy, 130, ctrlY, 60, 28)) {
+        if (s_syncEditField == 0) AppState_setTrainingSyncEndpoint(s_syncEditBuffer);
+        else if (s_syncEditField == 1) AppState_setTrainingSyncToken(s_syncEditBuffer);
+        else AppState_setTrainingSyncCubicleId(s_syncEditBuffer);
+        return handled(SCREEN_TRAINING_SYNC);
+      }
       break;
     }
     case SCREEN_EMAIL_SETTINGS: {

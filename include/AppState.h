@@ -65,6 +65,19 @@ void AppState_setOtaAutoCheckEnabled(bool on);
 bool AppState_getOtaAutoInstallEnabled(void);
 void AppState_setOtaAutoInstallEnabled(bool on);
 
+/** Training-mode Google Sheets sync settings (optional). */
+#define APP_STATE_TRAINING_SYNC_URL_LEN 192
+#define APP_STATE_TRAINING_SYNC_TOKEN_LEN 96
+#define APP_STATE_TRAINING_SYNC_CUBICLE_LEN 24
+bool AppState_getTrainingSyncEnabled(void);
+void AppState_setTrainingSyncEnabled(bool on);
+void AppState_getTrainingSyncEndpoint(char* buf, unsigned size);
+void AppState_setTrainingSyncEndpoint(const char* s);
+void AppState_getTrainingSyncToken(char* buf, unsigned size);
+void AppState_setTrainingSyncToken(const char* s);
+void AppState_getTrainingSyncCubicleId(char* buf, unsigned size);
+void AppState_setTrainingSyncCubicleId(const char* s);
+
 /** Email (SMTP) settings – device sender. PIN-protected in UI. */
 #define APP_STATE_EMAIL_STR_LEN 64
 void AppState_getSmtpServer(char* buf, unsigned size);

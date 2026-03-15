@@ -8,6 +8,7 @@
 #include "Buzzer.h"
 #include "WifiManager.h"
 #include "OtaUpdate.h"
+#include "GoogleSync.h"
 
 TFT_eSPI tft = TFT_eSPI();
 static ScreenId s_currentScreen = SCREEN_MAIN_MENU;
@@ -40,6 +41,7 @@ void setup() {
   ReportGenerator_init();
   WifiManager_reconnectSaved();
   OtaUpdate_init();
+  GoogleSync_init();
   OtaUpdate_runAutoFlow();
   Screens_setModeSelectChoice(AppState_getMode() == APP_MODE_FIELD ? 1 : 0);
   s_currentScreen = SCREEN_MAIN_MENU;
