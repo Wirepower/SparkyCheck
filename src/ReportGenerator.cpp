@@ -4,6 +4,7 @@
  */
 #include "ReportGenerator.h"
 #include "Standards.h"
+#include "GoogleSync.h"
 #include <LittleFS.h>
 #include <Arduino.h>
 #include <stdio.h>
@@ -79,12 +80,16 @@ bool ReportGenerator_end(void) {
   char path[64];
   char line[LINE_BUF_SIZE];
   char rules_ver[16];
+  char device_id[GOOGLE_SYNC_DEVICE_ID_LEN];
   Standards_getRulesVersion(rules_ver, sizeof(rules_ver));
+  GoogleSync_getDeviceId(device_id, sizeof(device_id));
 
   /* CSV – write line-by-line to avoid heap allocation */
   snprintf(path, sizeof(path), "/reports/%s.csv", s_report.basename);
   File fc = LittleFS.open(path, "w");
   if (!fc) { s_report.active = false; return false; }
+  snprintf(line, sizeof(line), "Device ID,%s\r\n", device_id);
+  if (!writeLine(fc, line)) { fc.close(); s_report.active = false; return false; }
   if (!writeLine(fc, "Test,Value,Unit,Result,Clause\r\n")) { fc.close(); s_report.active = false; return false; }
   for (int i = 0; i < s_report.count; i++) {
     Row* r = &s_report.rows[i];
@@ -99,7 +104,7 @@ bool ReportGenerator_end(void) {
   if (!fh) { s_report.active = false; return false; }
   if (!writeLine(fh, "<!DOCTYPE html><html><head><meta charset=\"UTF-8\"><title>SparkyCheck Report</title>")) { fh.close(); s_report.active = false; return false; }
   if (!writeLine(fh, "<style>body{font-family:sans-serif;margin:1rem;} table{border-collapse:collapse;} th,td{border:1px solid #333;padding:6px 10px;} .pass{background:#cfc;} .fail{background:#fcc;}</style></head><body>")) { fh.close(); s_report.active = false; return false; }
-  snprintf(line, sizeof(line), "<h1>SparkyCheck Verification Report</h1><p><strong>Job:</strong> %s &nbsp; <strong>Rules:</strong> %s</p>", s_report.basename, rules_ver);
+  snprintf(line, sizeof(line), "<h1>SparkyCheck Verification Report</h1><p><strong>Job:</strong> %s &nbsp; <strong>Device:</strong> %s &nbsp; <strong>Rules:</strong> %s</p>", s_report.basename, device_id, rules_ver);
   if (!writeLine(fh, line)) { fh.close(); s_report.active = false; return false; }
   if (!writeLine(fh, "<table><tr><th>Test</th><th>Value</th><th>Unit</th><th>Result</th><th>Clause</th></tr>")) { fh.close(); s_report.active = false; return false; }
   for (int i = 0; i < s_report.count; i++) {
