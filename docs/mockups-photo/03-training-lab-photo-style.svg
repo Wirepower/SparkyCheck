@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900">
+  <defs>
+    <linearGradient id="bg3" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0f172a"/>
+      <stop offset="100%" stop-color="#1e293b"/>
+    </linearGradient>
+    <filter id="cardShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="10" stdDeviation="10" flood-color="#000" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+  <rect width="1600" height="900" fill="url(#bg3)"/>
+  <rect x="0" y="620" width="1600" height="280" fill="#0b1320"/>
+
+  <rect x="90" y="140" width="220" height="420" rx="14" fill="#334155"/>
+  <rect x="340" y="160" width="220" height="400" rx="14" fill="#3f4f63"/>
+  <rect x="590" y="130" width="220" height="430" rx="14" fill="#2f3e46"/>
+  <text x="92" y="590" fill="#94a3b8" font-size="22" font-family="Arial, sans-serif">Training lab stations</text>
+
+  <g filter="url(#cardShadow)">
+    <rect x="840" y="130" width="700" height="740" rx="24" fill="#111827" stroke="#334155" stroke-width="3"/>
+    <text x="880" y="188" fill="#e5e7eb" font-size="34" font-family="Arial, sans-serif" font-weight="700">Training mode session</text>
+    <text x="880" y="225" fill="#f59e0b" font-size="22" font-family="Arial, sans-serif">Student workflow + live sync</text>
+
+    <rect x="880" y="260" width="620" height="76" rx="12" fill="#1f2937"/>
+    <text x="910" y="308" fill="#ffffff" font-size="28" font-family="Arial, sans-serif">Student ID: S1234567</text>
+
+    <rect x="880" y="350" width="300" height="62" rx="10" fill="#2d6a4f"/>
+    <text x="915" y="390" fill="#ffffff" font-size="24" font-family="Arial, sans-serif">Cloud sync: ON</text>
+    <rect x="1200" y="350" width="300" height="62" rx="10" fill="#334155"/>
+    <text x="1235" y="390" fill="#ffffff" font-size="24" font-family="Arial, sans-serif">Email: Optional</text>
+
+    <rect x="880" y="430" width="620" height="70" rx="10" fill="#1f2937"/>
+    <text x="910" y="474" fill="#ffffff" font-size="24" font-family="Arial, sans-serif">Target: Google Sheets / SharePoint</text>
+
+    <rect x="880" y="520" width="620" height="190" rx="10" fill="#0f172a" stroke="#334155" stroke-width="2"/>
+    <text x="910" y="568" fill="#93c5fd" font-size="26" font-family="Arial, sans-serif" font-weight="700">Live telemetry behavior</text>
+    <text x="910" y="607" fill="#cbd5e1" font-size="23" font-family="Arial, sans-serif">- Step progress posted as it happens</text>
+    <text x="910" y="642" fill="#cbd5e1" font-size="23" font-family="Arial, sans-serif">- Back/edit updates current session record</text>
+    <text x="910" y="677" fill="#cbd5e1" font-size="23" font-family="Arial, sans-serif">- Offline queue protects against signal loss</text>
+
+    <rect x="880" y="730" width="620" height="100" rx="10" fill="#1f2937"/>
+    <text x="910" y="772" fill="#ffffff" font-size="24" font-family="Arial, sans-serif">Device label = Cubicle number</text>
+    <text x="910" y="804" fill="#cbd5e1" font-size="22" font-family="Arial, sans-serif">Helps teacher monitor station-by-station progress</text>
+  </g>
+
+  <text x="70" y="74" fill="#e5e7eb" font-family="Arial, sans-serif" font-size="42" font-weight="700">Training-lab photo-style concept</text>
+</svg>
+
