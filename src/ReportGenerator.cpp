@@ -3,9 +3,11 @@
  * line-by-line file write to avoid heap fragmentation and OOM on ESP32.
  */
 #include "ReportGenerator.h"
+#include "AppState.h"
 #include "Standards.h"
 #include "GoogleSync.h"
 #include <LittleFS.h>
+#include <SD_MMC.h>
 #include <Arduino.h>
 #include <stdio.h>
 #include <string.h>
@@ -80,58 +82,81 @@ static bool writeLine(File& f, const char* line) {
   return f.write((const uint8_t*)line, n) == n;
 }
 
+static bool writeReportToFs(fs::FS& fs, const char* dir, const char* basename,
+                            const char* device_id, const char* student_id,
+                            const char* rules_ver, Row* rows, int count) {
+  if (!fs.exists(dir) && !fs.mkdir(dir)) return false;
+
+  char path[96];
+  char line[LINE_BUF_SIZE];
+
+  snprintf(path, sizeof(path), "%s/%s.csv", dir, basename);
+  File fc = fs.open(path, "w");
+  if (!fc) return false;
+  snprintf(line, sizeof(line), "Device ID,%s\r\n", device_id ? device_id : "");
+  if (!writeLine(fc, line)) { fc.close(); return false; }
+  if (student_id && student_id[0]) {
+    snprintf(line, sizeof(line), "Student ID,%s\r\n", student_id);
+    if (!writeLine(fc, line)) { fc.close(); return false; }
+  }
+  if (!writeLine(fc, "Test,Value,Unit,Result,Clause\r\n")) { fc.close(); return false; }
+  for (int i = 0; i < count; i++) {
+    Row* r = &rows[i];
+    snprintf(line, sizeof(line), "%s,%s,%s,%s,%s\r\n", r->name, r->value, r->unit,
+             r->passed ? "PASS" : "FAIL", r->clause);
+    if (!writeLine(fc, line)) { fc.close(); return false; }
+  }
+  fc.close();
+
+  snprintf(path, sizeof(path), "%s/%s.html", dir, basename);
+  File fh = fs.open(path, "w");
+  if (!fh) return false;
+  if (!writeLine(fh, "<!DOCTYPE html><html><head><meta charset=\"UTF-8\"><title>SparkyCheck Report</title>")) { fh.close(); return false; }
+  if (!writeLine(fh, "<style>body{font-family:sans-serif;margin:1rem;} table{border-collapse:collapse;} th,td{border:1px solid #333;padding:6px 10px;} .pass{background:#cfc;} .fail{background:#fcc;}</style></head><body>")) { fh.close(); return false; }
+  if (student_id && student_id[0])
+    snprintf(line, sizeof(line), "<h1>SparkyCheck Verification Report</h1><p><strong>Job:</strong> %s &nbsp; <strong>Device:</strong> %s &nbsp; <strong>Student:</strong> %s &nbsp; <strong>Rules:</strong> %s</p>", basename, device_id ? device_id : "", student_id, rules_ver ? rules_ver : "");
+  else
+    snprintf(line, sizeof(line), "<h1>SparkyCheck Verification Report</h1><p><strong>Job:</strong> %s &nbsp; <strong>Device:</strong> %s &nbsp; <strong>Rules:</strong> %s</p>", basename, device_id ? device_id : "", rules_ver ? rules_ver : "");
+  if (!writeLine(fh, line)) { fh.close(); return false; }
+  if (!writeLine(fh, "<table><tr><th>Test</th><th>Value</th><th>Unit</th><th>Result</th><th>Clause</th></tr>")) { fh.close(); return false; }
+  for (int i = 0; i < count; i++) {
+    Row* r = &rows[i];
+    snprintf(line, sizeof(line), "<tr class=\"%s\"><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>",
+             r->passed ? "pass" : "fail", r->name, r->value, r->unit, r->passed ? "PASS" : "FAIL", r->clause);
+    if (!writeLine(fh, line)) { fh.close(); return false; }
+  }
+  { char foot[160];
+    Standards_getReportFooterStandardsLine(foot, sizeof(foot));
+    snprintf(line, sizeof(line), "</table><p><em>%s</em></p></body></html>", foot);
+    if (!writeLine(fh, line)) { fh.close(); return false; }
+  }
+  fh.close();
+  return true;
+}
+
 bool ReportGenerator_end(void) {
   if (!s_report.active) return false;
 
-  char path[64];
-  char line[LINE_BUF_SIZE];
   char rules_ver[16];
   char device_id[GOOGLE_SYNC_DEVICE_ID_LEN];
   Standards_getRulesVersion(rules_ver, sizeof(rules_ver));
   GoogleSync_getDeviceId(device_id, sizeof(device_id));
 
-  /* CSV – write line-by-line to avoid heap allocation */
-  snprintf(path, sizeof(path), "/reports/%s.csv", s_report.basename);
-  File fc = LittleFS.open(path, "w");
-  if (!fc) { s_report.active = false; return false; }
-  snprintf(line, sizeof(line), "Device ID,%s\r\n", device_id);
-  if (!writeLine(fc, line)) { fc.close(); s_report.active = false; return false; }
-  if (s_report.student_id[0]) {
-    snprintf(line, sizeof(line), "Student ID,%s\r\n", s_report.student_id);
-    if (!writeLine(fc, line)) { fc.close(); s_report.active = false; return false; }
+  if (!writeReportToFs(LittleFS, "/reports", s_report.basename, device_id,
+                       s_report.student_id, rules_ver, s_report.rows, s_report.count)) {
+    s_report.active = false;
+    return false;
   }
-  if (!writeLine(fc, "Test,Value,Unit,Result,Clause\r\n")) { fc.close(); s_report.active = false; return false; }
-  for (int i = 0; i < s_report.count; i++) {
-    Row* r = &s_report.rows[i];
-    snprintf(line, sizeof(line), "%s,%s,%s,%s,%s\r\n", r->name, r->value, r->unit, r->passed ? "PASS" : "FAIL", r->clause);
-    if (!writeLine(fc, line)) { fc.close(); s_report.active = false; return false; }
-  }
-  fc.close();
 
-  /* HTML – write in chunks; no large String */
-  snprintf(path, sizeof(path), "/reports/%s.html", s_report.basename);
-  File fh = LittleFS.open(path, "w");
-  if (!fh) { s_report.active = false; return false; }
-  if (!writeLine(fh, "<!DOCTYPE html><html><head><meta charset=\"UTF-8\"><title>SparkyCheck Report</title>")) { fh.close(); s_report.active = false; return false; }
-  if (!writeLine(fh, "<style>body{font-family:sans-serif;margin:1rem;} table{border-collapse:collapse;} th,td{border:1px solid #333;padding:6px 10px;} .pass{background:#cfc;} .fail{background:#fcc;}</style></head><body>")) { fh.close(); s_report.active = false; return false; }
-  if (s_report.student_id[0])
-    snprintf(line, sizeof(line), "<h1>SparkyCheck Verification Report</h1><p><strong>Job:</strong> %s &nbsp; <strong>Device:</strong> %s &nbsp; <strong>Student:</strong> %s &nbsp; <strong>Rules:</strong> %s</p>", s_report.basename, device_id, s_report.student_id, rules_ver);
-  else
-    snprintf(line, sizeof(line), "<h1>SparkyCheck Verification Report</h1><p><strong>Job:</strong> %s &nbsp; <strong>Device:</strong> %s &nbsp; <strong>Rules:</strong> %s</p>", s_report.basename, device_id, rules_ver);
-  if (!writeLine(fh, line)) { fh.close(); s_report.active = false; return false; }
-  if (!writeLine(fh, "<table><tr><th>Test</th><th>Value</th><th>Unit</th><th>Result</th><th>Clause</th></tr>")) { fh.close(); s_report.active = false; return false; }
-  for (int i = 0; i < s_report.count; i++) {
-    Row* r = &s_report.rows[i];
-    snprintf(line, sizeof(line), "<tr class=\"%s\"><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>",
-             r->passed ? "pass" : "fail", r->name, r->value, r->unit, r->passed ? "PASS" : "FAIL", r->clause);
-    if (!writeLine(fh, line)) { fh.close(); s_report.active = false; return false; }
+  /* Field mode: also persist report copies on SD card when available. */
+  if (AppState_isFieldMode()) {
+    bool sd_ok = (SD_MMC.cardType() != CARD_NONE);
+    if (!sd_ok) sd_ok = SD_MMC.begin("/sdcard", true);
+    if (sd_ok) {
+      writeReportToFs(SD_MMC, "/reports", s_report.basename, device_id,
+                      s_report.student_id, rules_ver, s_report.rows, s_report.count);
+    }
   }
-  { char foot[160];
-    Standards_getReportFooterStandardsLine(foot, sizeof(foot));
-    snprintf(line, sizeof(line), "</table><p><em>%s</em></p></body></html>", foot);
-    if (!writeLine(fh, line)) { fh.close(); s_report.active = false; return false; }
-  }
-  fh.close();
 
   s_report.active = false;
   return true;

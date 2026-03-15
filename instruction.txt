@@ -134,6 +134,11 @@ C) Device setup (repeat for each physical device)
      - JSON is valid
      - "enabled": true is set
 
+8) Field mode report storage
+   - In Field mode, generated reports are saved to:
+     - LittleFS: /reports/<Job>.csv and /reports/<Job>.html
+     - SD card: /reports/<Job>.csv and /reports/<Job>.html (if SD present)
+
 -----------------------------------------------------------------------
 D) Google Sheets backend setup (Apps Script)
 -----------------------------------------------------------------------
