@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900">
+  <rect width="1600" height="900" fill="#0f172a"/>
+  <text x="60" y="72" fill="#e2e8f0" font-family="Arial, sans-serif" font-size="44" font-weight="700">RCD Contextual Compliance Workflow</text>
+  <text x="60" y="106" fill="#94a3b8" font-family="Arial, sans-serif" font-size="24">Prompted requirement confirmation before measured trip-time decision</text>
+
+  <rect x="70" y="150" rx="20" ry="20" width="1460" height="700" fill="#1e293b" stroke="#475569" stroke-width="3"/>
+
+  <rect x="110" y="210" rx="12" ry="12" width="410" height="540" fill="#111827"/>
+  <text x="138" y="255" fill="#93c5fd" font-family="Arial, sans-serif" font-size="26" font-weight="700">Step A</text>
+  <text x="138" y="292" fill="#ffffff" font-family="Arial, sans-serif" font-size="24">Installation context prompt</text>
+  <text x="138" y="330" fill="#cbd5e1" font-family="Arial, sans-serif" font-size="21">Check applicable requirements</text>
+  <text x="138" y="360" fill="#cbd5e1" font-family="Arial, sans-serif" font-size="21">AS/NZS 3000 Clause 2.6 + local regs</text>
+  <text x="138" y="398" fill="#cbd5e1" font-family="Arial, sans-serif" font-size="21">Special locations may differ</text>
+  <text x="138" y="428" fill="#cbd5e1" font-family="Arial, sans-serif" font-size="21">(example: 10 mA contexts)</text>
+
+  <rect x="560" y="210" rx="12" ry="12" width="410" height="540" fill="#111827"/>
+  <text x="588" y="255" fill="#93c5fd" font-family="Arial, sans-serif" font-size="26" font-weight="700">Step B</text>
+  <text x="588" y="292" fill="#ffffff" font-family="Arial, sans-serif" font-size="24">Enter required max trip time</text>
+  <rect x="588" y="332" rx="8" ry="8" width="220" height="44" fill="#334155"/>
+  <text x="610" y="361" fill="#ffffff" font-family="Arial, sans-serif" font-size="24">30</text>
+  <rect x="818" y="332" rx="8" ry="8" width="80" height="44" fill="#2d6a4f"/>
+  <text x="840" y="361" fill="#ffffff" font-family="Arial, sans-serif" font-size="24">ms</text>
+  <text x="588" y="420" fill="#cbd5e1" font-family="Arial, sans-serif" font-size="21">Required criterion is stored for this run</text>
+  <text x="588" y="450" fill="#cbd5e1" font-family="Arial, sans-serif" font-size="21">and shown later on result screen.</text>
+
+  <rect x="1010" y="210" rx="12" ry="12" width="480" height="540" fill="#111827"/>
+  <text x="1038" y="255" fill="#93c5fd" font-family="Arial, sans-serif" font-size="26" font-weight="700">Step C</text>
+  <text x="1038" y="292" fill="#ffffff" font-family="Arial, sans-serif" font-size="24">Enter measured trip time</text>
+  <rect x="1038" y="332" rx="8" ry="8" width="220" height="44" fill="#334155"/>
+  <text x="1060" y="361" fill="#ffffff" font-family="Arial, sans-serif" font-size="24">24</text>
+  <rect x="1268" y="332" rx="8" ry="8" width="80" height="44" fill="#2d6a4f"/>
+  <text x="1290" y="361" fill="#ffffff" font-family="Arial, sans-serif" font-size="24">ms</text>
+  <text x="1038" y="420" fill="#cbd5e1" font-family="Arial, sans-serif" font-size="21">PASS logic compares measured vs required max</text>
+  <text x="1038" y="450" fill="#cbd5e1" font-family="Arial, sans-serif" font-size="21">(fallback default applies only if not set)</text>
+
+  <rect x="110" y="780" rx="10" ry="10" width="1380" height="50" fill="#0b132b" stroke="#334155" stroke-width="2"/>
+  <text x="150" y="813" fill="#cbd5e1" font-family="Arial, sans-serif" font-size="24">Outcome: training and field users are prompted to apply site-specific regulatory requirements before judging RCD results.</text>
+</svg>
+

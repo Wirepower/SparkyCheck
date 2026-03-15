@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900">
+  <rect width="1600" height="900" fill="#0b132b"/>
+  <text x="60" y="74" fill="#e0e1dd" font-family="Arial, sans-serif" font-size="44" font-weight="700">Boot Security and Mode Control</text>
+
+  <rect x="70" y="130" rx="18" ry="18" width="470" height="700" fill="#1c2541" stroke="#3a506b" stroke-width="3"/>
+  <text x="95" y="178" fill="#e0e1dd" font-size="30" font-family="Arial, sans-serif" font-weight="700">1) Splash screen</text>
+  <rect x="95" y="210" rx="12" ry="12" width="420" height="250" fill="#111827"/>
+  <text x="225" y="290" fill="#ffffff" font-size="28" font-family="Arial, sans-serif">SparkyCheck</text>
+  <text x="310" y="400" fill="#8d99ae" font-size="20" font-family="Arial, sans-serif">Created By</text>
+  <text x="305" y="426" fill="#8d99ae" font-size="20" font-family="Arial, sans-serif">Frank Offer</text>
+  <text x="360" y="452" fill="#8d99ae" font-size="20" font-family="Arial, sans-serif">2026</text>
+  <text x="95" y="500" fill="#9fb3c8" font-size="22" font-family="Arial, sans-serif">Hold creator text area to enter admin path.</text>
+
+  <rect x="565" y="130" rx="18" ry="18" width="470" height="700" fill="#1c2541" stroke="#3a506b" stroke-width="3"/>
+  <text x="590" y="178" fill="#e0e1dd" font-size="30" font-family="Arial, sans-serif" font-weight="700">2) PIN gate</text>
+  <rect x="590" y="210" rx="12" ry="12" width="420" height="250" fill="#111827"/>
+  <text x="615" y="252" fill="#ffffff" font-size="24" font-family="Arial, sans-serif">Enter PIN</text>
+  <text x="615" y="286" fill="#9fb3c8" font-size="20" font-family="Arial, sans-serif">Min length: 4</text>
+  <text x="615" y="336" fill="#ffffff" font-size="30" font-family="Arial, sans-serif">* * * *</text>
+  <text x="615" y="392" fill="#f4a261" font-size="20" font-family="Arial, sans-serif">3 unsuccessful attempts -> continue boot</text>
+  <text x="590" y="500" fill="#9fb3c8" font-size="22" font-family="Arial, sans-serif">Prevents accidental mode/config changes in field use.</text>
+
+  <rect x="1060" y="130" rx="18" ry="18" width="470" height="700" fill="#1c2541" stroke="#3a506b" stroke-width="3"/>
+  <text x="1085" y="178" fill="#e0e1dd" font-size="30" font-family="Arial, sans-serif" font-weight="700">3) Mode selection</text>
+  <rect x="1085" y="210" rx="12" ry="12" width="420" height="250" fill="#111827"/>
+  <rect x="1110" y="250" rx="10" ry="10" width="370" height="70" fill="#2f3e46"/>
+  <text x="1140" y="295" fill="#ffffff" font-size="25" font-family="Arial, sans-serif">Training (supervised)</text>
+  <rect x="1110" y="335" rx="10" ry="10" width="370" height="70" fill="#2d6a4f"/>
+  <text x="1160" y="380" fill="#ffffff" font-size="25" font-family="Arial, sans-serif">Field (default)</text>
+  <text x="1085" y="500" fill="#9fb3c8" font-size="22" font-family="Arial, sans-serif">Selection is saved until changed through admin path.</text>
+</svg>
+

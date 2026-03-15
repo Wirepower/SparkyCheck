@@ -18,4 +18,7 @@ void showDisclaimer(TFT_eSPI& tft);
 /** Draw the industry-themed graphic (checkmark, cable, verification motif). */
 void drawIndustryGraphic(TFT_eSPI& tft, int centerX, int centerY, int size);
 
+/** True when a touch point is on the creator-credit text region. */
+bool isCreatorCreditTouchRegion(TFT_eSPI& tft, int x, int y);
+
 }  // namespace BootScreen

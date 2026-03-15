@@ -21,14 +21,14 @@ Standards: **AS/NZS 3000:2018** (Section 8), **AS/NZS 3017:2022**, **AS/NZS 3760
 |------|--------------|
 | **Boot 1** | Creator credit (“Created by Frank Offer 2026”), industry graphic; touch or 6 s to continue |
 | **Boot 2** | Safety disclaimer; must tap “I Accept” to continue (no bypass) |
-| **Mode select** | In **Settings** only; **PIN protected** (default 12345). Training vs Field; choice saved in NVS (3760 only in Field). Teachers/authorised users enter PIN to change mode. |
+| **Mode select** | Hidden boot admin path: hold on creator credit during splash, enter PIN (default 12345 unless changed), then choose Training/Field. Saved in NVS. |
 | **Main menu** | Start verification, View reports, Settings |
 | **Test flow** | One full sequence: (1) Mandatory “Zero your test leads” reminder → must tap “I have zeroed”, (2) Continuity: enter value (0.35 / 0.5 / 1.0 ohm demo buttons), Confirm, (3) Pass/fail result (green/red + buzzer), (4) “End session” → generates report |
 | **Pass/fail limits** | Continuity ≤ 0.5 Ω; IR limits (general + sheathed heating) in `TestLimits` for future tests |
 | **Report generation** | CSV + styled HTML to LittleFS (`/reports/Job_&lt;timestamp&gt;.csv` and `.html`); clause refs, rules version |
 | **Report list** | View saved report basenames from storage |
 | **Report saved** | Confirmation screen with basename; OK → main menu |
-| **Settings** | Screen rotation, WiFi, Buzzer, **About**, **Firmware updates**, Email, Change mode, Change PIN (Training). Back to menu |
+| **Settings** | Screen rotation, WiFi, Buzzer, **About**, **Firmware updates**, Email, Change PIN (Training). Back to menu. Mode change uses hidden boot gesture + PIN. |
 | **Training reporting channels (optional)** | In Training mode, all settings are PIN-gated. Optional Email and Cloud sync (Google Sheets/SharePoint). Live sync posts step progress/results, queues offline events, and updates the same row by session key |
 | **Student ID capture** | In Training mode, each test prompts for Student ID; value is normalized to `S` + digits and included in live sync/report metadata |
 | **About** | What SparkyCheck is, created by Frank Offer, current AS/NZS standards in use (editions), rules version |
@@ -42,12 +42,11 @@ Standards: **AS/NZS 3000:2018** (Section 8), **AS/NZS 3017:2022**, **AS/NZS 3760
 
 1. Power on → Boot 1 (creator) → touch or 6 s  
 2. → Disclaimer → tap “I Accept”  
-3. → Mode select (Training / Field) → tap choice then “Continue”  
-4. → Main menu → “Start verification”  
-5. → Safety reminder “Zero your test leads” → “I have zeroed”  
-6. → Continuity: tap value (e.g. 0.35), “Confirm” → Pass or Fail + buzzer  
-7. → “End session” → report written to storage → “Report saved” → OK  
-8. → Main menu; “View reports” lists basenames; “Settings” shows mode  
+3. → Main menu → “Start verification”  
+4. → Safety reminder “Zero your test leads” → “I have zeroed”  
+5. → Continuity: tap value (e.g. 0.35), “Confirm” → Pass or Fail + buzzer  
+6. → “End session” → report written to storage → “Report saved” → OK  
+7. → Main menu; “View reports” lists basenames; “Settings” shows mode  
 
 ---
 

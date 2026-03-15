@@ -9,6 +9,10 @@
 
 namespace BootScreen {
 
+static const char* kCreatorLine1 = "Created By";
+static const char* kCreatorLine2 = "Frank Offer";
+static const char* kCreatorLine3 = "2026";
+
 // Colours (TFT_eSPI 16-bit RGB565)
 static const uint16_t kBgDark    = 0x18E3;  // Dark blue-grey
 static const uint16_t kBgMid     = 0x2D6A;  // Mid blue
@@ -72,20 +76,38 @@ void showFirst(TFT_eSPI& tft) {
   // Industry graphic (centered in upper area)
   drawIndustryGraphic(tft, w / 2, 130, 100);
 
-  // Creator line – bottom right
+  // Creator lines – bottom right (hidden admin hold target)
   tft.setTextColor(kAccentDim, kBgMid);
   tft.setTextSize(1);
-  const char* credit = "Created by Frank Offer 2026";
-  int tw = (int)strlen(credit) * 6;  // Text size 1 default width
-  int th = 8;                         // Text size 1 default height
-  tft.setCursor(w - tw - 12, h - th - 10);
-  tft.print(credit);
+  const int blockW = 106, blockH = 34;
+  const int blockX = w - blockW - 10;
+  const int blockY = h - blockH - 10;
+  const int lineH = 10;
+  const char* lines[3] = { kCreatorLine1, kCreatorLine2, kCreatorLine3 };
+  for (int i = 0; i < 3; i++) {
+    int tw = (int)strlen(lines[i]) * 6;  // Text size 1 default width
+    int tx = blockX + (blockW - tw) / 2;
+    int ty = blockY + 2 + i * lineH;
+    tft.setCursor(tx, ty);
+    tft.print(lines[i]);
+  }
 
   // Hint – centre bottom
   tft.setTextColor(kAccentDim, kBgMid);
   tft.setTextSize(1);
   tft.setCursor(w / 2 - 55, h - 22);
   tft.print("Touch to continue");
+}
+
+bool isCreatorCreditTouchRegion(TFT_eSPI& tft, int x, int y) {
+  const int w = tft.width();
+  const int h = tft.height();
+  const int blockW = 106, blockH = 34;
+  const int rx = w - blockW - 14;
+  const int ry = h - blockH - 14;
+  const int rw = blockW + 8;
+  const int rh = blockH + 8;
+  return x >= rx && x < rx + rw && y >= ry && y < ry + rh;
 }
 
 void showDisclaimer(TFT_eSPI& tft) {

@@ -50,6 +50,17 @@ A) What this firmware now does
    - If SD missing or config disabled/invalid, device falls back to existing NVS settings.
    - Device auto-creates template files on SD when missing.
 
+7) Hidden mode change (Field <-> Educator/Training)
+   - During splash screen, press and hold the creator credit text:
+     "Created by Frank Offer 2026" (bottom-right area) for ~2.5 seconds.
+   - Device opens PIN screen.
+   - Enter PIN:
+     - Default: 12345
+     - PIN length: minimum 4 digits
+     - If changed previously, use the changed PIN.
+   - After PIN success, choose mode and confirm.
+   - Mode is saved and remains until this hidden process is repeated.
+
 -----------------------------------------------------------------------
 B) One-time GitHub/OTA setup
 -----------------------------------------------------------------------

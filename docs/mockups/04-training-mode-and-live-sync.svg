@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900">
+  <rect width="1600" height="900" fill="#0b132b"/>
+  <text x="60" y="72" fill="#e2e8f0" font-family="Arial, sans-serif" font-size="44" font-weight="700">Training Mode - Student Workflow and Live Sync</text>
+
+  <rect x="70" y="130" rx="20" ry="20" width="700" height="700" fill="#1c2541" stroke="#3a506b" stroke-width="3"/>
+  <text x="100" y="180" fill="#e2e8f0" font-size="30" font-family="Arial, sans-serif" font-weight="700">Student-first flow</text>
+  <rect x="100" y="215" rx="12" ry="12" width="640" height="580" fill="#111827"/>
+  <text x="130" y="265" fill="#f4a261" font-size="22" font-family="Arial, sans-serif">Student ID required before test start</text>
+  <rect x="130" y="292" rx="8" ry="8" width="350" height="46" fill="#334155"/>
+  <text x="150" y="323" fill="#ffffff" font-size="24" font-family="Arial, sans-serif">S1234567</text>
+  <rect x="495" y="292" rx="8" ry="8" width="120" height="46" fill="#2d6a4f"/>
+  <text x="533" y="323" fill="#ffffff" font-size="22" font-family="Arial, sans-serif">Start</text>
+
+  <text x="130" y="380" fill="#cbd5e1" font-size="24" font-family="Arial, sans-serif">- Step-by-step progression is logged live</text>
+  <text x="130" y="420" fill="#cbd5e1" font-size="24" font-family="Arial, sans-serif">- Back button edits update current session record</text>
+  <text x="130" y="460" fill="#cbd5e1" font-size="24" font-family="Arial, sans-serif">- Device label can be set as cubicle number</text>
+  <text x="130" y="500" fill="#cbd5e1" font-size="24" font-family="Arial, sans-serif">- Settings remain PIN-protected in training context</text>
+
+  <text x="130" y="570" fill="#93c5fd" font-size="26" font-family="Arial, sans-serif" font-weight="700">Sync payload includes:</text>
+  <text x="130" y="610" fill="#cbd5e1" font-size="23" font-family="Arial, sans-serif">student_id, device/cubicle, test_key, step, result, timestamps</text>
+  <text x="130" y="645" fill="#cbd5e1" font-size="23" font-family="Arial, sans-serif">session_id + report_id for update-friendly tracking</text>
+
+  <rect x="810" y="130" rx="20" ry="20" width="720" height="700" fill="#1c2541" stroke="#3a506b" stroke-width="3"/>
+  <text x="840" y="180" fill="#e2e8f0" font-size="30" font-family="Arial, sans-serif" font-weight="700">Reporting options and reliability</text>
+
+  <rect x="840" y="220" rx="10" ry="10" width="660" height="70" fill="#111827"/>
+  <text x="865" y="264" fill="#ffffff" font-size="24" font-family="Arial, sans-serif">Email reports: ON/OFF (optional)</text>
+  <rect x="840" y="305" rx="10" ry="10" width="660" height="70" fill="#111827"/>
+  <text x="865" y="349" fill="#ffffff" font-size="24" font-family="Arial, sans-serif">Cloud sync: ON/OFF (optional)</text>
+  <rect x="840" y="390" rx="10" ry="10" width="660" height="70" fill="#111827"/>
+  <text x="865" y="434" fill="#ffffff" font-size="24" font-family="Arial, sans-serif">Target: Auto / Google Sheets / SharePoint</text>
+  <rect x="840" y="475" rx="10" ry="10" width="660" height="70" fill="#111827"/>
+  <text x="865" y="519" fill="#ffffff" font-size="24" font-family="Arial, sans-serif">Endpoint + token + cubicle + device label editable</text>
+
+  <rect x="840" y="575" rx="12" ry="12" width="660" height="220" fill="#0f172a" stroke="#334155" stroke-width="2"/>
+  <text x="870" y="625" fill="#93c5fd" font-size="28" font-family="Arial, sans-serif" font-weight="700">Offline queue behavior</text>
+  <text x="870" y="665" fill="#cbd5e1" font-size="24" font-family="Arial, sans-serif">No Wi-Fi: events are queued locally</text>
+  <text x="870" y="700" fill="#cbd5e1" font-size="24" font-family="Arial, sans-serif">Wi-Fi restored: queued events auto-flush</text>
+  <text x="870" y="735" fill="#cbd5e1" font-size="24" font-family="Arial, sans-serif">Protects training evidence from network dropouts</text>
+</svg>
+

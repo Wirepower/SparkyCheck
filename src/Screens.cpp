@@ -11,6 +11,7 @@
 #include <TFT_eSPI.h>
 #include <WiFi.h>
 #include <ctype.h>
+#include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -39,17 +40,51 @@ static char s_studentInput[APP_STATE_DEVICE_ID_LEN] = "";
 static int s_studentInputLen = 0;
 static unsigned long s_testStartedMs = 0;
 static unsigned long s_testCompletedMs = 0;
+static float s_rcdRequiredMaxMs = 0.0f;
+static VerifyResultKind s_resultInputKind = RESULT_NONE;
+static char s_resultInput[16] = "";
+static int s_resultInputLen = 0;
+static int s_resultInputUnitIdx = 0;
+
+typedef struct {
+  const char* label;
+  float toCanonical;
+} ResultUnitOption;
+
+static const ResultUnitOption kResultUnitsOhm[] = {
+  { "ohm", 1.0f },
+  { "kOhm", 1000.0f },
+  { "MOhm", 1000000.0f },
+};
+
+static const ResultUnitOption kResultUnitsInsulation[] = {
+  { "ohm", 0.000001f },
+  { "kOhm", 0.001f },
+  { "MOhm", 1.0f },
+  { "GOhm", 1000.0f },
+};
+
+static const ResultUnitOption kResultUnitsRcd[] = {
+  { "ms", 1.0f },
+  { "s", 1000.0f },
+};
 
 /* PIN entry: where to go after correct PIN */
 static ScreenId s_pinSuccessTarget = SCREEN_MODE_SELECT;
+static ScreenId s_pinCancelTarget = SCREEN_SETTINGS;
 
-/* PIN entry state (5-digit PIN) */
-static char s_pinDigits[6] = "";
+static const int kPinMinLen = 4;
+static const int kPinMaxLen = 8;
+static const int kPinMaxAttempts = 3;
+
+/* PIN entry state (variable length, min 4 digits) */
+static char s_pinDigits[kPinMaxLen + 1] = "";
 static int s_pinLen = 0;
+static int s_pinFailAttempts = 0;
 
 /* Change PIN: step 0 = enter new, step 1 = confirm; buffers for comparison */
 static int s_changePinStep = 0;
-static char s_newPinBuf[6] = "";
+static char s_newPinBuf[kPinMaxLen + 1] = "";
 static int s_newPinLen = 0;
 
 /* Email settings edit: which field (0=server,1=port,2=user,3=pass,4=reportTo) and buffer */
@@ -83,6 +118,122 @@ bool Screens_didHandleButton(void) {
 
 static bool inRect(int x, int y, int rx, int ry, int rw, int rh) {
   return x >= rx && x < rx + rw && y >= ry && y < ry + rh;
+}
+
+static void showPrompt(TFT_eSPI* tft, const char* line1, const char* line2, uint16_t frameColor) {
+  if (!tft || !line1 || !line1[0]) return;
+  int w = getW(tft);
+  int h = getH(tft);
+  bool hasLine2 = (line2 && line2[0]);
+  int boxW = w - 24;
+  int boxH = hasLine2 ? 42 : 30;
+  int boxX = 12;
+  int boxY = h - boxH - 8;
+  tft->fillRoundRect(boxX, boxY, boxW, boxH, 6, kBg);
+  tft->drawRoundRect(boxX, boxY, boxW, boxH, 6, frameColor);
+  tft->setTextSize(1);
+  tft->setTextColor(kWhite, kBg);
+  int tw1 = (int)strlen(line1) * 6;
+  int tx1 = boxX + (boxW - tw1) / 2;
+  if (tx1 < boxX + 4) tx1 = boxX + 4;
+  tft->setCursor(tx1, boxY + (hasLine2 ? 9 : 11));
+  tft->print(line1);
+  if (hasLine2) {
+    int tw2 = (int)strlen(line2) * 6;
+    int tx2 = boxX + (boxW - tw2) / 2;
+    if (tx2 < boxX + 4) tx2 = boxX + 4;
+    tft->setCursor(tx2, boxY + 23);
+    tft->print(line2);
+  }
+  delay(900);
+}
+
+static void showSavedPrompt(TFT_eSPI* tft, const char* detail) {
+  showPrompt(tft, "Setting saved", detail, kGreen);
+}
+
+static void getResultUnitOptions(VerifyResultKind kind, const ResultUnitOption** out, int* outCount, int* outDefaultIdx) {
+  if (!out || !outCount || !outDefaultIdx) return;
+  switch (kind) {
+    case RESULT_CONTINUITY_OHM:
+    case RESULT_EFLI_OHM:
+      *out = kResultUnitsOhm;
+      *outCount = sizeof(kResultUnitsOhm) / sizeof(kResultUnitsOhm[0]);
+      *outDefaultIdx = 0;
+      return;
+    case RESULT_IR_MOHM:
+    case RESULT_IR_MOHM_SHEATHED:
+      *out = kResultUnitsInsulation;
+      *outCount = sizeof(kResultUnitsInsulation) / sizeof(kResultUnitsInsulation[0]);
+      *outDefaultIdx = 2;
+      return;
+    case RESULT_RCD_MS:
+    case RESULT_RCD_REQUIRED_MAX_MS:
+      *out = kResultUnitsRcd;
+      *outCount = sizeof(kResultUnitsRcd) / sizeof(kResultUnitsRcd[0]);
+      *outDefaultIdx = 0;
+      return;
+    default:
+      *out = kResultUnitsOhm;
+      *outCount = 1;
+      *outDefaultIdx = 0;
+      return;
+  }
+}
+
+static int findResultUnitIndex(const ResultUnitOption* units, int count, const char* label) {
+  if (!units || count <= 0 || !label || !label[0]) return -1;
+  for (int i = 0; i < count; i++) {
+    if (strcmp(units[i].label, label) == 0) return i;
+  }
+  return -1;
+}
+
+static void trimNumberString(char* text) {
+  if (!text) return;
+  int len = (int)strlen(text);
+  while (len > 0 && text[len - 1] == '0') text[--len] = '\0';
+  if (len > 0 && text[len - 1] == '.') text[--len] = '\0';
+  if (len <= 0) strcpy(text, "0");
+}
+
+static void resetResultEntryInput(void) {
+  s_resultInputKind = RESULT_NONE;
+  s_resultInput[0] = '\0';
+  s_resultInputLen = 0;
+  s_resultInputUnitIdx = 0;
+  s_rcdRequiredMaxMs = 0.0f;
+}
+
+static void ensureResultEntryInputState(VerifyResultKind kind) {
+  const ResultUnitOption* units = nullptr;
+  int unitCount = 0;
+  int defaultIdx = 0;
+  getResultUnitOptions(kind, &units, &unitCount, &defaultIdx);
+  if (s_resultInputKind != kind) {
+    s_resultInputKind = kind;
+    s_resultInput[0] = '\0';
+    s_resultInputLen = 0;
+    s_resultInputUnitIdx = defaultIdx;
+    if (kind == RESULT_RCD_REQUIRED_MAX_MS && s_rcdRequiredMaxMs > 0.0f) {
+      snprintf(s_resultInput, sizeof(s_resultInput), "%.6f", (double)s_rcdRequiredMaxMs);
+      trimNumberString(s_resultInput);
+      s_resultInputLen = (int)strlen(s_resultInput);
+      return;
+    }
+    if (s_resultUnit && s_resultUnit[0]) {
+      int idx = findResultUnitIndex(units, unitCount, s_resultUnit);
+      if (idx >= 0) s_resultInputUnitIdx = idx;
+    }
+    if (s_resultUnit && s_resultUnit[0]) {
+      snprintf(s_resultInput, sizeof(s_resultInput), "%.6f", (double)s_resultValue);
+      trimNumberString(s_resultInput);
+      s_resultInputLen = (int)strlen(s_resultInput);
+    }
+    return;
+  }
+  if (s_resultInputUnitIdx < 0 || s_resultInputUnitIdx >= unitCount)
+    s_resultInputUnitIdx = defaultIdx;
 }
 
 static int syncEditMaxLen(void) {
@@ -140,6 +291,9 @@ static const char* syncTestKeyForId(int testId) {
     case VERIFY_CIRCUIT_CONNECTIONS: return "correct_circuit_connections";
     case VERIFY_EFLI: return "earth_fault_loop_impedance";
     case VERIFY_RCD: return "rcd_operation";
+    case VERIFY_SWP_DISCONNECT_RECONNECT_MOTOR: return "swp_disconnect_reconnect_motor";
+    case VERIFY_SWP_DISCONNECT_RECONNECT_APPLIANCE: return "swp_disconnect_reconnect_appliance";
+    case VERIFY_SWP_DISCONNECT_RECONNECT_HEATER_SHEATHED: return "swp_disconnect_reconnect_heater_sheathed";
     default: return "";
   }
 }
@@ -215,6 +369,16 @@ void Screens_setPinSuccessTarget(ScreenId id) {
   s_pinSuccessTarget = id;
 }
 
+void Screens_setPinCancelTarget(ScreenId id) {
+  s_pinCancelTarget = id;
+}
+
+void Screens_resetPinEntry(void) {
+  s_pinLen = 0;
+  s_pinDigits[0] = '\0';
+  s_pinFailAttempts = 0;
+}
+
 void Screens_draw(TFT_eSPI* tft, ScreenId id) {
   int w = getW(tft);
   int h = getH(tft);
@@ -280,6 +444,12 @@ void Screens_draw(TFT_eSPI* tft, ScreenId id) {
       tft->setTextSize(2);
       tft->setCursor(20, 10);
       tft->print("Select test");
+      tft->fillRoundRect(w - 62, 8, 48, 24, 6, kBtn);
+      tft->drawRoundRect(w - 62, 8, 48, 24, 6, kWhite);
+      tft->setTextSize(1);
+      tft->setTextColor(kWhite, kBtn);
+      tft->setCursor(w - 56, 12);
+      tft->print("Back");
       tft->setTextSize(1);
       tft->setTextColor(kAccent, kBg);
       tft->setCursor(20, 38);
@@ -287,20 +457,15 @@ void Screens_draw(TFT_eSPI* tft, ScreenId id) {
         Standards_getVerificationScopeLine(scope, sizeof(scope));
         tft->print(scope);
       }
-      int rowH = 36, y = 56;
+      int rowH = 18, y = 48;
       for (int i = 0; i < VERIFY_TEST_COUNT; i++) {
-        tft->fillRoundRect(20, y, w - 40, rowH - 4, 6, kBtn);
-        tft->drawRoundRect(20, y, w - 40, rowH - 4, 6, kWhite);
+        tft->fillRoundRect(20, y, w - 40, rowH - 2, 6, kBtn);
+        tft->drawRoundRect(20, y, w - 40, rowH - 2, 6, kWhite);
         tft->setTextColor(kWhite, kBtn);
-        tft->setCursor(28, y + 10);
+        tft->setCursor(28, y + 5);
         tft->print(VerificationSteps_getTestName((VerifyTestId)i));
         y += rowH;
       }
-      tft->fillRoundRect(20, h - 44, 80, 36, 6, kBtn);
-      tft->drawRoundRect(20, h - 44, 80, 36, 6, kWhite);
-      tft->setTextColor(kWhite, kBtn);
-      tft->setCursor(40, h - 32);
-      tft->print("Back");
       break;
     }
     case SCREEN_STUDENT_ID: {
@@ -371,6 +536,12 @@ void Screens_draw(TFT_eSPI* tft, ScreenId id) {
           snprintf(buf, sizeof(buf), "%s: Verified", s_resultLabel ? s_resultLabel : "Test");
         tft->print(buf);
         tft->setCursor(20, 154);
+        if (s_selectedTestType == (int)VERIFY_RCD && s_rcdRequiredMaxMs > 0.0f) {
+          char crit[64];
+          snprintf(crit, sizeof(crit), "Criterion: <= %.3f ms", (double)s_rcdRequiredMaxMs);
+          tft->print(crit);
+          tft->setCursor(20, 166);
+        }
         tft->print(s_resultClause ? s_resultClause : "");
         int btnY = h - 52;
         tft->fillRoundRect(20, btnY, w - 40, 44, 8, kAccent);
@@ -432,38 +603,61 @@ void Screens_draw(TFT_eSPI* tft, ScreenId id) {
         tft->setCursor(w/2 - 12, btnY + 12);
         tft->print("OK");
       } else if (step.type == STEP_RESULT_ENTRY) {
-        char buf[32];
-        snprintf(buf, sizeof(buf), "%.3f", (double)s_resultValue);
-        tft->setCursor(20, 118);
-        tft->print("Value: ");
-        tft->print(buf);
+        ensureResultEntryInputState(step.resultKind);
+        const ResultUnitOption* units = nullptr;
+        int unitCount = 0;
+        int defaultIdx = 0;
+        getResultUnitOptions(step.resultKind, &units, &unitCount, &defaultIdx);
+        if (s_resultInputUnitIdx < 0 || s_resultInputUnitIdx >= unitCount) s_resultInputUnitIdx = defaultIdx;
+
+        tft->setTextColor(kWhite, kBg);
+        if (step.resultKind == RESULT_RCD_MS && s_rcdRequiredMaxMs > 0.0f) {
+          char reqBuf[44];
+          snprintf(reqBuf, sizeof(reqBuf), "Required max: %.3f ms", (double)s_rcdRequiredMaxMs);
+          tft->setCursor(20, 84);
+          tft->print(reqBuf);
+        }
+        tft->setCursor(20, 98);
+        tft->print("Value:");
+        tft->setCursor(20, 112);
+        tft->print(s_resultInputLen > 0 ? s_resultInput : "(none)");
         tft->print(" ");
-        tft->print(step.unit ? step.unit : "");
-        int bx = 20, by = 148, bw = 64, bh = 32, gap = 8;
-        float presets[6] = { 0 };
-        int nPresets = 0;
-        if (step.resultKind == RESULT_CONTINUITY_OHM || step.resultKind == RESULT_EFLI_OHM) {
-          presets[0]=0.2f; presets[1]=0.35f; presets[2]=0.5f; presets[3]=1.0f; nPresets=4;
-        } else if (step.resultKind == RESULT_IR_MOHM || step.resultKind == RESULT_IR_MOHM_SHEATHED) {
-          presets[0]=0.01f; presets[1]=0.5f; presets[2]=1.0f; presets[3]=5.0f; presets[4]=10.0f; nPresets=5;
-        } else if (step.resultKind == RESULT_RCD_MS) {
-          presets[0]=10.0f; presets[1]=20.0f; presets[2]=30.0f; presets[3]=40.0f; nPresets=4;
+        tft->print(units[s_resultInputUnitIdx].label);
+
+        tft->fillRoundRect(w - 74, 96, 54, 20, 6, kAccent);
+        tft->drawRoundRect(w - 74, 96, 54, 20, 6, kWhite);
+        tft->setTextColor(TFT_BLACK, kAccent);
+        tft->setCursor(w - 60, 102);
+        tft->print("Del");
+
+        int uy = 120, uh = 18, uGap = 4;
+        int uw = (w - 40 - (unitCount - 1) * uGap) / unitCount;
+        for (int i = 0; i < unitCount; i++) {
+          int ux = 20 + i * (uw + uGap);
+          uint16_t bg = (i == s_resultInputUnitIdx) ? kGreen : kBtn;
+          tft->fillRoundRect(ux, uy, uw, uh, 6, bg);
+          tft->drawRoundRect(ux, uy, uw, uh, 6, kWhite);
+          tft->setTextColor(i == s_resultInputUnitIdx ? TFT_BLACK : kWhite, bg);
+          int tx = ux + uw / 2 - ((int)strlen(units[i].label) * 6) / 2;
+          tft->setCursor(tx < ux + 2 ? ux + 2 : tx, uy + 6);
+          tft->print(units[i].label);
         }
-        for (int i = 0; i < nPresets && i < 5; i++) {
-          int kx = bx + i * (bw + gap);
-          tft->fillRoundRect(kx, by, bw, bh, 6, kBtn);
-          tft->drawRoundRect(kx, by, bw, bh, 6, kWhite);
-          tft->setTextColor(kWhite, kBtn);
-          tft->setCursor(kx + 4, by + 8);
-          if (step.resultKind == RESULT_RCD_MS) snprintf(buf, sizeof(buf), "%.0f", (double)presets[i]);
-          else snprintf(buf, sizeof(buf), "%.2f", (double)presets[i]);
-          tft->print(buf);
+
+        const char* keys[12] = { "1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0", "OK" };
+        int cellW = (w - 50) / 3, cellH = 20, gap = 6, startX = 20, startY = 142;
+        for (int row = 0; row < 4; row++) {
+          for (int col = 0; col < 3; col++) {
+            int idx = row * 3 + col;
+            int kx = startX + col * (cellW + gap), ky = startY + row * (cellH + gap);
+            uint16_t bg = (strcmp(keys[idx], "OK") == 0) ? kGreen : kBtn;
+            tft->fillRoundRect(kx, ky, cellW, cellH, 6, bg);
+            tft->drawRoundRect(kx, ky, cellW, cellH, 6, kWhite);
+            tft->setTextColor(strcmp(keys[idx], "OK") == 0 ? TFT_BLACK : kWhite, bg);
+            int tw = (int)strlen(keys[idx]) * 6;
+            tft->setCursor(kx + (cellW - tw) / 2, ky + 6);
+            tft->print(keys[idx]);
+          }
         }
-        tft->fillRoundRect(20, by + bh + 12, w - 40, 44, 8, kGreen);
-        tft->drawRoundRect(20, by + bh + 12, w - 40, 44, 8, kWhite);
-        tft->setTextColor(TFT_BLACK, kGreen);
-        tft->setCursor(w/2 - 28, by + bh + 22);
-        tft->print("Confirm");
       }
       break;
     }
@@ -532,7 +726,7 @@ void Screens_draw(TFT_eSPI* tft, ScreenId id) {
         else if (i == 3) label = "About";
         else if (i == 4) label = "Firmware updates";
         else if (i == 5) label = "Email settings";
-        else if (i == 6) label = "Change operating mode";
+        else if (i == 6) label = "Mode change (boot hold)";
         else label = "Change PIN";
         tft->fillRoundRect(20, y, btnW, btnH, 6, kBtn);
         tft->drawRoundRect(20, y, btnW, btnH, 6, kWhite);
@@ -1189,9 +1383,13 @@ void Screens_draw(TFT_eSPI* tft, ScreenId id) {
       tft->print("Enter PIN");
       tft->setTextSize(1);
       tft->setCursor(20, 40);
-      tft->print("5 digits (authorised users only):");
-      char disp[6] = "*****";
-      for (int i = 0; i < s_pinLen && i < 5; i++) disp[i] = s_pinDigits[i];
+      tft->print("Minimum 4 digits (authorised users only):");
+      char disp[kPinMaxLen + 1];
+      int dlen = s_pinLen;
+      if (dlen > kPinMaxLen) dlen = kPinMaxLen;
+      for (int i = 0; i < dlen; i++) disp[i] = '*';
+      disp[dlen] = '\0';
+      if (dlen == 0) strcpy(disp, "(none)");
       tft->setTextSize(2);
       tft->setCursor(20, 62);
       tft->print(disp);
@@ -1228,9 +1426,13 @@ void Screens_draw(TFT_eSPI* tft, ScreenId id) {
       tft->print(s_changePinStep == 0 ? "New PIN" : "Confirm PIN");
       tft->setTextSize(1);
       tft->setCursor(20, 38);
-      tft->print("Enter 5 digits");
-      char disp[6] = "*****";
-      for (int i = 0; i < s_pinLen && i < 5; i++) disp[i] = s_pinDigits[i];
+      tft->print("Enter min 4 digits");
+      char disp[kPinMaxLen + 1];
+      int dlen = s_pinLen;
+      if (dlen > kPinMaxLen) dlen = kPinMaxLen;
+      for (int i = 0; i < dlen; i++) disp[i] = '*';
+      disp[dlen] = '\0';
+      if (dlen == 0) strcpy(disp, "(none)");
       tft->setTextSize(2);
       tft->setCursor(20, 58);
       tft->print(disp);
@@ -1276,7 +1478,9 @@ ScreenId Screens_handleTouch(TFT_eSPI* tft, ScreenId current, uint16_t x, uint16
       if (inRect(ix, iy, 20, 150, w - 40, 56)) { s_modeSelectChoice = 1; Screens_draw(tft, current); return handled(current); }
       if (inRect(ix, iy, w/2 - 60, 220, 120, 44)) {
         AppState_setMode(s_modeSelectChoice == 1 ? APP_MODE_FIELD : APP_MODE_TRAINING);
-        return handled(SCREEN_SETTINGS);  /* Return to Settings, not main menu */
+        s_trainingSettingsUnlocked = false;
+        showSavedPrompt(tft, AppState_isFieldMode() ? "Mode: Field" : "Mode: Training");
+        return handled(SCREEN_MAIN_MENU);
       }
       break;
     case SCREEN_MAIN_MENU:
@@ -1284,17 +1488,19 @@ ScreenId Screens_handleTouch(TFT_eSPI* tft, ScreenId current, uint16_t x, uint16
       if (inRect(ix, iy, 20, 132, w - 40, 44)) return handled(SCREEN_REPORT_LIST);
       if (inRect(ix, iy, 20, 188, w - 40, 44)) {
         if (AppState_getMode() == APP_MODE_TRAINING && !s_trainingSettingsUnlocked) {
-          s_pinLen = 0; s_pinDigits[0] = '\0';
+          Screens_resetPinEntry();
           Screens_setPinSuccessTarget(SCREEN_SETTINGS);
+          Screens_setPinCancelTarget(SCREEN_MAIN_MENU);
           return handled(SCREEN_PIN_ENTER);
         }
         return handled(SCREEN_SETTINGS);
       }
       break;
     case SCREEN_TEST_SELECT: {
-      int rowH = 36, y0 = 56;
+      if (inRect(ix, iy, w - 62, 8, 48, 24)) return handled(SCREEN_MAIN_MENU);
+      int rowH = 18, y0 = 48;
       for (int i = 0; i < VERIFY_TEST_COUNT; i++) {
-        if (inRect(ix, iy, 20, y0 + i * rowH, w - 40, rowH - 4)) {
+        if (inRect(ix, iy, 20, y0 + i * rowH, w - 40, rowH - 2)) {
           s_selectedTestType = i;
           s_stepIndex = 0;
           s_flowPhase = 0;
@@ -1303,6 +1509,7 @@ ScreenId Screens_handleTouch(TFT_eSPI* tft, ScreenId current, uint16_t x, uint16
           s_resultLabel = NULL;
           s_resultUnit = NULL;
           s_resultClause = NULL;
+          resetResultEntryInput();
           s_testStartedMs = 0;
           s_testCompletedMs = 0;
           if (AppState_getMode() == APP_MODE_TRAINING) {
@@ -1313,7 +1520,6 @@ ScreenId Screens_handleTouch(TFT_eSPI* tft, ScreenId current, uint16_t x, uint16
           return handled(SCREEN_TEST_FLOW);
         }
       }
-      if (inRect(ix, iy, 20, h - 44, 80, 36)) return handled(SCREEN_MAIN_MENU);
       break;
     }
     case SCREEN_STUDENT_ID: {
@@ -1371,6 +1577,7 @@ ScreenId Screens_handleTouch(TFT_eSPI* tft, ScreenId current, uint16_t x, uint16
           return handled(current);
         }
         syncTrainingFlowEvent("test_cancelled", false, nullptr);
+        resetResultEntryInput();
         return handled(SCREEN_TEST_SELECT);
       }
       if (s_flowPhase == 1) {
@@ -1395,6 +1602,7 @@ ScreenId Screens_handleTouch(TFT_eSPI* tft, ScreenId current, uint16_t x, uint16
           s_resultLabel = NULL;
           s_resultUnit = NULL;
           s_resultClause = NULL;
+          resetResultEntryInput();
           return handled(SCREEN_REPORT_SAVED);
         }
         break;
@@ -1460,37 +1668,113 @@ ScreenId Screens_handleTouch(TFT_eSPI* tft, ScreenId current, uint16_t x, uint16
           return handled(current);
         }
       } else if (step.type == STEP_RESULT_ENTRY) {
-        int bx = 20, by = 148, bw = 64, bh = 32, gap = 8;
-        float presets[5];
-        int nPresets = 0;
-        if (step.resultKind == RESULT_CONTINUITY_OHM || step.resultKind == RESULT_EFLI_OHM) {
-          presets[0]=0.2f; presets[1]=0.35f; presets[2]=0.5f; presets[3]=1.0f; nPresets=4;
-        } else if (step.resultKind == RESULT_IR_MOHM || step.resultKind == RESULT_IR_MOHM_SHEATHED) {
-          presets[0]=0.01f; presets[1]=0.5f; presets[2]=1.0f; presets[3]=5.0f; presets[4]=10.0f; nPresets=5;
-        } else if (step.resultKind == RESULT_RCD_MS) {
-          presets[0]=10.0f; presets[1]=20.0f; presets[2]=30.0f; presets[3]=40.0f; nPresets=4;
+        ensureResultEntryInputState(step.resultKind);
+        const ResultUnitOption* units = nullptr;
+        int unitCount = 0;
+        int defaultIdx = 0;
+        getResultUnitOptions(step.resultKind, &units, &unitCount, &defaultIdx);
+        if (s_resultInputUnitIdx < 0 || s_resultInputUnitIdx >= unitCount) s_resultInputUnitIdx = defaultIdx;
+
+        if (inRect(ix, iy, w - 74, 96, 54, 20)) {
+          if (s_resultInputLen > 0) s_resultInput[--s_resultInputLen] = '\0';
+          Screens_draw(tft, current);
+          return handled(current);
         }
-        for (int i = 0; i < nPresets && i < 5; i++) {
-          int kx = bx + i * (bw + gap);
-          if (inRect(ix, iy, kx, by, bw, bh)) {
-            s_resultValue = presets[i];
+
+        int uy = 120, uh = 18, uGap = 4;
+        int uw = (w - 40 - (unitCount - 1) * uGap) / unitCount;
+        for (int i = 0; i < unitCount; i++) {
+          int ux = 20 + i * (uw + uGap);
+          if (inRect(ix, iy, ux, uy, uw, uh)) {
+            s_resultInputUnitIdx = i;
             Screens_draw(tft, current);
             return handled(current);
           }
         }
-        if (inRect(ix, iy, 20, by + bh + 12, w - 40, 44)) {
-          VerifyResultKind kind = step.resultKind;
-          if (kind == RESULT_IR_MOHM && s_resultIsSheathedHeating) kind = RESULT_IR_MOHM_SHEATHED;
-          s_resultPass = VerificationSteps_validateResult(kind, s_resultValue, s_resultIsSheathedHeating);
-          s_resultLabel = step.resultLabel;
-          s_resultUnit = step.unit;
-          s_resultClause = VerificationSteps_getClauseForResult(step.resultKind);
-          s_flowPhase = 1;
-          s_testCompletedMs = millis();
-          syncTrainingFlowEvent("result_confirmed", true, nullptr);
-          if (AppState_getBuzzerEnabled()) { if (s_resultPass) Buzzer_beepPass(); else Buzzer_beepFail(); }
-          Screens_draw(tft, current);
-          return handled(current);
+
+        const char* keys[12] = { "1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0", "OK" };
+        int cellW = (w - 50) / 3, cellH = 20, gap = 6, startX = 20, startY = 142;
+        for (int row = 0; row < 4; row++) {
+          for (int col = 0; col < 3; col++) {
+            int idx = row * 3 + col;
+            int kx = startX + col * (cellW + gap), ky = startY + row * (cellH + gap);
+            if (!inRect(ix, iy, kx, ky, cellW, cellH)) continue;
+            const char* key = keys[idx];
+            if (strcmp(key, "OK") == 0) {
+              if (s_resultInputLen <= 0) {
+                Buzzer_beepFail();
+                showPrompt(tft, "Enter a value", "before confirming", kRed);
+                Screens_draw(tft, current);
+                return handled(current);
+              }
+              char* endptr = nullptr;
+              float rawValue = strtof(s_resultInput, &endptr);
+              if (endptr == s_resultInput || !endptr || *endptr != '\0' || rawValue < 0.0f) {
+                Buzzer_beepFail();
+                showPrompt(tft, "Invalid value", "Try again", kRed);
+                Screens_draw(tft, current);
+                return handled(current);
+              }
+              float canonicalValue = rawValue * units[s_resultInputUnitIdx].toCanonical;
+              VerifyResultKind kind = step.resultKind;
+              if (kind == RESULT_IR_MOHM && s_resultIsSheathedHeating) kind = RESULT_IR_MOHM_SHEATHED;
+              if (kind == RESULT_RCD_REQUIRED_MAX_MS) {
+                s_rcdRequiredMaxMs = canonicalValue;
+                s_stepIndex++;
+                s_resultInputKind = RESULT_NONE;
+                s_resultInputLen = 0;
+                s_resultInput[0] = '\0';
+                if (s_stepIndex >= count) {
+                  s_resultPass = true;
+                  s_resultValue = rawValue;
+                  s_resultLabel = step.resultLabel;
+                  s_resultUnit = units[s_resultInputUnitIdx].label;
+                  s_resultClause = VerificationSteps_getClauseForResult(step.resultKind);
+                  s_flowPhase = 1;
+                  s_testCompletedMs = millis();
+                  syncTrainingFlowEvent("result_confirmed", true, nullptr);
+                  if (AppState_getBuzzerEnabled()) Buzzer_beepPass();
+                  Screens_draw(tft, current);
+                } else {
+                  syncTrainingFlowEvent("step_next", false, nullptr);
+                  showSavedPrompt(tft, "Required max saved");
+                  Screens_draw(tft, current);
+                }
+                return handled(current);
+              }
+              if (kind == RESULT_RCD_MS && s_rcdRequiredMaxMs > 0.0f)
+                s_resultPass = (canonicalValue >= 0.0f && canonicalValue <= s_rcdRequiredMaxMs);
+              else
+                s_resultPass = VerificationSteps_validateResult(kind, canonicalValue, s_resultIsSheathedHeating);
+              s_resultValue = rawValue;
+              s_resultLabel = step.resultLabel;
+              s_resultUnit = units[s_resultInputUnitIdx].label;
+              s_resultClause = VerificationSteps_getClauseForResult(step.resultKind);
+              s_flowPhase = 1;
+              s_testCompletedMs = millis();
+              syncTrainingFlowEvent("result_confirmed", true, nullptr);
+              if (AppState_getBuzzerEnabled()) { if (s_resultPass) Buzzer_beepPass(); else Buzzer_beepFail(); }
+              Screens_draw(tft, current);
+              return handled(current);
+            } else if (strcmp(key, ".") == 0) {
+              if (!strchr(s_resultInput, '.')) {
+                if (s_resultInputLen == 0 && s_resultInputLen < (int)sizeof(s_resultInput) - 2) {
+                  s_resultInput[s_resultInputLen++] = '0';
+                }
+                if (s_resultInputLen < (int)sizeof(s_resultInput) - 1) {
+                  s_resultInput[s_resultInputLen++] = '.';
+                  s_resultInput[s_resultInputLen] = '\0';
+                }
+              }
+            } else {
+              if (s_resultInputLen < (int)sizeof(s_resultInput) - 1) {
+                s_resultInput[s_resultInputLen++] = key[0];
+                s_resultInput[s_resultInputLen] = '\0';
+              }
+            }
+            Screens_draw(tft, current);
+            return handled(current);
+          }
         }
       }
       break;
@@ -1503,8 +1787,9 @@ ScreenId Screens_handleTouch(TFT_eSPI* tft, ScreenId current, uint16_t x, uint16
       break;
     case SCREEN_SETTINGS: {
       if (AppState_getMode() == APP_MODE_TRAINING && !s_trainingSettingsUnlocked) {
-        s_pinLen = 0; s_pinDigits[0] = '\0';
+        Screens_resetPinEntry();
         Screens_setPinSuccessTarget(SCREEN_SETTINGS);
+        Screens_setPinCancelTarget(SCREEN_MAIN_MENU);
         return handled(SCREEN_PIN_ENTER);
       }
       int btnH = 30, gap = 2, y = 42;
@@ -1515,7 +1800,10 @@ ScreenId Screens_handleTouch(TFT_eSPI* tft, ScreenId current, uint16_t x, uint16
       if (inRect(ix, iy, 20, y, w - 40, btnH)) return handled(SCREEN_WIFI_LIST);
       y += btnH + gap;
       if (inRect(ix, iy, 20, y, w - 40, btnH)) {
-        AppState_setBuzzerEnabled(!AppState_getBuzzerEnabled());
+        bool enabled = !AppState_getBuzzerEnabled();
+        AppState_setBuzzerEnabled(enabled);
+        Screens_draw(tft, current);
+        showSavedPrompt(tft, enabled ? "Buzzer: ON" : "Buzzer: OFF");
         Screens_draw(tft, current);
         return handled(current);
       }
@@ -1527,8 +1815,8 @@ ScreenId Screens_handleTouch(TFT_eSPI* tft, ScreenId current, uint16_t x, uint16
       if (inRect(ix, iy, 20, y, w - 40, btnH)) return handled(SCREEN_EMAIL_SETTINGS);
       y += btnH + gap;
       if (inRect(ix, iy, 20, y, w - 40, btnH)) {
-        Screens_setModeSelectChoice(AppState_getMode() == APP_MODE_FIELD ? 1 : 0);
-        return handled(SCREEN_MODE_SELECT);
+        Screens_draw(tft, current);
+        return handled(current);
       }
       y += btnH + gap;
       if (!field && inRect(ix, iy, 20, y, w - 40, btnH)) return handled(SCREEN_CHANGE_PIN);
@@ -1540,8 +1828,16 @@ ScreenId Screens_handleTouch(TFT_eSPI* tft, ScreenId current, uint16_t x, uint16
       break;
     }
     case SCREEN_ROTATION:
-      if (inRect(ix, iy, 20, 60, w - 40, 48)) { AppState_setRotation(0); return handled(SCREEN_SETTINGS); }
-      if (inRect(ix, iy, 20, 118, w - 40, 48)) { AppState_setRotation(1); return handled(SCREEN_SETTINGS); }
+      if (inRect(ix, iy, 20, 60, w - 40, 48)) {
+        AppState_setRotation(0);
+        showSavedPrompt(tft, "Display: Portrait");
+        return handled(SCREEN_SETTINGS);
+      }
+      if (inRect(ix, iy, 20, 118, w - 40, 48)) {
+        AppState_setRotation(1);
+        showSavedPrompt(tft, "Display: Landscape");
+        return handled(SCREEN_SETTINGS);
+      }
       if (inRect(ix, iy, 20, 178, 80, 36)) return handled(SCREEN_SETTINGS);
       break;
     case SCREEN_WIFI_LIST: {
@@ -1592,10 +1888,13 @@ ScreenId Screens_handleTouch(TFT_eSPI* tft, ScreenId current, uint16_t x, uint16
         return handled(current);
       }
       if (inRect(ix, iy, 90, ctrlY, 80, 32)) {
-        if (WifiManager_connect(s_selectedSsid, s_wifiPassLen > 0 ? s_wifiPass : ""))
+        if (WifiManager_connect(s_selectedSsid, s_wifiPassLen > 0 ? s_wifiPass : "")) {
           Buzzer_beepPass();
-        else
+          showPrompt(tft, "Wi-Fi connected", s_selectedSsid, kGreen);
+        } else {
           Buzzer_beepFail();
+          showPrompt(tft, "Wi-Fi connect failed", "Check password", kRed);
+        }
         s_selectedSsid[0] = '\0';
         s_wifiPassLen = 0;
         return handled(SCREEN_WIFI_LIST);
@@ -1621,19 +1920,26 @@ ScreenId Screens_handleTouch(TFT_eSPI* tft, ScreenId current, uint16_t x, uint16
       btnY += btnH + gap;
       int half = (w - 50) / 2;
       if (inRect(ix, iy, 20, btnY, half, btnH)) {
-        AppState_setOtaAutoCheckEnabled(!AppState_getOtaAutoCheckEnabled());
+        bool enabled = !AppState_getOtaAutoCheckEnabled();
+        AppState_setOtaAutoCheckEnabled(enabled);
+        Screens_draw(tft, current);
+        showSavedPrompt(tft, enabled ? "Auto-check: ON" : "Auto-check: OFF");
         Screens_draw(tft, current);
         return handled(current);
       }
       if (inRect(ix, iy, 30 + half, btnY, half, btnH)) {
-        AppState_setOtaAutoInstallEnabled(!AppState_getOtaAutoInstallEnabled());
+        bool enabled = !AppState_getOtaAutoInstallEnabled();
+        AppState_setOtaAutoInstallEnabled(enabled);
+        Screens_draw(tft, current);
+        showSavedPrompt(tft, enabled ? "Auto-install: ON" : "Auto-install: OFF");
         Screens_draw(tft, current);
         return handled(current);
       }
       btnY += btnH + gap;
       if (!AppState_isFieldMode() && inRect(ix, iy, 20, btnY, w - 40, btnH)) {
-        s_pinLen = 0; s_pinDigits[0] = '\0';
+        Screens_resetPinEntry();
         Screens_setPinSuccessTarget(SCREEN_TRAINING_SYNC);
+        Screens_setPinCancelTarget(SCREEN_UPDATES);
         return handled(SCREEN_PIN_ENTER);
       }
       if (!AppState_isFieldMode()) btnY += btnH + gap;
@@ -1648,12 +1954,18 @@ ScreenId Screens_handleTouch(TFT_eSPI* tft, ScreenId current, uint16_t x, uint16
       int y = 152, btnH = 22, gap = 3;
       int half = (w - 50) / 2;
       if (inRect(ix, iy, 20, y, half, btnH)) {
-        AppState_setEmailReportEnabled(!AppState_getEmailReportEnabled());
+        bool enabled = !AppState_getEmailReportEnabled();
+        AppState_setEmailReportEnabled(enabled);
+        Screens_draw(tft, current);
+        showSavedPrompt(tft, enabled ? "Email reports: ON" : "Email reports: OFF");
         Screens_draw(tft, current);
         return handled(current);
       }
       if (inRect(ix, iy, 30 + half, y, half, btnH)) {
-        AppState_setTrainingSyncEnabled(!AppState_getTrainingSyncEnabled());
+        bool enabled = !AppState_getTrainingSyncEnabled();
+        AppState_setTrainingSyncEnabled(enabled);
+        Screens_draw(tft, current);
+        showSavedPrompt(tft, enabled ? "Cloud sync: ON" : "Cloud sync: OFF");
         Screens_draw(tft, current);
         return handled(current);
       }
@@ -1662,6 +1974,8 @@ ScreenId Screens_handleTouch(TFT_eSPI* tft, ScreenId current, uint16_t x, uint16
         TrainingSyncTarget t = AppState_getTrainingSyncTarget();
         t = (TrainingSyncTarget)(((int)t + 1) % 3);
         AppState_setTrainingSyncTarget(t);
+        Screens_draw(tft, current);
+        showSavedPrompt(tft, syncTargetLabel(t));
         Screens_draw(tft, current);
         return handled(current);
       }
@@ -1714,10 +2028,16 @@ ScreenId Screens_handleTouch(TFT_eSPI* tft, ScreenId current, uint16_t x, uint16
         return handled(current);
       }
       if (inRect(ix, iy, 130, ctrlY, 60, 28)) {
+        const char* detail = "Setting updated";
         if (s_syncEditField == 0) AppState_setTrainingSyncEndpoint(s_syncEditBuffer);
         else if (s_syncEditField == 1) AppState_setTrainingSyncToken(s_syncEditBuffer);
         else if (s_syncEditField == 2) AppState_setTrainingSyncCubicleId(s_syncEditBuffer);
         else AppState_setDeviceIdOverride(s_syncEditBuffer);
+        if (s_syncEditField == 0) detail = "Endpoint saved";
+        else if (s_syncEditField == 1) detail = "Token saved";
+        else if (s_syncEditField == 2) detail = "Cubicle saved";
+        else detail = "Device label saved";
+        showSavedPrompt(tft, detail);
         return handled(SCREEN_TRAINING_SYNC);
       }
       break;
@@ -1766,21 +2086,26 @@ ScreenId Screens_handleTouch(TFT_eSPI* tft, ScreenId current, uint16_t x, uint16
         return handled(current);
       }
       if (inRect(ix, iy, 78, ctrlY, 60, 28)) {
+        const char* detail = "Email setting saved";
         if (s_editingEmailField == 0) AppState_setSmtpServer(s_editBuffer);
         else if (s_editingEmailField == 1) AppState_setSmtpPort(s_editBuffer);
         else if (s_editingEmailField == 2) AppState_setSmtpUser(s_editBuffer);
         else if (s_editingEmailField == 3) AppState_setSmtpPass(s_editBuffer);
         else AppState_setReportToEmail(s_editBuffer);
+        if (s_editingEmailField == 0) detail = "SMTP server saved";
+        else if (s_editingEmailField == 1) detail = "SMTP port saved";
+        else if (s_editingEmailField == 2) detail = "SMTP user saved";
+        else if (s_editingEmailField == 3) detail = "SMTP pass saved";
+        else detail = "Report email saved";
+        showSavedPrompt(tft, detail);
         return handled(SCREEN_EMAIL_SETTINGS);
       }
       break;
     }
     case SCREEN_PIN_ENTER: {
       if (inRect(ix, iy, w - 70, 8, 50, 28)) {
-        s_pinLen = 0;
-        s_pinDigits[0] = '\0';
-        if (s_pinSuccessTarget == SCREEN_SETTINGS) return handled(SCREEN_MAIN_MENU);
-        return handled(SCREEN_SETTINGS);
+        Screens_resetPinEntry();
+        return handled(s_pinCancelTarget);
       }
       int cellW = (w - 50) / 3, cellH = 38, startY = 100, gap = 6;
       const char* keys = "123456789C0E";
@@ -1790,32 +2115,44 @@ ScreenId Screens_handleTouch(TFT_eSPI* tft, ScreenId current, uint16_t x, uint16
           int kx = 20 + col * (cellW + gap), ky = startY + row * (cellH + gap);
           if (!inRect(ix, iy, kx, ky, cellW, cellH)) continue;
           if (keys[idx] == 'C') {
-            s_pinLen = 0;
-            s_pinDigits[0] = '\0';
+            Screens_resetPinEntry();
             Screens_draw(tft, current);
             return handled(current);
           }
           if (keys[idx] == 'E') {
-            if (s_pinLen != 5) break;
+            if (s_pinLen < kPinMinLen) break;
             uint32_t pin = 0;
-            for (int i = 0; i < 5; i++)
+            for (int i = 0; i < s_pinLen; i++)
               pin = pin * 10 + (s_pinDigits[i] - '0');
             if (AppState_checkPin(pin)) {
-              s_pinLen = 0;
-              s_pinDigits[0] = '\0';
+              Screens_resetPinEntry();
               if (s_pinSuccessTarget == SCREEN_SETTINGS) s_trainingSettingsUnlocked = true;
               if (s_pinSuccessTarget == SCREEN_MODE_SELECT)
                 Screens_setModeSelectChoice(AppState_getMode() == APP_MODE_FIELD ? 1 : 0);
               return handled(s_pinSuccessTarget);
             } else {
               Buzzer_beepFail();
+              s_pinFailAttempts++;
               s_pinLen = 0;
               s_pinDigits[0] = '\0';
+              bool bootModeEntry = (s_pinSuccessTarget == SCREEN_MODE_SELECT && s_pinCancelTarget == SCREEN_MAIN_MENU);
+              if (bootModeEntry && s_pinFailAttempts >= kPinMaxAttempts) {
+                tft->fillScreen(kBg);
+                tft->setTextColor(kWhite, kBg);
+                tft->setTextSize(1);
+                tft->setCursor(20, h / 2 - 12);
+                tft->print("3 unsuccesful login attempts,");
+                tft->setCursor(20, h / 2 + 4);
+                tft->print("continuing boot process");
+                delay(3000);
+                Screens_resetPinEntry();
+                return handled(SCREEN_MAIN_MENU);
+              }
               Screens_draw(tft, current);
               return handled(current);
             }
           }
-          if (keys[idx] >= '0' && keys[idx] <= '9' && s_pinLen < 5) {
+          if (keys[idx] >= '0' && keys[idx] <= '9' && s_pinLen < kPinMaxLen) {
             s_pinDigits[s_pinLen++] = keys[idx];
             s_pinDigits[s_pinLen] = '\0';
             Screens_draw(tft, current);
@@ -1843,27 +2180,33 @@ ScreenId Screens_handleTouch(TFT_eSPI* tft, ScreenId current, uint16_t x, uint16
             return handled(current);
           }
           if (keys[idx] == 'E') {
-            if (s_pinLen != 5) break;
+            if (s_pinLen < kPinMinLen) break;
             if (s_changePinStep == 0) {
-              memcpy(s_newPinBuf, s_pinDigits, 6);
-              s_newPinLen = 5;
+              memcpy(s_newPinBuf, s_pinDigits, s_pinLen);
+              s_newPinBuf[s_pinLen] = '\0';
+              s_newPinLen = s_pinLen;
               s_changePinStep = 1;
               s_pinLen = 0; s_pinDigits[0] = '\0';
               Screens_draw(tft, current);
               return handled(current);
             } else {
-              bool match = (s_pinLen == 5 && strncmp(s_pinDigits, s_newPinBuf, 5) == 0);
+              bool match = (s_pinLen == s_newPinLen && s_pinLen >= kPinMinLen &&
+                            strncmp(s_pinDigits, s_newPinBuf, s_newPinLen) == 0);
               if (match) {
                 uint32_t pin = 0;
-                for (int i = 0; i < 5; i++) pin = pin * 10 + (s_newPinBuf[i] - '0');
+                for (int i = 0; i < s_newPinLen; i++) pin = pin * 10 + (s_newPinBuf[i] - '0');
                 AppState_setPin(pin);
                 Buzzer_beepPass();
-              } else Buzzer_beepFail();
+                showSavedPrompt(tft, "PIN updated");
+              } else {
+                Buzzer_beepFail();
+                showPrompt(tft, "PIN not changed", "Entries did not match", kRed);
+              }
               s_changePinStep = 0; s_pinLen = 0; s_pinDigits[0] = '\0'; s_newPinBuf[0] = '\0'; s_newPinLen = 0;
               return handled(SCREEN_SETTINGS);
             }
           }
-          if (keys[idx] >= '0' && keys[idx] <= '9' && s_pinLen < 5) {
+          if (keys[idx] >= '0' && keys[idx] <= '9' && s_pinLen < kPinMaxLen) {
             s_pinDigits[s_pinLen++] = keys[idx];
             s_pinDigits[s_pinLen] = '\0';
             Screens_draw(tft, current);

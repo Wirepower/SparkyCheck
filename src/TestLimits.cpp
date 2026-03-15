@@ -31,7 +31,7 @@ bool TestLimits_insulationPass(float mOhms, bool is_sheathed_heating) {
 }
 
 float TestLimits_rcdTripTimeMaxMs(void) {
-  return 30.0f;  /* AS/NZS 3000 / 3017 typical requirement; update if standard specifies otherwise */
+  return 30.0f;  /* Default fallback only; UI can capture installation-specific criteria (e.g. special locations). */
 }
 
 bool TestLimits_rcdTripTimePass(float ms) {

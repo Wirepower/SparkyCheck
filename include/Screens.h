@@ -48,6 +48,10 @@ void Screens_setModeSelectChoice(int training_or_field);
 
 /** Set where to go after successful PIN (mode change vs email settings). */
 void Screens_setPinSuccessTarget(ScreenId id);
+/** Set where PIN screen goes when user taps Back/cancel. */
+void Screens_setPinCancelTarget(ScreenId id);
+/** Clear PIN entry buffer and failed-attempt counter. */
+void Screens_resetPinEntry(void);
 
 /** True if the last handleTouch call handled a button (for button-click feedback). */
 bool Screens_didHandleButton(void);

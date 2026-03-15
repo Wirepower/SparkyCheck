@@ -31,9 +31,21 @@ void setup() {
   BootScreen::showFirst(tft);
   unsigned long start = millis();
   uint16_t x = 0, y = 0;
+  bool adminGesture = false;
+  unsigned long holdStart = 0;
   while (millis() - start < 6000) {
-    if (tft.getTouch(&x, &y)) break;
-    delay(50);
+    if (tft.getTouch(&x, &y)) {
+      bool onCreator = BootScreen::isCreatorCreditTouchRegion(tft, (int)x, (int)y);
+      if (onCreator) {
+        if (holdStart == 0) holdStart = millis();
+        if (millis() - holdStart >= 2500) { adminGesture = true; break; }
+      } else {
+        break;  // normal tap anywhere else
+      }
+    } else {
+      if (holdStart != 0) break;  // released before hold threshold
+    }
+    delay(30);
   }
 
   /* Boot 2: Disclaimer (must accept) */
@@ -45,8 +57,15 @@ void setup() {
   OtaUpdate_init();
   GoogleSync_init();
   OtaUpdate_runAutoFlow();
-  Screens_setModeSelectChoice(AppState_getMode() == APP_MODE_FIELD ? 1 : 0);
-  s_currentScreen = SCREEN_MAIN_MENU;
+  if (adminGesture) {
+    Screens_setModeSelectChoice(AppState_getMode() == APP_MODE_FIELD ? 1 : 0);
+    Screens_setPinSuccessTarget(SCREEN_MODE_SELECT);
+    Screens_setPinCancelTarget(SCREEN_MAIN_MENU);
+    Screens_resetPinEntry();
+    s_currentScreen = SCREEN_PIN_ENTER;
+  } else {
+    s_currentScreen = SCREEN_MAIN_MENU;
+  }
   tft.setRotation(AppState_getRotation());
   Screens_draw(&tft, s_currentScreen);
 
