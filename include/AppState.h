@@ -56,6 +56,15 @@ void AppState_setBuzzerEnabled(bool on);
 void AppState_getWifiCredentials(char* ssid, unsigned ssid_size, char* pass, unsigned pass_size);
 void AppState_setWifiCredentials(const char* ssid, const char* pass);
 
+/** OTA settings (manifest URL + automation toggles). */
+#define APP_STATE_OTA_URL_LEN 192
+void AppState_getOtaManifestUrl(char* buf, unsigned size);
+void AppState_setOtaManifestUrl(const char* s);
+bool AppState_getOtaAutoCheckEnabled(void);
+void AppState_setOtaAutoCheckEnabled(bool on);
+bool AppState_getOtaAutoInstallEnabled(void);
+void AppState_setOtaAutoInstallEnabled(bool on);
+
 /** Email (SMTP) settings – device sender. PIN-protected in UI. */
 #define APP_STATE_EMAIL_STR_LEN 64
 void AppState_getSmtpServer(char* buf, unsigned size);
