@@ -1111,7 +1111,7 @@ ScreenId Screens_handleTouch(TFT_eSPI* tft, ScreenId current, uint16_t x, uint16
               s_pinDigits[0] = '\0';
               if (s_pinSuccessTarget == SCREEN_MODE_SELECT)
                 Screens_setModeSelectChoice(AppState_getMode() == APP_MODE_FIELD ? 1 : 0);
-              return s_pinSuccessTarget;
+              return handled(s_pinSuccessTarget);
             } else {
               Buzzer_beepFail();
               s_pinLen = 0;

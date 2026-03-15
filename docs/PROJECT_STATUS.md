@@ -21,7 +21,7 @@ Standards: **AS/NZS 3000:2018** (Section 8), **AS/NZS 3017:2022**, **AS/NZS 3760
 |------|--------------|
 | **Boot 1** | Creator credit (“Created by Frank Offer 2026”), industry graphic; touch or 6 s to continue |
 | **Boot 2** | Safety disclaimer; must tap “I Accept” to continue (no bypass) |
-| **Mode select** | In **Settings** only; **PIN protected** (default 2026). Training vs Field; choice saved in NVS (3760 only in Field). Teachers/authorised users enter PIN to change mode. |
+| **Mode select** | In **Settings** only; **PIN protected** (default 12345). Training vs Field; choice saved in NVS (3760 only in Field). Teachers/authorised users enter PIN to change mode. |
 | **Main menu** | Start verification, View reports, Settings |
 | **Test flow** | One full sequence: (1) Mandatory “Zero your test leads” reminder → must tap “I have zeroed”, (2) Continuity: enter value (0.35 / 0.5 / 1.0 ohm demo buttons), Confirm, (3) Pass/fail result (green/red + buzzer), (4) “End session” → generates report |
 | **Pass/fail limits** | Continuity ≤ 0.5 Ω; IR limits (general + sheathed heating) in `TestLimits` for future tests |
