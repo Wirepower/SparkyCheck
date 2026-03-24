@@ -4,6 +4,7 @@
  */
 
 #include "BootScreen.h"
+#include "SparkyDisplay.h"
 #include "Standards.h"
 #include <string.h>
 
@@ -21,7 +22,7 @@ static const uint16_t kAccentDim = 0xBC40;  // Dimmer gold
 static const uint16_t kWhite    = 0xFFFF;
 static const uint16_t kGreen    = 0x07E0;
 
-void drawIndustryGraphic(TFT_eSPI& tft, int centerX, int centerY, int size) {
+void drawIndustryGraphic(SparkyTft& tft, int centerX, int centerY, int size) {
   const int r = size / 2;
   const int cx = centerX;
   const int cy = centerY;
@@ -53,7 +54,7 @@ void drawIndustryGraphic(TFT_eSPI& tft, int centerX, int centerY, int size) {
   tft.drawFastHLine(cx - r + 6, ly + 4, (r - 6) * 2, kAccentDim);
 }
 
-void showFirst(TFT_eSPI& tft) {
+void showFirst(SparkyTft& tft) {
   const int w = tft.width();
   const int h = tft.height();
 
@@ -99,7 +100,7 @@ void showFirst(TFT_eSPI& tft) {
   tft.print("Touch to continue");
 }
 
-bool isCreatorCreditTouchRegion(TFT_eSPI& tft, int x, int y) {
+bool isCreatorCreditTouchRegion(SparkyTft& tft, int x, int y) {
   const int w = tft.width();
   const int h = tft.height();
   const int blockW = 106, blockH = 34;
@@ -110,7 +111,7 @@ bool isCreatorCreditTouchRegion(TFT_eSPI& tft, int x, int y) {
   return x >= rx && x < rx + rw && y >= ry && y < ry + rh;
 }
 
-void showDisclaimer(TFT_eSPI& tft) {
+void showDisclaimer(SparkyTft& tft) {
   const int w = tft.width();
   const int h = tft.height();
 
@@ -153,6 +154,8 @@ void showDisclaimer(TFT_eSPI& tft) {
   tft.setTextSize(2);
   tft.setCursor(btnX + 28, btnY + 12);
   tft.print("I Accept");
+
+  sparkyDisplayFlush(&tft);
 
   uint16_t tx = 0, ty = 0;
   while (true) {

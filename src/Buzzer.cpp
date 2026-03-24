@@ -7,6 +7,7 @@
 #include "Buzzer.h"
 #include "AppState.h"
 #include <Arduino.h>
+#include <esp_arduino_version.h>
 
 #if BUZZER_PIN >= 0
 #define BUZZER_LEDC_CHANNEL  0
@@ -18,21 +19,30 @@ void Buzzer_init(void) {
 #if BUZZER_PIN >= 0
   pinMode(BUZZER_PIN, OUTPUT);
   digitalWrite(BUZZER_PIN, LOW);
+#if ESP_ARDUINO_VERSION >= ESP_ARDUINO_VERSION_VAL(3, 0, 0)
+  ledcAttach(BUZZER_PIN, BUZZER_LEDC_FREQ, BUZZER_LEDC_RES_BITS);
+#else
   ledcSetup(BUZZER_LEDC_CHANNEL, BUZZER_LEDC_FREQ, BUZZER_LEDC_RES_BITS);
   ledcAttachPin(BUZZER_PIN, BUZZER_LEDC_CHANNEL);
+#endif
 #endif
 }
 
 #if BUZZER_PIN >= 0
 /** Play a tone at frequency (Hz) for duration (ms). 0 Hz = silence. */
 static void toneMs(unsigned int freqHz, int durationMs) {
+#if ESP_ARDUINO_VERSION >= ESP_ARDUINO_VERSION_VAL(3, 0, 0)
+  const uint8_t toneTarget = BUZZER_PIN;
+#else
+  const uint8_t toneTarget = BUZZER_LEDC_CHANNEL;
+#endif
   if (freqHz > 0)
-    ledcWriteTone(BUZZER_LEDC_CHANNEL, (uint32_t)freqHz);
+    ledcWriteTone(toneTarget, (uint32_t)freqHz);
   else
-    ledcWriteTone(BUZZER_LEDC_CHANNEL, 0);
+    ledcWriteTone(toneTarget, 0);
   if (durationMs > 0)
     delay((unsigned int)durationMs);
-  ledcWriteTone(BUZZER_LEDC_CHANNEL, 0);
+  ledcWriteTone(toneTarget, 0);
 }
 
 static void beep(unsigned int freqHz, int ms) {

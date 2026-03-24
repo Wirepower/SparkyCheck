@@ -150,12 +150,17 @@ bool ReportGenerator_end(void) {
 
   /* Field mode: also persist report copies on SD card when available. */
   if (AppState_isFieldMode()) {
+#ifdef SPARKYCHECK_PANEL_43B
+    // 4.3B SD path is SPI+CH422G controlled CS, not SD_MMC.
+    // Skip SD mirror write until dedicated SPI SD support is added.
+#else
     bool sd_ok = (SD_MMC.cardType() != CARD_NONE);
     if (!sd_ok) sd_ok = SD_MMC.begin("/sdcard", true);
     if (sd_ok) {
       writeReportToFs(SD_MMC, "/reports", s_report.basename, device_id,
                       s_report.student_id, rules_ver, s_report.rows, s_report.count);
     }
+#endif
   }
 
   s_report.active = false;

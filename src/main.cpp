@@ -1,6 +1,6 @@
 #include <Arduino.h>
-#include <TFT_eSPI.h>
 
+#include "SparkyDisplay.h"
 #include "BootScreen.h"
 #include "AppState.h"
 #include "Screens.h"
@@ -11,7 +11,7 @@
 #include "GoogleSync.h"
 #include "SdConfig.h"
 
-TFT_eSPI tft = TFT_eSPI();
+SparkyTft tft;
 static ScreenId s_currentScreen = SCREEN_MAIN_MENU;
 static bool s_appReady = false;
 
@@ -68,6 +68,7 @@ void setup() {
   }
   tft.setRotation(AppState_getRotation());
   Screens_draw(&tft, s_currentScreen);
+  sparkyDisplayFlush(&tft);
 
   s_appReady = true;
   Serial.println("SparkyCheck ready.");
@@ -78,8 +79,10 @@ void loop() {
 
   GoogleSync_tick();
 
+  static bool s_touchWasDown = false;
   uint16_t x = 0, y = 0;
-  if (tft.getTouch(&x, &y)) {
+  bool touchDown = tft.getTouch(&x, &y);
+  if (touchDown && !s_touchWasDown) {
     ScreenId next = Screens_handleTouch(&tft, s_currentScreen, x, y);
     if (Screens_didHandleButton() && AppState_getBuzzerEnabled())
       Buzzer_beepClick();
@@ -87,8 +90,11 @@ void loop() {
       s_currentScreen = next;
       tft.setRotation(AppState_getRotation());
       Screens_draw(&tft, s_currentScreen);
+      sparkyDisplayFlush(&tft);
     }
-    delay(120);
+    // Small debounce for tap transitions; held touches won't retrigger.
+    delay(90);
   }
+  s_touchWasDown = touchDown;
   delay(50);
 }

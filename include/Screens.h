@@ -4,7 +4,7 @@
 
 #pragma once
 
-#include <TFT_eSPI.h>
+#include "SparkyDisplay.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -35,10 +35,10 @@ typedef enum {
 } ScreenId;
 
 /** Draw the given screen. */
-void Screens_draw(TFT_eSPI* tft, ScreenId id);
+void Screens_draw(SparkyTft* tft, ScreenId id);
 
 /** Handle touch; returns next screen or same if no action. */
-ScreenId Screens_handleTouch(TFT_eSPI* tft, ScreenId current, uint16_t x, uint16_t y);
+ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint16_t y);
 
 /** Set data for report-saved screen (basename). */
 void Screens_setReportSavedBasename(const char* basename);

@@ -45,6 +45,13 @@ static TrainingSyncTarget parseSyncTarget(const char* s) {
 static bool mountSd(void) {
   if (s_attempted) return s_sdAvailable;
   s_attempted = true;
+#ifdef SPARKYCHECK_PANEL_43B
+  // Waveshare 4.3B uses TF over SPI with CS via CH422G (EXIO4).
+  // Current SD_MMC path is not compatible and can crash on Arduino 3.x.
+  s_sdAvailable = false;
+  setStatus("SD provisioning disabled on 4.3B build.");
+  return false;
+#endif
   s_sdAvailable = SD_MMC.begin("/sdcard", true);
   if (!s_sdAvailable) setStatus("SD not mounted.");
   else setStatus("SD mounted.");

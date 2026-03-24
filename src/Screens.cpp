@@ -8,7 +8,7 @@
 #include "GoogleSync.h"
 #include "Standards.h"
 #include "VerificationSteps.h"
-#include <TFT_eSPI.h>
+#include "SparkyDisplay.h"
 #include <WiFi.h>
 #include <ctype.h>
 #include <stdlib.h>
@@ -106,8 +106,8 @@ static char s_wifiPass[WIFI_PASS_LEN] = "";
 static int s_wifiPassLen = 0;
 static bool s_trainingSettingsUnlocked = false;
 
-static int getW(TFT_eSPI* tft) { return tft->width(); }
-static int getH(TFT_eSPI* tft) { return tft->height(); }
+static int getW(SparkyTft* tft) { return tft->width(); }
+static int getH(SparkyTft* tft) { return tft->height(); }
 
 static bool s_handledButton = false;
 static ScreenId handled(ScreenId id) { s_handledButton = true; return id; }
@@ -120,7 +120,7 @@ static bool inRect(int x, int y, int rx, int ry, int rw, int rh) {
   return x >= rx && x < rx + rw && y >= ry && y < ry + rh;
 }
 
-static void showPrompt(TFT_eSPI* tft, const char* line1, const char* line2, uint16_t frameColor) {
+static void showPrompt(SparkyTft* tft, const char* line1, const char* line2, uint16_t frameColor) {
   if (!tft || !line1 || !line1[0]) return;
   int w = getW(tft);
   int h = getH(tft);
@@ -145,10 +145,11 @@ static void showPrompt(TFT_eSPI* tft, const char* line1, const char* line2, uint
     tft->setCursor(tx2, boxY + 23);
     tft->print(line2);
   }
+  sparkyDisplayFlush(tft);
   delay(900);
 }
 
-static void showSavedPrompt(TFT_eSPI* tft, const char* detail) {
+static void showSavedPrompt(SparkyTft* tft, const char* detail) {
   showPrompt(tft, "Setting saved", detail, kGreen);
 }
 
@@ -379,7 +380,7 @@ void Screens_resetPinEntry(void) {
   s_pinFailAttempts = 0;
 }
 
-void Screens_draw(TFT_eSPI* tft, ScreenId id) {
+void Screens_draw(SparkyTft* tft, ScreenId id) {
   int w = getW(tft);
   int h = getH(tft);
   tft->fillScreen(kBg);
@@ -411,6 +412,7 @@ void Screens_draw(TFT_eSPI* tft, ScreenId id) {
       break;
     }
     case SCREEN_MAIN_MENU: {
+      bool panelWide = (w >= 700);
       tft->setTextColor(kWhite, kBg);
       tft->setTextSize(2);
       tft->setCursor(20, 16);
@@ -419,53 +421,64 @@ void Screens_draw(TFT_eSPI* tft, ScreenId id) {
       tft->setTextColor(kAccent, kBg);
       tft->setCursor(20, 44);
       tft->print(AppState_isFieldMode() ? "Field mode" : "Training mode");
-      int btnW = w - 40, btnH = 44, y = 76;
+      int btnW = w - 40, btnH = panelWide ? 64 : 44, y = panelWide ? 88 : 76;
+      int labelSize = panelWide ? 2 : 1;
+      int labelYOff = panelWide ? 24 : 12;
       tft->fillRoundRect(20, y, btnW, btnH, 8, kBtn);
       tft->drawRoundRect(20, y, btnW, btnH, 8, kWhite);
       tft->setTextColor(kWhite, kBtn);
-      tft->setCursor(36, y + 12);
+      tft->setTextSize(labelSize);
+      tft->setCursor(panelWide ? 44 : 36, y + labelYOff);
       tft->print("Start verification");
-      y += 56;
+      y += btnH + (panelWide ? 14 : 12);
       tft->fillRoundRect(20, y, btnW, btnH, 8, kBtn);
       tft->drawRoundRect(20, y, btnW, btnH, 8, kWhite);
       tft->setTextColor(kWhite, kBtn);
-      tft->setCursor(36, y + 12);
+      tft->setCursor(panelWide ? 44 : 36, y + labelYOff);
       tft->print("View reports");
-      y += 56;
+      y += btnH + (panelWide ? 14 : 12);
       tft->fillRoundRect(20, y, btnW, btnH, 8, kBtn);
       tft->drawRoundRect(20, y, btnW, btnH, 8, kWhite);
       tft->setTextColor(kWhite, kBtn);
-      tft->setCursor(36, y + 12);
+      tft->setCursor(panelWide ? 44 : 36, y + labelYOff);
       tft->print("Settings");
       break;
     }
     case SCREEN_TEST_SELECT: {
+      bool panelWide = (w >= 700);
       tft->setTextColor(kWhite, kBg);
-      tft->setTextSize(2);
+      tft->setTextSize(panelWide ? 3 : 2);
       tft->setCursor(20, 10);
       tft->print("Select test");
-      tft->fillRoundRect(w - 62, 8, 48, 24, 6, kBtn);
-      tft->drawRoundRect(w - 62, 8, 48, 24, 6, kWhite);
+      int backW = panelWide ? 90 : 48;
+      int backH = panelWide ? 34 : 24;
+      int backX = w - (panelWide ? 102 : 62);
+      int backY = panelWide ? 10 : 8;
+      tft->fillRoundRect(backX, backY, backW, backH, 6, kBtn);
+      tft->drawRoundRect(backX, backY, backW, backH, 6, kWhite);
       tft->setTextSize(1);
       tft->setTextColor(kWhite, kBtn);
-      tft->setCursor(w - 56, 12);
+      tft->setCursor(backX + (panelWide ? 20 : 6), backY + (panelWide ? 11 : 4));
       tft->print("Back");
-      tft->setTextSize(1);
+      tft->setTextSize(panelWide ? 2 : 1);
       tft->setTextColor(kAccent, kBg);
-      tft->setCursor(20, 38);
+      tft->setCursor(20, panelWide ? 50 : 38);
       { char scope[96];
         Standards_getVerificationScopeLine(scope, sizeof(scope));
         tft->print(scope);
       }
-      int rowH = 18, y = 48;
+      int rowH = panelWide ? 38 : 18, y = panelWide ? 84 : 48;
+      tft->setTextWrap(false);
       for (int i = 0; i < VERIFY_TEST_COUNT; i++) {
         tft->fillRoundRect(20, y, w - 40, rowH - 2, 6, kBtn);
         tft->drawRoundRect(20, y, w - 40, rowH - 2, 6, kWhite);
         tft->setTextColor(kWhite, kBtn);
-        tft->setCursor(28, y + 5);
+        tft->setTextSize(panelWide ? 2 : 1);
+        tft->setCursor(28, y + (panelWide ? 11 : 5));
         tft->print(VerificationSteps_getTestName((VerifyTestId)i));
         y += rowH;
       }
+      tft->setTextWrap(true);
       break;
     }
     case SCREEN_STUDENT_ID: {
@@ -1464,9 +1477,10 @@ void Screens_draw(TFT_eSPI* tft, ScreenId id) {
     default:
       break;
   }
+  sparkyDisplayFlush(tft);
 }
 
-ScreenId Screens_handleTouch(TFT_eSPI* tft, ScreenId current, uint16_t x, uint16_t y) {
+ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint16_t y) {
   s_handledButton = false;
   int w = getW(tft);
   int h = getH(tft);
@@ -1483,10 +1497,15 @@ ScreenId Screens_handleTouch(TFT_eSPI* tft, ScreenId current, uint16_t x, uint16
         return handled(SCREEN_MAIN_MENU);
       }
       break;
-    case SCREEN_MAIN_MENU:
-      if (inRect(ix, iy, 20, 76, w - 40, 44)) return handled(SCREEN_TEST_SELECT);
-      if (inRect(ix, iy, 20, 132, w - 40, 44)) return handled(SCREEN_REPORT_LIST);
-      if (inRect(ix, iy, 20, 188, w - 40, 44)) {
+    case SCREEN_MAIN_MENU: {
+      bool panelWide = (w >= 700);
+      int btnH = panelWide ? 64 : 44;
+      int y0 = panelWide ? 88 : 76;
+      int y1 = y0 + btnH + (panelWide ? 14 : 12);
+      int y2 = y1 + btnH + (panelWide ? 14 : 12);
+      if (inRect(ix, iy, 20, y0, w - 40, btnH)) return handled(SCREEN_TEST_SELECT);
+      if (inRect(ix, iy, 20, y1, w - 40, btnH)) return handled(SCREEN_REPORT_LIST);
+      if (inRect(ix, iy, 20, y2, w - 40, btnH)) {
         if (AppState_getMode() == APP_MODE_TRAINING && !s_trainingSettingsUnlocked) {
           Screens_resetPinEntry();
           Screens_setPinSuccessTarget(SCREEN_SETTINGS);
@@ -1496,9 +1515,16 @@ ScreenId Screens_handleTouch(TFT_eSPI* tft, ScreenId current, uint16_t x, uint16
         return handled(SCREEN_SETTINGS);
       }
       break;
+    }
     case SCREEN_TEST_SELECT: {
-      if (inRect(ix, iy, w - 62, 8, 48, 24)) return handled(SCREEN_MAIN_MENU);
-      int rowH = 18, y0 = 48;
+      bool panelWide = (w >= 700);
+      int backW = panelWide ? 90 : 48;
+      int backH = panelWide ? 34 : 24;
+      int backX = w - (panelWide ? 102 : 62);
+      int backY = panelWide ? 10 : 8;
+      if (inRect(ix, iy, backX, backY, backW, backH)) return handled(SCREEN_MAIN_MENU);
+      int rowH = panelWide ? 38 : 18;
+      int y0 = panelWide ? 84 : 48;
       for (int i = 0; i < VERIFY_TEST_COUNT; i++) {
         if (inRect(ix, iy, 20, y0 + i * rowH, w - 40, rowH - 2)) {
           s_selectedTestType = i;
