@@ -3,6 +3,7 @@
 This folder contains an **editable EEZ Studio project** built from the mockup layouts:
 
 - `SparkyCheck-Mockup-UI.eez-project`
+- `SparkyCheck-CurrentApp-Mockup.eez-project`
 
 ## What this is
 
@@ -37,4 +38,30 @@ To make it run on device, a next step is required:
 ## Recommended next step
 
 Start by integrating one EEZ screen (Main Menu equivalent) in parallel with current UI, then migrate screen-by-screen.
+
+## Current running app screen pack
+
+`SparkyCheck-CurrentApp-Mockup.eez-project` mirrors the current firmware screen set as editable pages, including:
+
+- `SCREEN_MODE_SELECT`
+- `SCREEN_MAIN_MENU`
+- `SCREEN_TEST_SELECT`
+- `SCREEN_STUDENT_ID`
+- `SCREEN_TEST_FLOW`
+- `SCREEN_REPORT_SAVED`
+- `SCREEN_REPORT_LIST`
+- `SCREEN_SETTINGS`
+- `SCREEN_ROTATION`
+- `SCREEN_WIFI_LIST`
+- `SCREEN_WIFI_PASSWORD`
+- `SCREEN_ABOUT`
+- `SCREEN_UPDATES`
+- `SCREEN_TRAINING_SYNC`
+- `SCREEN_TRAINING_SYNC_EDIT`
+- `SCREEN_EMAIL_SETTINGS`
+- `SCREEN_EMAIL_FIELD_EDIT`
+- `SCREEN_CHANGE_PIN`
+- `SCREEN_PIN_ENTER`
+
+This file is intended for visual iteration in EEZ before runtime integration.
 
