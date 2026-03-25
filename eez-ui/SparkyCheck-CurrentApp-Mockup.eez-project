@@ -130,6 +130,26 @@
       "objID": "92567bcc-36e8-4bbf-8da0-15419720b730",
       "components": [
         {
+          "objID": "6eb5b27e-f842-4caa-bbd9-c7f28ee29509",
+          "type": "LVGLActionComponent",
+          "left": 20,
+          "top": 420,
+          "width": 240,
+          "height": 54,
+          "customInputs": [],
+          "customOutputs": [],
+          "actions": [
+            {
+              "objID": "03cee641-2827-46c4-a0db-7accafb7da17",
+              "action": "CHANGE_SCREEN",
+              "screen": "SCREEN_MAIN_MENU",
+              "fadeMode": "FADE_IN",
+              "speed": 200,
+              "delay": 0
+            }
+          ]
+        },
+        {
           "objID": "82424bdf-e499-46f9-b8ff-f090af60b3f4",
           "type": "LVGLScreenWidget",
           "left": 0,
@@ -580,7 +600,15 @@
           }
         }
       ],
-      "connectionLines": [],
+      "connectionLines": [
+        {
+          "objID": "17660e0a-cdb7-4665-812a-51436cb1793f",
+          "source": "146c8f67-c0e9-42a8-9d7a-474992ae6d2b",
+          "output": "CLICKED",
+          "target": "6eb5b27e-f842-4caa-bbd9-c7f28ee29509",
+          "input": "@seqin"
+        }
+      ],
       "localVariables": [],
       "name": "SCREEN_MODE_SELECT",
       "left": 0,
@@ -591,6 +619,66 @@
     {
       "objID": "c153a4d8-50ba-42c0-bf9c-c05e4b62b13b",
       "components": [
+        {
+          "objID": "1e29e1fd-850d-43da-88a2-0b2e0d86623d",
+          "type": "LVGLActionComponent",
+          "left": 520,
+          "top": 420,
+          "width": 240,
+          "height": 54,
+          "customInputs": [],
+          "customOutputs": [],
+          "actions": [
+            {
+              "objID": "8ae03f7c-a2d8-4389-8d75-756667008aa8",
+              "action": "CHANGE_SCREEN",
+              "screen": "SCREEN_SETTINGS",
+              "fadeMode": "FADE_IN",
+              "speed": 200,
+              "delay": 0
+            }
+          ]
+        },
+        {
+          "objID": "a8a74840-b47f-4fa5-83cc-a94f934caf6a",
+          "type": "LVGLActionComponent",
+          "left": 270,
+          "top": 420,
+          "width": 240,
+          "height": 54,
+          "customInputs": [],
+          "customOutputs": [],
+          "actions": [
+            {
+              "objID": "19bd1184-3444-4f40-9ba8-06f207cce484",
+              "action": "CHANGE_SCREEN",
+              "screen": "SCREEN_REPORT_LIST",
+              "fadeMode": "FADE_IN",
+              "speed": 200,
+              "delay": 0
+            }
+          ]
+        },
+        {
+          "objID": "88c0dc71-dba2-4b51-ac0e-f2967b43535c",
+          "type": "LVGLActionComponent",
+          "left": 20,
+          "top": 420,
+          "width": 240,
+          "height": 54,
+          "customInputs": [],
+          "customOutputs": [],
+          "actions": [
+            {
+              "objID": "de76d82a-5995-4434-acf4-b9bff7a3cc51",
+              "action": "CHANGE_SCREEN",
+              "screen": "SCREEN_TEST_SELECT",
+              "fadeMode": "FADE_IN",
+              "speed": 200,
+              "delay": 0
+            }
+          ]
+        },
         {
           "objID": "18c8679b-1810-4086-934d-1b075712daf3",
           "type": "LVGLScreenWidget",
@@ -1005,7 +1093,29 @@
           }
         }
       ],
-      "connectionLines": [],
+      "connectionLines": [
+        {
+          "objID": "ae3bfcf5-9503-4b5c-953f-bb5f33bdd39e",
+          "source": "175eab00-db3b-46d5-ab27-10b4f16c34ab",
+          "output": "CLICKED",
+          "target": "88c0dc71-dba2-4b51-ac0e-f2967b43535c",
+          "input": "@seqin"
+        },
+        {
+          "objID": "62c7b714-4e28-4c7b-97e6-bdbfa9180ded",
+          "source": "3a5a46b9-a168-4f22-b954-97a44cb7ac73",
+          "output": "CLICKED",
+          "target": "a8a74840-b47f-4fa5-83cc-a94f934caf6a",
+          "input": "@seqin"
+        },
+        {
+          "objID": "4a2dd7a4-2d33-4f28-8bf2-5618f943d804",
+          "source": "30f51f52-5617-4f71-8c3f-7977241337e9",
+          "output": "CLICKED",
+          "target": "1e29e1fd-850d-43da-88a2-0b2e0d86623d",
+          "input": "@seqin"
+        }
+      ],
       "localVariables": [],
       "name": "SCREEN_MAIN_MENU",
       "left": 0,
@@ -1016,6 +1126,206 @@
     {
       "objID": "e30c7268-c008-41ff-8ae9-7e1003a1ca4d",
       "components": [
+        {
+          "objID": "9fb60e5e-735a-4c20-a51f-7db426f1eaf0",
+          "type": "LVGLActionComponent",
+          "left": 270,
+          "top": 304,
+          "width": 240,
+          "height": 54,
+          "customInputs": [],
+          "customOutputs": [],
+          "actions": [
+            {
+              "objID": "064cd09f-e54f-4523-bbe6-03add46667d7",
+              "action": "CHANGE_SCREEN",
+              "screen": "SCREEN_TEST_FLOW",
+              "fadeMode": "FADE_IN",
+              "speed": 200,
+              "delay": 0
+            }
+          ]
+        },
+        {
+          "objID": "b30433c6-38b7-4016-a092-15146d65424f",
+          "type": "LVGLActionComponent",
+          "left": 20,
+          "top": 304,
+          "width": 240,
+          "height": 54,
+          "customInputs": [],
+          "customOutputs": [],
+          "actions": [
+            {
+              "objID": "f157535c-72f0-4940-9fde-56c0950e62ad",
+              "action": "CHANGE_SCREEN",
+              "screen": "SCREEN_TEST_FLOW",
+              "fadeMode": "FADE_IN",
+              "speed": 200,
+              "delay": 0
+            }
+          ]
+        },
+        {
+          "objID": "a72a697c-fa3a-4aa7-8d04-62d765315b10",
+          "type": "LVGLActionComponent",
+          "left": 770,
+          "top": 362,
+          "width": 240,
+          "height": 54,
+          "customInputs": [],
+          "customOutputs": [],
+          "actions": [
+            {
+              "objID": "1adf4650-8086-4bed-8f46-5a811343cf79",
+              "action": "CHANGE_SCREEN",
+              "screen": "SCREEN_TEST_FLOW",
+              "fadeMode": "FADE_IN",
+              "speed": 200,
+              "delay": 0
+            }
+          ]
+        },
+        {
+          "objID": "694396c6-67d1-4b4d-a798-0a311fa968c3",
+          "type": "LVGLActionComponent",
+          "left": 520,
+          "top": 362,
+          "width": 240,
+          "height": 54,
+          "customInputs": [],
+          "customOutputs": [],
+          "actions": [
+            {
+              "objID": "d789ccc9-49bc-43f2-9510-6ca8682dd071",
+              "action": "CHANGE_SCREEN",
+              "screen": "SCREEN_TEST_FLOW",
+              "fadeMode": "FADE_IN",
+              "speed": 200,
+              "delay": 0
+            }
+          ]
+        },
+        {
+          "objID": "948b1fa6-951c-4d2e-b175-4820fca1b3c7",
+          "type": "LVGLActionComponent",
+          "left": 270,
+          "top": 362,
+          "width": 240,
+          "height": 54,
+          "customInputs": [],
+          "customOutputs": [],
+          "actions": [
+            {
+              "objID": "bf6b2851-7c88-48f2-85f3-56a60cd4b757",
+              "action": "CHANGE_SCREEN",
+              "screen": "SCREEN_TEST_FLOW",
+              "fadeMode": "FADE_IN",
+              "speed": 200,
+              "delay": 0
+            }
+          ]
+        },
+        {
+          "objID": "101a892f-8381-4836-a27a-8b5899f6cbcc",
+          "type": "LVGLActionComponent",
+          "left": 20,
+          "top": 362,
+          "width": 240,
+          "height": 54,
+          "customInputs": [],
+          "customOutputs": [],
+          "actions": [
+            {
+              "objID": "81ba949e-78ff-46a8-944b-85101569f719",
+              "action": "CHANGE_SCREEN",
+              "screen": "SCREEN_TEST_FLOW",
+              "fadeMode": "FADE_IN",
+              "speed": 200,
+              "delay": 0
+            }
+          ]
+        },
+        {
+          "objID": "66aad561-07ab-4123-bc81-5a70f863f3cd",
+          "type": "LVGLActionComponent",
+          "left": 770,
+          "top": 420,
+          "width": 240,
+          "height": 54,
+          "customInputs": [],
+          "customOutputs": [],
+          "actions": [
+            {
+              "objID": "10d36e24-8268-46dd-9e01-eb5505451ac5",
+              "action": "CHANGE_SCREEN",
+              "screen": "SCREEN_TEST_FLOW",
+              "fadeMode": "FADE_IN",
+              "speed": 200,
+              "delay": 0
+            }
+          ]
+        },
+        {
+          "objID": "bf08d09c-daa5-4f7f-9edf-7ea7331c2f83",
+          "type": "LVGLActionComponent",
+          "left": 520,
+          "top": 420,
+          "width": 240,
+          "height": 54,
+          "customInputs": [],
+          "customOutputs": [],
+          "actions": [
+            {
+              "objID": "d7a773de-7f98-497b-9f13-53896a66f05b",
+              "action": "CHANGE_SCREEN",
+              "screen": "SCREEN_TEST_FLOW",
+              "fadeMode": "FADE_IN",
+              "speed": 200,
+              "delay": 0
+            }
+          ]
+        },
+        {
+          "objID": "5e58b429-25fa-42a2-b94a-ec3755458f51",
+          "type": "LVGLActionComponent",
+          "left": 270,
+          "top": 420,
+          "width": 240,
+          "height": 54,
+          "customInputs": [],
+          "customOutputs": [],
+          "actions": [
+            {
+              "objID": "402d054b-e68b-4457-8c22-4cf27a84b957",
+              "action": "CHANGE_SCREEN",
+              "screen": "SCREEN_TEST_FLOW",
+              "fadeMode": "FADE_IN",
+              "speed": 200,
+              "delay": 0
+            }
+          ]
+        },
+        {
+          "objID": "4ec5b15d-c39b-4975-81f8-a1f3602ee74f",
+          "type": "LVGLActionComponent",
+          "left": 20,
+          "top": 420,
+          "width": 240,
+          "height": 54,
+          "customInputs": [],
+          "customOutputs": [],
+          "actions": [
+            {
+              "objID": "f753cd16-c71f-4b6c-9850-c7e0a33b5811",
+              "action": "CHANGE_SCREEN",
+              "screen": "SCREEN_TEST_FLOW",
+              "fadeMode": "FADE_IN",
+              "speed": 200,
+              "delay": 0
+            }
+          ]
+        },
         {
           "objID": "c2fbe428-d413-455b-b132-94cbcfa615ca",
           "type": "LVGLScreenWidget",
@@ -1969,7 +2279,78 @@
           }
         }
       ],
-      "connectionLines": [],
+      "connectionLines": [
+        {
+          "objID": "f4c6b376-c2a4-46db-ba09-2076c6d06f2c",
+          "source": "b4d6a204-109c-4d05-8b16-805f9f6e58b3",
+          "output": "CLICKED",
+          "target": "4ec5b15d-c39b-4975-81f8-a1f3602ee74f",
+          "input": "@seqin"
+        },
+        {
+          "objID": "c663d462-7ba4-43d5-94ba-8bc0d2cf1cbf",
+          "source": "7bd1c571-740e-4fee-80ff-1db6c62c4332",
+          "output": "CLICKED",
+          "target": "5e58b429-25fa-42a2-b94a-ec3755458f51",
+          "input": "@seqin"
+        },
+        {
+          "objID": "0cce0407-ac8d-4b62-9122-250f3f98f906",
+          "source": "b47a17d4-4bd9-46eb-bde8-96d6199bebd2",
+          "output": "CLICKED",
+          "target": "bf08d09c-daa5-4f7f-9edf-7ea7331c2f83",
+          "input": "@seqin"
+        },
+        {
+          "objID": "f18d99a2-a584-46ca-9935-73ffecd2283b",
+          "source": "ad185f4c-1539-421e-af9b-01453984f030",
+          "output": "CLICKED",
+          "target": "66aad561-07ab-4123-bc81-5a70f863f3cd",
+          "input": "@seqin"
+        },
+        {
+          "objID": "61805ab3-f780-4454-b51f-4994a1d83126",
+          "source": "51ddf0b6-35e2-4c6a-b1b8-6aaaa3e53f19",
+          "output": "CLICKED",
+          "target": "101a892f-8381-4836-a27a-8b5899f6cbcc",
+          "input": "@seqin"
+        },
+        {
+          "objID": "46ae4384-69c0-4350-ad5f-d00c082a9da4",
+          "source": "568f6a97-7d1d-4168-81ea-2a7788be1921",
+          "output": "CLICKED",
+          "target": "948b1fa6-951c-4d2e-b175-4820fca1b3c7",
+          "input": "@seqin"
+        },
+        {
+          "objID": "f8c2f0ee-600b-4ec0-bca2-f37d4b9739d0",
+          "source": "4d9157d2-9052-4b32-ac0e-13d637af9b93",
+          "output": "CLICKED",
+          "target": "694396c6-67d1-4b4d-a798-0a311fa968c3",
+          "input": "@seqin"
+        },
+        {
+          "objID": "a52a1cb1-0bf0-4193-96c3-e142dc076b28",
+          "source": "9637df1c-daa3-4587-a95e-50a7be10de84",
+          "output": "CLICKED",
+          "target": "a72a697c-fa3a-4aa7-8d04-62d765315b10",
+          "input": "@seqin"
+        },
+        {
+          "objID": "230b8631-f090-4fde-8c14-c55a98e17a88",
+          "source": "a97dbc21-465e-45ef-95b2-f6d07a68a20a",
+          "output": "CLICKED",
+          "target": "b30433c6-38b7-4016-a092-15146d65424f",
+          "input": "@seqin"
+        },
+        {
+          "objID": "ea5df60f-c7bf-4200-b1f3-3a5ab2c844da",
+          "source": "0618f31a-6f09-44e1-bfb9-4e5ef07235c6",
+          "output": "CLICKED",
+          "target": "9fb60e5e-735a-4c20-a51f-7db426f1eaf0",
+          "input": "@seqin"
+        }
+      ],
       "localVariables": [],
       "name": "SCREEN_TEST_SELECT",
       "left": 0,
@@ -1980,6 +2361,26 @@
     {
       "objID": "430cd798-abd0-4893-9c35-522de5573a4c",
       "components": [
+        {
+          "objID": "5fcb90e4-0ee7-4b79-a61d-1f2e8fee9760",
+          "type": "LVGLActionComponent",
+          "left": 20,
+          "top": 420,
+          "width": 240,
+          "height": 54,
+          "customInputs": [],
+          "customOutputs": [],
+          "actions": [
+            {
+              "objID": "c643d468-7702-40ea-ac69-071b8ae87dfd",
+              "action": "CHANGE_SCREEN",
+              "screen": "SCREEN_TEST_SELECT",
+              "fadeMode": "FADE_IN",
+              "speed": 200,
+              "delay": 0
+            }
+          ]
+        },
         {
           "objID": "d446b8d9-c2dd-4081-9762-916ddc120ee2",
           "type": "LVGLScreenWidget",
@@ -2548,7 +2949,15 @@
           }
         }
       ],
-      "connectionLines": [],
+      "connectionLines": [
+        {
+          "objID": "1e0fcb09-70a3-497b-82b1-4c529f913b99",
+          "source": "3c906898-6ecd-4eb9-9306-1bc487a59d10",
+          "output": "CLICKED",
+          "target": "5fcb90e4-0ee7-4b79-a61d-1f2e8fee9760",
+          "input": "@seqin"
+        }
+      ],
       "localVariables": [],
       "name": "SCREEN_STUDENT_ID",
       "left": 0,
@@ -3176,6 +3585,26 @@
       "objID": "b55fe7fa-ca71-40a0-9be1-16b9efbc7a6a",
       "components": [
         {
+          "objID": "828496c3-5579-4d13-b160-0604d1ccfa93",
+          "type": "LVGLActionComponent",
+          "left": 20,
+          "top": 420,
+          "width": 240,
+          "height": 54,
+          "customInputs": [],
+          "customOutputs": [],
+          "actions": [
+            {
+              "objID": "cce84957-d8c0-4e46-99f6-7bbd2d1d2e9c",
+              "action": "CHANGE_SCREEN",
+              "screen": "SCREEN_MAIN_MENU",
+              "fadeMode": "FADE_IN",
+              "speed": 200,
+              "delay": 0
+            }
+          ]
+        },
+        {
           "objID": "588bc818-48c9-4ed6-b792-3920769cecd0",
           "type": "LVGLScreenWidget",
           "left": 0,
@@ -3435,7 +3864,15 @@
           }
         }
       ],
-      "connectionLines": [],
+      "connectionLines": [
+        {
+          "objID": "cddcd8a9-3d88-4922-93a4-a4e389182e83",
+          "source": "5457ce5d-1351-470f-8c08-09fcafea05c6",
+          "output": "CLICKED",
+          "target": "828496c3-5579-4d13-b160-0604d1ccfa93",
+          "input": "@seqin"
+        }
+      ],
       "localVariables": [],
       "name": "SCREEN_REPORT_SAVED",
       "left": 0,
@@ -3446,6 +3883,26 @@
     {
       "objID": "8331fe80-ff04-45dd-80ca-bb0c931b1fcf",
       "components": [
+        {
+          "objID": "98b74dca-b240-4f9d-a033-65d2952cf7d3",
+          "type": "LVGLActionComponent",
+          "left": 20,
+          "top": 420,
+          "width": 240,
+          "height": 54,
+          "customInputs": [],
+          "customOutputs": [],
+          "actions": [
+            {
+              "objID": "308ab41c-6e2e-4be3-a639-fb9a9766772c",
+              "action": "CHANGE_SCREEN",
+              "screen": "SCREEN_MAIN_MENU",
+              "fadeMode": "FADE_IN",
+              "speed": 200,
+              "delay": 0
+            }
+          ]
+        },
         {
           "objID": "a77f9dbb-1dee-4b6e-99a7-6ff9d8f757cb",
           "type": "LVGLScreenWidget",
@@ -3669,7 +4126,15 @@
           }
         }
       ],
-      "connectionLines": [],
+      "connectionLines": [
+        {
+          "objID": "013f1b06-2d54-4238-8725-75f587b3504d",
+          "source": "86c849bc-eb4e-4902-a201-ec0d88131e67",
+          "output": "CLICKED",
+          "target": "98b74dca-b240-4f9d-a033-65d2952cf7d3",
+          "input": "@seqin"
+        }
+      ],
       "localVariables": [],
       "name": "SCREEN_REPORT_LIST",
       "left": 0,
@@ -3680,6 +4145,146 @@
     {
       "objID": "a7d515f1-0710-4314-9332-a00dfff69f97",
       "components": [
+        {
+          "objID": "b5239483-c0bd-472e-ac70-e091e510299c",
+          "type": "LVGLActionComponent",
+          "left": 520,
+          "top": 362,
+          "width": 240,
+          "height": 54,
+          "customInputs": [],
+          "customOutputs": [],
+          "actions": [
+            {
+              "objID": "b4fba204-80b2-420e-9650-4ee3758f9bd5",
+              "action": "CHANGE_SCREEN",
+              "screen": "SCREEN_MAIN_MENU",
+              "fadeMode": "FADE_IN",
+              "speed": 200,
+              "delay": 0
+            }
+          ]
+        },
+        {
+          "objID": "8f76135d-248b-4d21-b1a8-cdaa6f51d2fe",
+          "type": "LVGLActionComponent",
+          "left": 270,
+          "top": 362,
+          "width": 240,
+          "height": 54,
+          "customInputs": [],
+          "customOutputs": [],
+          "actions": [
+            {
+              "objID": "a2c84a9b-8e08-45ec-b0c9-25ce9877a4aa",
+              "action": "CHANGE_SCREEN",
+              "screen": "SCREEN_CHANGE_PIN",
+              "fadeMode": "FADE_IN",
+              "speed": 200,
+              "delay": 0
+            }
+          ]
+        },
+        {
+          "objID": "75b3b8d6-9ea0-42d4-8dcb-8f405218ff3b",
+          "type": "LVGLActionComponent",
+          "left": 20,
+          "top": 362,
+          "width": 240,
+          "height": 54,
+          "customInputs": [],
+          "customOutputs": [],
+          "actions": [
+            {
+              "objID": "ce9ea633-f470-452e-acbd-cd01f557093f",
+              "action": "CHANGE_SCREEN",
+              "screen": "SCREEN_EMAIL_SETTINGS",
+              "fadeMode": "FADE_IN",
+              "speed": 200,
+              "delay": 0
+            }
+          ]
+        },
+        {
+          "objID": "79fd5799-ff9c-4769-a7e6-3a0ded4cc415",
+          "type": "LVGLActionComponent",
+          "left": 770,
+          "top": 420,
+          "width": 240,
+          "height": 54,
+          "customInputs": [],
+          "customOutputs": [],
+          "actions": [
+            {
+              "objID": "0c1499bc-cbbf-4621-a640-dc4a1d307068",
+              "action": "CHANGE_SCREEN",
+              "screen": "SCREEN_UPDATES",
+              "fadeMode": "FADE_IN",
+              "speed": 200,
+              "delay": 0
+            }
+          ]
+        },
+        {
+          "objID": "b2e263fe-b4bc-4c06-9c38-c65d3137b540",
+          "type": "LVGLActionComponent",
+          "left": 520,
+          "top": 420,
+          "width": 240,
+          "height": 54,
+          "customInputs": [],
+          "customOutputs": [],
+          "actions": [
+            {
+              "objID": "186ca5c7-aa14-48cf-bbee-0a1932477323",
+              "action": "CHANGE_SCREEN",
+              "screen": "SCREEN_ABOUT",
+              "fadeMode": "FADE_IN",
+              "speed": 200,
+              "delay": 0
+            }
+          ]
+        },
+        {
+          "objID": "acb15b9e-6e6a-411b-8e5f-7b3323a7571e",
+          "type": "LVGLActionComponent",
+          "left": 270,
+          "top": 420,
+          "width": 240,
+          "height": 54,
+          "customInputs": [],
+          "customOutputs": [],
+          "actions": [
+            {
+              "objID": "580c55cd-57c5-49be-ba4d-2ff404e79029",
+              "action": "CHANGE_SCREEN",
+              "screen": "SCREEN_WIFI_LIST",
+              "fadeMode": "FADE_IN",
+              "speed": 200,
+              "delay": 0
+            }
+          ]
+        },
+        {
+          "objID": "68b89a34-9f01-44f9-9316-32505ee6022d",
+          "type": "LVGLActionComponent",
+          "left": 20,
+          "top": 420,
+          "width": 240,
+          "height": 54,
+          "customInputs": [],
+          "customOutputs": [],
+          "actions": [
+            {
+              "objID": "d143fb8d-7e6a-44d8-876b-1aa9c8bd5bbe",
+              "action": "CHANGE_SCREEN",
+              "screen": "SCREEN_ROTATION",
+              "fadeMode": "FADE_IN",
+              "speed": 200,
+              "delay": 0
+            }
+          ]
+        },
         {
           "objID": "0a2c2671-596f-460d-8b65-1aee931791d4",
           "type": "LVGLScreenWidget",
@@ -4556,7 +5161,57 @@
           }
         }
       ],
-      "connectionLines": [],
+      "connectionLines": [
+        {
+          "objID": "1949baff-4ae0-4200-9bb0-44ed568eb052",
+          "source": "42e26c5d-3235-45a4-9d21-e3266d00aa74",
+          "output": "CLICKED",
+          "target": "68b89a34-9f01-44f9-9316-32505ee6022d",
+          "input": "@seqin"
+        },
+        {
+          "objID": "50b3c8ba-65e0-42e8-9d6f-109c232cdf40",
+          "source": "697d4772-fdf0-48de-967b-e509032446c8",
+          "output": "CLICKED",
+          "target": "acb15b9e-6e6a-411b-8e5f-7b3323a7571e",
+          "input": "@seqin"
+        },
+        {
+          "objID": "c729af08-5822-4045-b7f0-742b867bb735",
+          "source": "b25568fa-477f-44c3-9a4c-7874d5f99a4d",
+          "output": "CLICKED",
+          "target": "b2e263fe-b4bc-4c06-9c38-c65d3137b540",
+          "input": "@seqin"
+        },
+        {
+          "objID": "bac2ec38-ad55-446e-9047-91d45c66b1b4",
+          "source": "67ba8983-1a5c-4ccd-b8de-6ac5372f0be6",
+          "output": "CLICKED",
+          "target": "79fd5799-ff9c-4769-a7e6-3a0ded4cc415",
+          "input": "@seqin"
+        },
+        {
+          "objID": "8f43ad98-6150-4c0d-bf85-d92943d95bc5",
+          "source": "bbe39816-5004-4a0d-8c6b-b21c9d8d85cf",
+          "output": "CLICKED",
+          "target": "75b3b8d6-9ea0-42d4-8dcb-8f405218ff3b",
+          "input": "@seqin"
+        },
+        {
+          "objID": "f563a413-8777-4184-b44d-3c7c88ddc243",
+          "source": "1cc99740-cc99-4993-97ee-f455cee09763",
+          "output": "CLICKED",
+          "target": "8f76135d-248b-4d21-b1a8-cdaa6f51d2fe",
+          "input": "@seqin"
+        },
+        {
+          "objID": "8ac20020-c3ae-4ede-9add-7a3686632af3",
+          "source": "46d0304b-a17c-4e7c-837c-98a72efac701",
+          "output": "CLICKED",
+          "target": "b5239483-c0bd-472e-ac70-e091e510299c",
+          "input": "@seqin"
+        }
+      ],
       "localVariables": [],
       "name": "SCREEN_SETTINGS",
       "left": 0,
@@ -4567,6 +5222,66 @@
     {
       "objID": "95af98eb-d5df-445b-876c-95882e34d1c3",
       "components": [
+        {
+          "objID": "106ac1e2-933f-4605-8fe1-a33a09632a7a",
+          "type": "LVGLActionComponent",
+          "left": 520,
+          "top": 420,
+          "width": 240,
+          "height": 54,
+          "customInputs": [],
+          "customOutputs": [],
+          "actions": [
+            {
+              "objID": "5cc3db2d-c5a1-4032-aa57-0e9446b64c4c",
+              "action": "CHANGE_SCREEN",
+              "screen": "SCREEN_SETTINGS",
+              "fadeMode": "FADE_IN",
+              "speed": 200,
+              "delay": 0
+            }
+          ]
+        },
+        {
+          "objID": "fe156b34-9fb9-489f-ab97-25981b75eb6f",
+          "type": "LVGLActionComponent",
+          "left": 270,
+          "top": 420,
+          "width": 240,
+          "height": 54,
+          "customInputs": [],
+          "customOutputs": [],
+          "actions": [
+            {
+              "objID": "857f7214-5e9b-4afa-82fc-79f1ed33065f",
+              "action": "CHANGE_SCREEN",
+              "screen": "SCREEN_SETTINGS",
+              "fadeMode": "FADE_IN",
+              "speed": 200,
+              "delay": 0
+            }
+          ]
+        },
+        {
+          "objID": "e9716fc6-2772-499e-935b-0d38fc1c8eb4",
+          "type": "LVGLActionComponent",
+          "left": 20,
+          "top": 420,
+          "width": 240,
+          "height": 54,
+          "customInputs": [],
+          "customOutputs": [],
+          "actions": [
+            {
+              "objID": "0c47daba-ad84-4644-8408-3d30bc7fa4fc",
+              "action": "CHANGE_SCREEN",
+              "screen": "SCREEN_SETTINGS",
+              "fadeMode": "FADE_IN",
+              "speed": 200,
+              "delay": 0
+            }
+          ]
+        },
         {
           "objID": "7824d36a-a86d-4b28-9874-c92bd9bb9878",
           "type": "LVGLScreenWidget",
@@ -4944,7 +5659,29 @@
           }
         }
       ],
-      "connectionLines": [],
+      "connectionLines": [
+        {
+          "objID": "5aca17c9-5bee-47d1-96f5-353b72b59dbd",
+          "source": "cadb6bba-f04c-4a77-b1cd-68a5921c5219",
+          "output": "CLICKED",
+          "target": "e9716fc6-2772-499e-935b-0d38fc1c8eb4",
+          "input": "@seqin"
+        },
+        {
+          "objID": "fba6889b-3022-489e-8d11-21b89aec1a86",
+          "source": "6f0b3f93-8116-4d22-9cf2-24e7f81117f2",
+          "output": "CLICKED",
+          "target": "fe156b34-9fb9-489f-ab97-25981b75eb6f",
+          "input": "@seqin"
+        },
+        {
+          "objID": "074ee849-8756-410b-9b77-d4ce7b14f274",
+          "source": "c29550c3-6837-4cd1-aa2d-a716b0432c67",
+          "output": "CLICKED",
+          "target": "106ac1e2-933f-4605-8fe1-a33a09632a7a",
+          "input": "@seqin"
+        }
+      ],
       "localVariables": [],
       "name": "SCREEN_ROTATION",
       "left": 0,
@@ -4955,6 +5692,26 @@
     {
       "objID": "0f7b72c7-5446-412a-8f0a-4a7a743bd24d",
       "components": [
+        {
+          "objID": "007ba8f1-48b4-4d02-b912-76f53bfcaacb",
+          "type": "LVGLActionComponent",
+          "left": 20,
+          "top": 420,
+          "width": 240,
+          "height": 54,
+          "customInputs": [],
+          "customOutputs": [],
+          "actions": [
+            {
+              "objID": "16816d4d-32cb-4952-9fb0-73e4ace79d16",
+              "action": "CHANGE_SCREEN",
+              "screen": "SCREEN_SETTINGS",
+              "fadeMode": "FADE_IN",
+              "speed": 200,
+              "delay": 0
+            }
+          ]
+        },
         {
           "objID": "0bea59de-203d-43b8-918b-b038587f1395",
           "type": "LVGLScreenWidget",
@@ -5369,7 +6126,15 @@
           }
         }
       ],
-      "connectionLines": [],
+      "connectionLines": [
+        {
+          "objID": "dea08624-b2eb-4cb1-ae1e-b95b7d52f9fd",
+          "source": "f51abcb7-6d96-48bd-bc58-4174cb9a2f00",
+          "output": "CLICKED",
+          "target": "007ba8f1-48b4-4d02-b912-76f53bfcaacb",
+          "input": "@seqin"
+        }
+      ],
       "localVariables": [],
       "name": "SCREEN_WIFI_LIST",
       "left": 0,
@@ -5380,6 +6145,46 @@
     {
       "objID": "079eb8f1-a2c2-4054-95c7-fe8645da78c0",
       "components": [
+        {
+          "objID": "070d7eb2-c03f-40c0-beeb-c364b6521dab",
+          "type": "LVGLActionComponent",
+          "left": 270,
+          "top": 420,
+          "width": 240,
+          "height": 54,
+          "customInputs": [],
+          "customOutputs": [],
+          "actions": [
+            {
+              "objID": "5b6ba886-8aca-47c8-b1c1-d4902aeb020f",
+              "action": "CHANGE_SCREEN",
+              "screen": "SCREEN_WIFI_LIST",
+              "fadeMode": "FADE_IN",
+              "speed": 200,
+              "delay": 0
+            }
+          ]
+        },
+        {
+          "objID": "99598278-d13b-4773-94da-22a0e17a3429",
+          "type": "LVGLActionComponent",
+          "left": 20,
+          "top": 420,
+          "width": 240,
+          "height": 54,
+          "customInputs": [],
+          "customOutputs": [],
+          "actions": [
+            {
+              "objID": "aaa5fb16-f3c5-42f2-a501-57fd2d61731f",
+              "action": "CHANGE_SCREEN",
+              "screen": "SCREEN_WIFI_LIST",
+              "fadeMode": "FADE_IN",
+              "speed": 200,
+              "delay": 0
+            }
+          ]
+        },
         {
           "objID": "c4762e2c-0e00-46af-af76-d02b787456d3",
           "type": "LVGLScreenWidget",
@@ -5834,7 +6639,22 @@
           }
         }
       ],
-      "connectionLines": [],
+      "connectionLines": [
+        {
+          "objID": "5d161246-1cba-42fe-ade9-cdfd30aafeb3",
+          "source": "b3e2541b-e4e5-4f03-8bfe-ba31ae2c3422",
+          "output": "CLICKED",
+          "target": "99598278-d13b-4773-94da-22a0e17a3429",
+          "input": "@seqin"
+        },
+        {
+          "objID": "d5014478-8d31-40b5-b035-d0c15d7dd676",
+          "source": "3c9431b2-6001-4186-93cb-025c0cf9e8a2",
+          "output": "CLICKED",
+          "target": "070d7eb2-c03f-40c0-beeb-c364b6521dab",
+          "input": "@seqin"
+        }
+      ],
       "localVariables": [],
       "name": "SCREEN_WIFI_PASSWORD",
       "left": 0,
@@ -5845,6 +6665,26 @@
     {
       "objID": "072b41d5-9f4c-48ad-87ab-239da944a4a3",
       "components": [
+        {
+          "objID": "2bb17393-b5d1-40f0-8977-f54702e02acd",
+          "type": "LVGLActionComponent",
+          "left": 20,
+          "top": 420,
+          "width": 240,
+          "height": 54,
+          "customInputs": [],
+          "customOutputs": [],
+          "actions": [
+            {
+              "objID": "c7ddbd64-b636-44a5-8ad5-be49f962279b",
+              "action": "CHANGE_SCREEN",
+              "screen": "SCREEN_SETTINGS",
+              "fadeMode": "FADE_IN",
+              "speed": 200,
+              "delay": 0
+            }
+          ]
+        },
         {
           "objID": "9001586e-e818-4daf-9e98-f61cf2898383",
           "type": "LVGLScreenWidget",
@@ -6105,7 +6945,15 @@
           }
         }
       ],
-      "connectionLines": [],
+      "connectionLines": [
+        {
+          "objID": "7c4ea52e-5aee-43ca-bb14-c668e41a52fc",
+          "source": "27a6a937-eadf-412e-9c88-b32d27819a56",
+          "output": "CLICKED",
+          "target": "2bb17393-b5d1-40f0-8977-f54702e02acd",
+          "input": "@seqin"
+        }
+      ],
       "localVariables": [],
       "name": "SCREEN_ABOUT",
       "left": 0,
@@ -6116,6 +6964,46 @@
     {
       "objID": "ba2d4a12-33dd-46d4-b38c-8c800f1a1e68",
       "components": [
+        {
+          "objID": "de689d08-05cf-48fe-b408-5b8430a4bfcd",
+          "type": "LVGLActionComponent",
+          "left": 270,
+          "top": 420,
+          "width": 240,
+          "height": 54,
+          "customInputs": [],
+          "customOutputs": [],
+          "actions": [
+            {
+              "objID": "c91c1dcf-5b01-48da-9f06-a99d372dbf3e",
+              "action": "CHANGE_SCREEN",
+              "screen": "SCREEN_SETTINGS",
+              "fadeMode": "FADE_IN",
+              "speed": 200,
+              "delay": 0
+            }
+          ]
+        },
+        {
+          "objID": "8ce23097-2bad-4069-ac25-ffbad98ba649",
+          "type": "LVGLActionComponent",
+          "left": 20,
+          "top": 420,
+          "width": 240,
+          "height": 54,
+          "customInputs": [],
+          "customOutputs": [],
+          "actions": [
+            {
+              "objID": "37b34534-f4ac-4d50-ade2-2ba661065fcf",
+              "action": "CHANGE_SCREEN",
+              "screen": "SCREEN_PIN_ENTER",
+              "fadeMode": "FADE_IN",
+              "speed": 200,
+              "delay": 0
+            }
+          ]
+        },
         {
           "objID": "faffcfae-aa8a-43d6-bed3-b4cfc012d869",
           "type": "LVGLScreenWidget",
@@ -6761,7 +7649,22 @@
           }
         }
       ],
-      "connectionLines": [],
+      "connectionLines": [
+        {
+          "objID": "c1807b6c-ae28-43bd-8d2a-6f237ef843da",
+          "source": "de7a741e-5159-45ee-80e3-4a4575e7157d",
+          "output": "CLICKED",
+          "target": "8ce23097-2bad-4069-ac25-ffbad98ba649",
+          "input": "@seqin"
+        },
+        {
+          "objID": "70127c12-ffff-45d4-b4cf-92f516aebd35",
+          "source": "40623ea1-2b4a-46c4-b7ab-c2eeb5b16232",
+          "output": "CLICKED",
+          "target": "de689d08-05cf-48fe-b408-5b8430a4bfcd",
+          "input": "@seqin"
+        }
+      ],
       "localVariables": [],
       "name": "SCREEN_UPDATES",
       "left": 0,
@@ -6772,6 +7675,106 @@
     {
       "objID": "b2088d82-0d9c-4431-ba19-8538053276d7",
       "components": [
+        {
+          "objID": "dac9f858-e785-40bf-9cd1-9762d6136a4b",
+          "type": "LVGLActionComponent",
+          "left": 20,
+          "top": 362,
+          "width": 240,
+          "height": 54,
+          "customInputs": [],
+          "customOutputs": [],
+          "actions": [
+            {
+              "objID": "b91d72dc-e58a-4107-b3cc-923b6c7f78e5",
+              "action": "CHANGE_SCREEN",
+              "screen": "SCREEN_UPDATES",
+              "fadeMode": "FADE_IN",
+              "speed": 200,
+              "delay": 0
+            }
+          ]
+        },
+        {
+          "objID": "b830008e-db72-4d42-8191-224ffb4558a5",
+          "type": "LVGLActionComponent",
+          "left": 770,
+          "top": 420,
+          "width": 240,
+          "height": 54,
+          "customInputs": [],
+          "customOutputs": [],
+          "actions": [
+            {
+              "objID": "1c737d6c-1431-4ddf-b199-417983a047f0",
+              "action": "CHANGE_SCREEN",
+              "screen": "SCREEN_TRAINING_SYNC_EDIT",
+              "fadeMode": "FADE_IN",
+              "speed": 200,
+              "delay": 0
+            }
+          ]
+        },
+        {
+          "objID": "6ae20e11-855b-4002-8ace-b8c2706302ed",
+          "type": "LVGLActionComponent",
+          "left": 520,
+          "top": 420,
+          "width": 240,
+          "height": 54,
+          "customInputs": [],
+          "customOutputs": [],
+          "actions": [
+            {
+              "objID": "ff49dd67-8be8-447c-9a58-6657250adccf",
+              "action": "CHANGE_SCREEN",
+              "screen": "SCREEN_TRAINING_SYNC_EDIT",
+              "fadeMode": "FADE_IN",
+              "speed": 200,
+              "delay": 0
+            }
+          ]
+        },
+        {
+          "objID": "0da628e8-b18c-45bc-a025-ea178ec6941c",
+          "type": "LVGLActionComponent",
+          "left": 270,
+          "top": 420,
+          "width": 240,
+          "height": 54,
+          "customInputs": [],
+          "customOutputs": [],
+          "actions": [
+            {
+              "objID": "a5ac30c6-548e-410d-9cec-1d65e9925417",
+              "action": "CHANGE_SCREEN",
+              "screen": "SCREEN_TRAINING_SYNC_EDIT",
+              "fadeMode": "FADE_IN",
+              "speed": 200,
+              "delay": 0
+            }
+          ]
+        },
+        {
+          "objID": "56f0f52c-7265-448f-94e0-e009c339175e",
+          "type": "LVGLActionComponent",
+          "left": 20,
+          "top": 420,
+          "width": 240,
+          "height": 54,
+          "customInputs": [],
+          "customOutputs": [],
+          "actions": [
+            {
+              "objID": "58a6d846-2563-4139-b194-4d537127b1ad",
+              "action": "CHANGE_SCREEN",
+              "screen": "SCREEN_TRAINING_SYNC_EDIT",
+              "fadeMode": "FADE_IN",
+              "speed": 200,
+              "delay": 0
+            }
+          ]
+        },
         {
           "objID": "d3f0a5c3-c42e-4f2b-b2d4-7db349522ab4",
           "type": "LVGLScreenWidget",
@@ -7648,7 +8651,43 @@
           }
         }
       ],
-      "connectionLines": [],
+      "connectionLines": [
+        {
+          "objID": "fb52f33a-72e2-458c-bf7a-f0eac6ab72a5",
+          "source": "0beecf56-86c6-4b01-9f20-23cded4068b9",
+          "output": "CLICKED",
+          "target": "56f0f52c-7265-448f-94e0-e009c339175e",
+          "input": "@seqin"
+        },
+        {
+          "objID": "ee03af4f-7902-4e23-92e0-a1b71cf14b5d",
+          "source": "f895c24a-3b7c-40fe-93c6-c93b707b40de",
+          "output": "CLICKED",
+          "target": "0da628e8-b18c-45bc-a025-ea178ec6941c",
+          "input": "@seqin"
+        },
+        {
+          "objID": "863f0153-8db6-4750-9536-668c60b0b342",
+          "source": "ee551da2-b8eb-4ea9-af70-af4a8bd49015",
+          "output": "CLICKED",
+          "target": "6ae20e11-855b-4002-8ace-b8c2706302ed",
+          "input": "@seqin"
+        },
+        {
+          "objID": "aa71b116-6696-4aa0-a847-7c9039a3155a",
+          "source": "51acbf5b-7221-402e-a945-e4c32f9283bb",
+          "output": "CLICKED",
+          "target": "b830008e-db72-4d42-8191-224ffb4558a5",
+          "input": "@seqin"
+        },
+        {
+          "objID": "5b799899-e642-4cac-beb5-4448b33d1895",
+          "source": "7f7267e4-fb5e-45af-bcae-9293a0b67401",
+          "output": "CLICKED",
+          "target": "dac9f858-e785-40bf-9cd1-9762d6136a4b",
+          "input": "@seqin"
+        }
+      ],
       "localVariables": [],
       "name": "SCREEN_TRAINING_SYNC",
       "left": 0,
@@ -7659,6 +8698,46 @@
     {
       "objID": "0781ef6b-ea81-461d-8609-7ccb0f2a7d93",
       "components": [
+        {
+          "objID": "e72dae8b-caa2-4af6-840b-ebeb33809251",
+          "type": "LVGLActionComponent",
+          "left": 270,
+          "top": 420,
+          "width": 240,
+          "height": 54,
+          "customInputs": [],
+          "customOutputs": [],
+          "actions": [
+            {
+              "objID": "855784a5-a565-477a-84e1-3e4d15bd57c5",
+              "action": "CHANGE_SCREEN",
+              "screen": "SCREEN_TRAINING_SYNC",
+              "fadeMode": "FADE_IN",
+              "speed": 200,
+              "delay": 0
+            }
+          ]
+        },
+        {
+          "objID": "f7a827c4-8e3a-42cb-a145-193c8452aa9d",
+          "type": "LVGLActionComponent",
+          "left": 20,
+          "top": 420,
+          "width": 240,
+          "height": 54,
+          "customInputs": [],
+          "customOutputs": [],
+          "actions": [
+            {
+              "objID": "281b37ba-d434-4723-8d7d-869b44bc1965",
+              "action": "CHANGE_SCREEN",
+              "screen": "SCREEN_TRAINING_SYNC",
+              "fadeMode": "FADE_IN",
+              "speed": 200,
+              "delay": 0
+            }
+          ]
+        },
         {
           "objID": "3f8ab033-4327-4175-b591-e71744e11f5f",
           "type": "LVGLScreenWidget",
@@ -8190,7 +9269,22 @@
           }
         }
       ],
-      "connectionLines": [],
+      "connectionLines": [
+        {
+          "objID": "c06fac6a-7f42-4517-bf26-e97c11b26194",
+          "source": "df57ecaa-5bd0-4bbd-9431-469510f7ea9d",
+          "output": "CLICKED",
+          "target": "f7a827c4-8e3a-42cb-a145-193c8452aa9d",
+          "input": "@seqin"
+        },
+        {
+          "objID": "ad65fbc0-f2f0-4900-a58b-ef7d3d93990e",
+          "source": "a0b64d7c-a43e-4e5e-bc11-c8c406377e80",
+          "output": "CLICKED",
+          "target": "e72dae8b-caa2-4af6-840b-ebeb33809251",
+          "input": "@seqin"
+        }
+      ],
       "localVariables": [],
       "name": "SCREEN_TRAINING_SYNC_EDIT",
       "left": 0,
@@ -8201,6 +9295,126 @@
     {
       "objID": "fa97f92f-cecf-46ad-8699-e803ff3ce04b",
       "components": [
+        {
+          "objID": "e01b3550-abde-467e-847e-d51dbad3a4dd",
+          "type": "LVGLActionComponent",
+          "left": 270,
+          "top": 362,
+          "width": 240,
+          "height": 54,
+          "customInputs": [],
+          "customOutputs": [],
+          "actions": [
+            {
+              "objID": "5ccc6290-81a8-4c53-b2c6-5e85d860d3cd",
+              "action": "CHANGE_SCREEN",
+              "screen": "SCREEN_SETTINGS",
+              "fadeMode": "FADE_IN",
+              "speed": 200,
+              "delay": 0
+            }
+          ]
+        },
+        {
+          "objID": "a1d09003-e91e-4356-8928-a7cda365b0cb",
+          "type": "LVGLActionComponent",
+          "left": 20,
+          "top": 362,
+          "width": 240,
+          "height": 54,
+          "customInputs": [],
+          "customOutputs": [],
+          "actions": [
+            {
+              "objID": "922c2ae8-381f-42bb-9a03-49aaad64acc1",
+              "action": "CHANGE_SCREEN",
+              "screen": "SCREEN_EMAIL_FIELD_EDIT",
+              "fadeMode": "FADE_IN",
+              "speed": 200,
+              "delay": 0
+            }
+          ]
+        },
+        {
+          "objID": "9281651f-def3-4739-acdf-240b680e542f",
+          "type": "LVGLActionComponent",
+          "left": 770,
+          "top": 420,
+          "width": 240,
+          "height": 54,
+          "customInputs": [],
+          "customOutputs": [],
+          "actions": [
+            {
+              "objID": "778d029b-6ab0-4fc5-9d72-d38d7e960b5d",
+              "action": "CHANGE_SCREEN",
+              "screen": "SCREEN_EMAIL_FIELD_EDIT",
+              "fadeMode": "FADE_IN",
+              "speed": 200,
+              "delay": 0
+            }
+          ]
+        },
+        {
+          "objID": "1d92c374-f148-4eba-bf7b-e99cf51e12a6",
+          "type": "LVGLActionComponent",
+          "left": 520,
+          "top": 420,
+          "width": 240,
+          "height": 54,
+          "customInputs": [],
+          "customOutputs": [],
+          "actions": [
+            {
+              "objID": "0c9ac3ed-cdd3-4466-9f66-a3adaa043d3f",
+              "action": "CHANGE_SCREEN",
+              "screen": "SCREEN_EMAIL_FIELD_EDIT",
+              "fadeMode": "FADE_IN",
+              "speed": 200,
+              "delay": 0
+            }
+          ]
+        },
+        {
+          "objID": "7e70c3ce-31be-4fc0-988a-4646ca8d5603",
+          "type": "LVGLActionComponent",
+          "left": 270,
+          "top": 420,
+          "width": 240,
+          "height": 54,
+          "customInputs": [],
+          "customOutputs": [],
+          "actions": [
+            {
+              "objID": "2b831888-e71e-4b55-bfb5-75fe9b72ff27",
+              "action": "CHANGE_SCREEN",
+              "screen": "SCREEN_EMAIL_FIELD_EDIT",
+              "fadeMode": "FADE_IN",
+              "speed": 200,
+              "delay": 0
+            }
+          ]
+        },
+        {
+          "objID": "2eb3765d-3aed-4fb4-971e-a32635260b7c",
+          "type": "LVGLActionComponent",
+          "left": 20,
+          "top": 420,
+          "width": 240,
+          "height": 54,
+          "customInputs": [],
+          "customOutputs": [],
+          "actions": [
+            {
+              "objID": "df4ef1dc-b68f-4667-80c7-5b4a1081bab1",
+              "action": "CHANGE_SCREEN",
+              "screen": "SCREEN_EMAIL_FIELD_EDIT",
+              "fadeMode": "FADE_IN",
+              "speed": 200,
+              "delay": 0
+            }
+          ]
+        },
         {
           "objID": "154dc7cc-38a5-48e4-93ce-1893bd53fbf0",
           "type": "LVGLScreenWidget",
@@ -8809,7 +10023,50 @@
           }
         }
       ],
-      "connectionLines": [],
+      "connectionLines": [
+        {
+          "objID": "89cb392e-b810-4359-bfa8-c8cd181eaa71",
+          "source": "366ab805-bc93-46a7-8f02-6d67416eca0b",
+          "output": "CLICKED",
+          "target": "2eb3765d-3aed-4fb4-971e-a32635260b7c",
+          "input": "@seqin"
+        },
+        {
+          "objID": "90654ab7-43fc-4cb1-a7ec-1664d434bd49",
+          "source": "dd7e88f5-f4fa-4a35-8e6c-fb59cecfae40",
+          "output": "CLICKED",
+          "target": "7e70c3ce-31be-4fc0-988a-4646ca8d5603",
+          "input": "@seqin"
+        },
+        {
+          "objID": "3fb3bd1e-f65b-42f2-aa35-bac9f104282d",
+          "source": "c32a3936-001c-4437-96f3-241ecfb2d74e",
+          "output": "CLICKED",
+          "target": "1d92c374-f148-4eba-bf7b-e99cf51e12a6",
+          "input": "@seqin"
+        },
+        {
+          "objID": "45e0d001-737d-499c-b4ed-da4f01c850de",
+          "source": "84391e36-f1e9-4e5d-a211-44166264169f",
+          "output": "CLICKED",
+          "target": "9281651f-def3-4739-acdf-240b680e542f",
+          "input": "@seqin"
+        },
+        {
+          "objID": "4321cd03-fddd-461c-99f5-4452bd21b309",
+          "source": "9bfb49f1-31de-457d-b76a-71e897a70688",
+          "output": "CLICKED",
+          "target": "a1d09003-e91e-4356-8928-a7cda365b0cb",
+          "input": "@seqin"
+        },
+        {
+          "objID": "5ea61859-9d1d-4fc4-ba6b-96c0bc365eaa",
+          "source": "95b21de1-b099-44ca-b133-ab176e283e93",
+          "output": "CLICKED",
+          "target": "e01b3550-abde-467e-847e-d51dbad3a4dd",
+          "input": "@seqin"
+        }
+      ],
       "localVariables": [],
       "name": "SCREEN_EMAIL_SETTINGS",
       "left": 0,
@@ -8820,6 +10077,46 @@
     {
       "objID": "c1902bf1-0d6d-49cc-b9b4-c9557cb55b02",
       "components": [
+        {
+          "objID": "2e2ab013-23d9-43a6-90d4-add9575dad0b",
+          "type": "LVGLActionComponent",
+          "left": 270,
+          "top": 420,
+          "width": 240,
+          "height": 54,
+          "customInputs": [],
+          "customOutputs": [],
+          "actions": [
+            {
+              "objID": "df250de4-35f7-4858-b5c6-82daa5df5c80",
+              "action": "CHANGE_SCREEN",
+              "screen": "SCREEN_EMAIL_SETTINGS",
+              "fadeMode": "FADE_IN",
+              "speed": 200,
+              "delay": 0
+            }
+          ]
+        },
+        {
+          "objID": "4434d23c-e80d-4b29-83d1-5cc5c26168b1",
+          "type": "LVGLActionComponent",
+          "left": 20,
+          "top": 420,
+          "width": 240,
+          "height": 54,
+          "customInputs": [],
+          "customOutputs": [],
+          "actions": [
+            {
+              "objID": "6487bb7d-0977-4983-8e38-78a6d3df67f3",
+              "action": "CHANGE_SCREEN",
+              "screen": "SCREEN_EMAIL_SETTINGS",
+              "fadeMode": "FADE_IN",
+              "speed": 200,
+              "delay": 0
+            }
+          ]
+        },
         {
           "objID": "836e4eee-1f36-4b46-9ede-6b572574beea",
           "type": "LVGLScreenWidget",
@@ -9274,7 +10571,22 @@
           }
         }
       ],
-      "connectionLines": [],
+      "connectionLines": [
+        {
+          "objID": "2c23e0ee-54d5-4024-90e6-9f55826f4002",
+          "source": "2100eb6f-d2f3-4fef-b275-52075ce1f919",
+          "output": "CLICKED",
+          "target": "4434d23c-e80d-4b29-83d1-5cc5c26168b1",
+          "input": "@seqin"
+        },
+        {
+          "objID": "7d6c1d30-45fe-4bff-88a2-656864cbeb9d",
+          "source": "c2ac7850-ca17-479a-b902-099ad458b3ea",
+          "output": "CLICKED",
+          "target": "2e2ab013-23d9-43a6-90d4-add9575dad0b",
+          "input": "@seqin"
+        }
+      ],
       "localVariables": [],
       "name": "SCREEN_EMAIL_FIELD_EDIT",
       "left": 0,
@@ -9285,6 +10597,46 @@
     {
       "objID": "624e0bd8-979c-4cf2-a08c-57540e37bc45",
       "components": [
+        {
+          "objID": "3d6d27bd-c612-4fcb-b6f6-1840d40d8f23",
+          "type": "LVGLActionComponent",
+          "left": 270,
+          "top": 420,
+          "width": 240,
+          "height": 54,
+          "customInputs": [],
+          "customOutputs": [],
+          "actions": [
+            {
+              "objID": "fa00743e-5c8b-4b4a-9524-2ffc2f89463c",
+              "action": "CHANGE_SCREEN",
+              "screen": "SCREEN_SETTINGS",
+              "fadeMode": "FADE_IN",
+              "speed": 200,
+              "delay": 0
+            }
+          ]
+        },
+        {
+          "objID": "f15b0075-cbcd-486e-add3-ad75470001c7",
+          "type": "LVGLActionComponent",
+          "left": 20,
+          "top": 420,
+          "width": 240,
+          "height": 54,
+          "customInputs": [],
+          "customOutputs": [],
+          "actions": [
+            {
+              "objID": "f4dbe962-fe57-44db-b152-d62560c5ca1f",
+              "action": "CHANGE_SCREEN",
+              "screen": "SCREEN_SETTINGS",
+              "fadeMode": "FADE_IN",
+              "speed": 200,
+              "delay": 0
+            }
+          ]
+        },
         {
           "objID": "5b2e7ee3-6b93-435d-9ffe-2d776a546f98",
           "type": "LVGLScreenWidget",
@@ -9776,7 +11128,22 @@
           }
         }
       ],
-      "connectionLines": [],
+      "connectionLines": [
+        {
+          "objID": "260c0300-570e-42a8-bf92-0726abd24495",
+          "source": "517908d5-e773-4498-857f-4f87d48b0901",
+          "output": "CLICKED",
+          "target": "f15b0075-cbcd-486e-add3-ad75470001c7",
+          "input": "@seqin"
+        },
+        {
+          "objID": "1d26c564-6005-40c3-bf1d-325b5f4155b3",
+          "source": "92693b0e-a629-47d9-8f74-4b4493a36549",
+          "output": "CLICKED",
+          "target": "3d6d27bd-c612-4fcb-b6f6-1840d40d8f23",
+          "input": "@seqin"
+        }
+      ],
       "localVariables": [],
       "name": "SCREEN_CHANGE_PIN",
       "left": 0,
@@ -9787,6 +11154,46 @@
     {
       "objID": "f9598e84-246b-46b9-ad23-c53e6fec64bc",
       "components": [
+        {
+          "objID": "310d245a-798d-4954-904d-20bd669b42c5",
+          "type": "LVGLActionComponent",
+          "left": 270,
+          "top": 420,
+          "width": 240,
+          "height": 54,
+          "customInputs": [],
+          "customOutputs": [],
+          "actions": [
+            {
+              "objID": "d2837c7a-b2bf-4df3-946f-255f62386605",
+              "action": "CHANGE_SCREEN",
+              "screen": "SCREEN_SETTINGS",
+              "fadeMode": "FADE_IN",
+              "speed": 200,
+              "delay": 0
+            }
+          ]
+        },
+        {
+          "objID": "9fa8075b-cad7-491e-a29d-89616475c25b",
+          "type": "LVGLActionComponent",
+          "left": 20,
+          "top": 420,
+          "width": 240,
+          "height": 54,
+          "customInputs": [],
+          "customOutputs": [],
+          "actions": [
+            {
+              "objID": "83a1338a-bc02-45d6-bc4f-ec5123f4a110",
+              "action": "CHANGE_SCREEN",
+              "screen": "SCREEN_SETTINGS",
+              "fadeMode": "FADE_IN",
+              "speed": 200,
+              "delay": 0
+            }
+          ]
+        },
         {
           "objID": "fd717de0-35b3-4f44-b9b3-c498c3a8f79e",
           "type": "LVGLScreenWidget",
@@ -10241,7 +11648,22 @@
           }
         }
       ],
-      "connectionLines": [],
+      "connectionLines": [
+        {
+          "objID": "77d88377-8f35-4d53-ba37-47cb286c50a9",
+          "source": "ac5cee2c-049a-4e25-9724-e9fc1e45ff57",
+          "output": "CLICKED",
+          "target": "9fa8075b-cad7-491e-a29d-89616475c25b",
+          "input": "@seqin"
+        },
+        {
+          "objID": "59bf1446-9a4e-485c-8c64-89908f93d6e5",
+          "source": "d7335b26-5e11-4b65-a195-d0a1297b27c3",
+          "output": "CLICKED",
+          "target": "310d245a-798d-4954-904d-20bd669b42c5",
+          "input": "@seqin"
+        }
+      ],
       "localVariables": [],
       "name": "SCREEN_PIN_ENTER",
       "left": 0,

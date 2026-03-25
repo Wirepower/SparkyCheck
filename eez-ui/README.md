@@ -65,3 +65,20 @@ Start by integrating one EEZ screen (Main Menu equivalent) in parallel with curr
 
 This file is intended for visual iteration in EEZ before runtime integration.
 
+### Clickable test-run in EEZ Studio
+
+The current-app mockup project includes button navigation wiring (CHANGE_SCREEN actions)
+for a practical simulator walkthrough.
+
+To run the clickable flow:
+
+1. Open `SparkyCheck-CurrentApp-Mockup.eez-project` in EEZ Studio.
+2. Click **Run** in EEZ Studio.
+3. Tap buttons to navigate through mapped screens.
+
+Regenerate navigation mapping (if you edit button texts heavily):
+
+```bash
+python3 eez-ui/add_navigation_to_current_mockup.py
+```
+
