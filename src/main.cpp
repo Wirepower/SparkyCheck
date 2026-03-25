@@ -10,10 +10,37 @@
 #include "OtaUpdate.h"
 #include "GoogleSync.h"
 #include "SdConfig.h"
+#if defined(SPARKYCHECK_UI_EEZ_MOCKUP)
+#include "EezMockupUi.h"
+#endif
 
 SparkyTft tft;
 static ScreenId s_currentScreen = SCREEN_MAIN_MENU;
 static bool s_appReady = false;
+
+static void drawScreenRuntime(SparkyTft* display, ScreenId id) {
+#if defined(SPARKYCHECK_UI_EEZ_MOCKUP)
+  EezMockupUi_draw(display, id);
+#else
+  Screens_draw(display, id);
+#endif
+}
+
+static ScreenId handleTouchRuntime(SparkyTft* display, ScreenId current, uint16_t x, uint16_t y) {
+#if defined(SPARKYCHECK_UI_EEZ_MOCKUP)
+  return EezMockupUi_handleTouch(display, current, x, y);
+#else
+  return Screens_handleTouch(display, current, x, y);
+#endif
+}
+
+static bool didHandleButtonRuntime() {
+#if defined(SPARKYCHECK_UI_EEZ_MOCKUP)
+  return EezMockupUi_didHandleButton();
+#else
+  return Screens_didHandleButton();
+#endif
+}
 
 void setup() {
   Serial.begin(115200);
@@ -67,7 +94,7 @@ void setup() {
     s_currentScreen = SCREEN_MAIN_MENU;
   }
   tft.setRotation(AppState_getRotation());
-  Screens_draw(&tft, s_currentScreen);
+  drawScreenRuntime(&tft, s_currentScreen);
   sparkyDisplayFlush(&tft);
 
   s_appReady = true;
@@ -83,13 +110,13 @@ void loop() {
   uint16_t x = 0, y = 0;
   bool touchDown = tft.getTouch(&x, &y);
   if (touchDown && !s_touchWasDown) {
-    ScreenId next = Screens_handleTouch(&tft, s_currentScreen, x, y);
-    if (Screens_didHandleButton() && AppState_getBuzzerEnabled())
+    ScreenId next = handleTouchRuntime(&tft, s_currentScreen, x, y);
+    if (didHandleButtonRuntime() && AppState_getBuzzerEnabled())
       Buzzer_beepClick();
     if (next != s_currentScreen) {
       s_currentScreen = next;
       tft.setRotation(AppState_getRotation());
-      Screens_draw(&tft, s_currentScreen);
+      drawScreenRuntime(&tft, s_currentScreen);
       sparkyDisplayFlush(&tft);
     }
     // Small debounce for tap transitions; held touches won't retrigger.

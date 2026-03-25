@@ -4,6 +4,7 @@ This folder contains an **editable EEZ Studio project** built from the mockup la
 
 - `SparkyCheck-Mockup-UI.eez-project`
 - `SparkyCheck-CurrentApp-Mockup.eez-project`
+- `generate_mockup_runtime_data.py` (exports runtime data used by firmware)
 
 ## What this is
 
@@ -38,6 +39,43 @@ To make it run on device, a next step is required:
 ## Recommended next step
 
 Start by integrating one EEZ screen (Main Menu equivalent) in parallel with current UI, then migrate screen-by-screen.
+
+## New: testable on-device EEZ-mockup runtime
+
+The repository now includes a **testable firmware path** that renders an EEZ-derived screen layout on-device while preserving the existing `Screens.cpp` logic as fallback for complex input flows.
+
+### Edit workflow (yes, still in EEZ Studio)
+
+1. Open and edit `SparkyCheck-CurrentApp-Mockup.eez-project` in EEZ Studio.
+2. If you changed screens/buttons, regenerate runtime data:
+
+```bash
+python3 eez-ui/generate_mockup_runtime_data.py
+```
+
+This rewrites:
+
+- `include/EezMockupData.h`
+- `src/eez_mockup/EezMockupData.cpp`
+
+### Build the EEZ-mockup firmware variant
+
+Use the dedicated PlatformIO env:
+
+```bash
+pio run -e waveshare-s3-touch-lcd-43b-eez-mockup
+```
+
+Upload:
+
+```bash
+pio run -e waveshare-s3-touch-lcd-43b-eez-mockup -t upload
+```
+
+### Fallback safety
+
+- Default env (`waveshare-s3-touch-lcd-43b`) keeps the current production UI path.
+- EEZ mockup env enables `SPARKYCHECK_UI_EEZ_MOCKUP`, and for unsupported/complex screens it delegates to the original `Screens.cpp` behavior.
 
 ## Current running app screen pack
 
