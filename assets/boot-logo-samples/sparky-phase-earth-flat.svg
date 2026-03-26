@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Flat — matches hero: N inside skew, width 90, PE closer -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 280" width="480" height="280">
+  <rect width="480" height="280" fill="#0f172a"/>
+  <g transform="translate(168, 122)">
+    <g transform="skewX(-13)">
+      <rect x="-72" y="-50" width="26" height="66" rx="3" fill="#dc2626"/>
+      <rect x="-40" y="-50" width="26" height="66" rx="3" fill="#f8fafc" stroke="#64748b" stroke-width="1"/>
+      <rect x="-8" y="-50" width="26" height="66" rx="3" fill="#2563eb"/>
+      <rect x="-72" y="16" width="90" height="13" rx="2" fill="#0a0a0a"/>
+    </g>
+  </g>
+  <g transform="translate(272, 108)">
+    <circle r="48" fill="#14532d"/>
+    <circle r="42" fill="#15803d" stroke="#4ade80" stroke-width="3"/>
+    <path d="M -20 2 L -7 17 L 22 -16" fill="none" stroke="#f0fdf4" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+</svg>

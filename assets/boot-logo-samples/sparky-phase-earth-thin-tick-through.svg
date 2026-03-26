@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 280" width="480" height="280">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="38%" r="82%">
+      <stop offset="0%" stop-color="#1a2332"/>
+      <stop offset="45%" stop-color="#0f172a"/>
+      <stop offset="100%" stop-color="#020617"/>
+    </radialGradient>
+    <linearGradient id="phR" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ff5f52"/>
+      <stop offset="100%" stop-color="#b71c1c"/>
+    </linearGradient>
+    <linearGradient id="phW" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#cbd5e1"/>
+    </linearGradient>
+    <linearGradient id="phB" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#93c5fd"/>
+      <stop offset="100%" stop-color="#1e40af"/>
+    </linearGradient>
+    <linearGradient id="neu" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#475569"/>
+      <stop offset="40%" stop-color="#0a0a0a"/>
+      <stop offset="100%" stop-color="#1e1e1e"/>
+    </linearGradient>
+    <filter id="drop" x="-35%" y="-35%" width="170%" height="170%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="3"/>
+      <feOffset dy="2" result="s"/>
+      <feMerge>
+        <feMergeNode in="s"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  <rect width="480" height="280" fill="url(#bg)"/>
+  <g transform="translate(168, 122)" filter="url(#drop)">
+    <g transform="skewX(-13)">
+      <rect x="-72" y="-50" width="26" height="66" rx="3" fill="url(#phR)"/>
+      <rect x="-40" y="-50" width="26" height="66" rx="3" fill="url(#phW)" stroke="#64748b" stroke-width="1"/>
+      <rect x="-8" y="-50" width="26" height="66" rx="3" fill="url(#phB)"/>
+      <rect x="-72" y="16" width="90" height="13" rx="2" fill="url(#neu)"/>
+      <rect x="-72" y="16" width="90" height="2" fill="#64748b" opacity="0.35"/>
+      <path d="M -70 -38 L -40 -8 L -14 8 L 14 -18" fill="none" stroke="#166534" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" opacity="0.9"/>
+      <path d="M -70 -38 L -40 -8 L -14 8 L 14 -18" fill="none" stroke="#4ade80" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
+  </g>
+  <g transform="translate(272, 108)">
+    <circle r="44" fill="#052e16" opacity="0.9"/>
+    <circle r="38" fill="none" stroke="#22c55e" stroke-width="2"/>
+    <circle r="32" fill="none" stroke="#86efac" stroke-width="1" opacity="0.7"/>
+  </g>
+  <circle cx="96" cy="58" r="1.5" fill="#38bdf8" opacity="0.55"/>
+  <circle cx="392" cy="210" r="1.2" fill="#fbbf24" opacity="0.45"/>
+</svg>

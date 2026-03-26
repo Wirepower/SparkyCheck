@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Sample D: same as B but dark boot-style background (matches many embedded UIs) -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 200" width="320" height="200">
+  <rect width="320" height="200" fill="#12141A"/>
+  <g transform="translate(160, 108)">
+    <g transform="skewX(-18)">
+      <rect x="-54" y="-32" width="22" height="52" fill="#D62828" rx="2"/>
+      <rect x="-26" y="-32" width="22" height="52" fill="#E8E8E8" rx="2"/>
+      <rect x="2" y="-32" width="22" height="52" fill="#2563EB" rx="2"/>
+    </g>
+    <rect x="-48" y="24" width="96" height="8" fill="#E5E5E5" rx="1"/>
+  </g>
+  <path d="M 108 88 L 138 118 L 212 52" fill="none" stroke="#4ADE80" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

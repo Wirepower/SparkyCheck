@@ -28,7 +28,7 @@ void setup() {
   AppState_load();
   SdConfig_initAndApply();
   tft.init();
-  tft.setRotation(AppState_getRotation());
+  tft.setRotation(sparkyGfxRotationFromApp(AppState_getRotation()));
   tft.fillScreen(TFT_BLACK);
 
   /* Boot 1: Creator + graphic */
@@ -39,8 +39,8 @@ void setup() {
   unsigned long holdStart = 0;
   while (millis() - start < 6000) {
     if (tft.getTouch(&x, &y)) {
-      bool onCreator = BootScreen::isCreatorCreditTouchRegion(tft, (int)x, (int)y);
-      if (onCreator) {
+      bool onLogo = BootScreen::isBootLogoTouchRegion(tft, (int)x, (int)y);
+      if (onLogo) {
         if (holdStart == 0) holdStart = millis();
         if (millis() - holdStart >= 2500) { adminGesture = true; break; }
       } else {
@@ -70,7 +70,7 @@ void setup() {
   } else {
     s_currentScreen = SCREEN_MAIN_MENU;
   }
-  tft.setRotation(AppState_getRotation());
+  tft.setRotation(sparkyGfxRotationFromApp(AppState_getRotation()));
 #if defined(SPARKYCHECK_EEZ_MOCKUP_UI)
   EezMockupUi_draw(&tft, s_currentScreen);
 #else
@@ -102,7 +102,7 @@ void loop() {
 #endif
     if (next != s_currentScreen) {
       s_currentScreen = next;
-      tft.setRotation(AppState_getRotation());
+      tft.setRotation(sparkyGfxRotationFromApp(AppState_getRotation()));
 #if defined(SPARKYCHECK_EEZ_MOCKUP_UI)
       EezMockupUi_draw(&tft, s_currentScreen);
 #else

@@ -56,6 +56,9 @@ void Screens_resetPinEntry(void);
 /** True if the last handleTouch call handled a button (for button-click feedback). */
 bool Screens_didHandleButton(void);
 
+/** Brief "Setting saved" toast (used by EEZ mockup path for actions that mirror Screens_handleTouch). */
+void Screens_showSavedPrompt(SparkyTft* tft, const char* detail);
+
 #ifdef __cplusplus
 }
 #endif

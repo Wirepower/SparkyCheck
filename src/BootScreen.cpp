@@ -1,114 +1,216 @@
 /**
  * SparkyCheck – First boot screen
- * Creator credit + industry-themed graphic (no external image required).
+ * Creator credit + boot logo (RGB565 bitmap from include/boot_logo_embedded.h).
  */
 
 #include "BootScreen.h"
 #include "SparkyDisplay.h"
 #include "Standards.h"
+#include <Arduino.h>
+#include "boot_logo_embedded.h"
+#include <math.h>
 #include <string.h>
 
 namespace BootScreen {
 
-static const char* kCreatorLine1 = "Created By";
-static const char* kCreatorLine2 = "Frank Offer";
-static const char* kCreatorLine3 = "2026";
+static const char* kCreatorCredit = "Frank Offer · 2026";
+
+/** Vertical centre of boot logo (matches `drawBootLogoRaster`). */
+static int bootGraphicCenterY(int screenH) { return screenH >= 600 ? 200 : 140; }
 
 // Colours (TFT_eSPI 16-bit RGB565)
-static const uint16_t kBgDark    = 0x18E3;  // Dark blue-grey
+static const uint16_t kBootNearBlack = 0x0841;  // ~#0D1117 behind logo
+static const uint16_t kBgDark    = 0x18E3;  // Dark blue-grey (text blend)
 static const uint16_t kBgMid     = 0x2D6A;  // Mid blue
 static const uint16_t kAccent   = 0xFD20;  // Amber/gold
 static const uint16_t kAccentDim = 0xBC40;  // Dimmer gold
 static const uint16_t kWhite    = 0xFFFF;
-static const uint16_t kGreen    = 0x07E0;
+/* Phase / neutral / safety green (reference: pure primaries + black N) */
+static const uint16_t kPhaseRed   = 0xF800;  // #FF0000
+static const uint16_t kPhaseWhite = 0xFFFF;  // #FFFFFF
+static const uint16_t kPhaseBlue  = 0x001F;  // #0000FF (RGB565)
+static const uint16_t kNeutralN   = 0x0000;  // #000000
+static const uint16_t kNeutralHi  = 0x4208;  // subtle sheen on N
+static const uint16_t kRingGlowD  = 0x0200;  // circle / tick glow
+static const uint16_t kRingGlowM  = 0x0520;
+static const uint16_t kSafetyGreen = 0x07E0;  // lime / safety green ring + tick
+static const uint16_t kSafetyHi   = 0x3666;   // highlight stroke
 
-void drawIndustryGraphic(SparkyTft& tft, int centerX, int centerY, int size) {
-  const int r = size / 2;
-  const int cx = centerX;
-  const int cy = centerY;
+/** Linear blend between two RGB565 colours (t=0 -> a, t=max -> b). */
+static uint16_t lerp565(uint16_t a, uint16_t b, int t, int max) {
+  if (max <= 0) return a;
+  if (t <= 0) return a;
+  if (t >= max) return b;
+  const uint8_t r1 = (uint8_t)((a >> 11) & 0x1F);
+  const uint8_t g1 = (uint8_t)((a >> 5) & 0x3F);
+  const uint8_t b1 = (uint8_t)(a & 0x1F);
+  const uint8_t r2 = (uint8_t)((b >> 11) & 0x1F);
+  const uint8_t g2 = (uint8_t)((b >> 5) & 0x3F);
+  const uint8_t b2 = (uint8_t)(b & 0x1F);
+  const int inv = max - t;
+  const uint8_t r = (uint8_t)((r1 * inv + r2 * t) / max);
+  const uint8_t g = (uint8_t)((g1 * inv + g2 * t) / max);
+  const uint8_t bl = (uint8_t)((b1 * inv + b2 * t) / max);
+  return (uint16_t)((r << 11) | (g << 5) | bl);
+}
 
-  // Outer ring (verification / “OK” circle)
-  tft.drawCircle(cx, cy, r, kAccentDim);
-  tft.drawCircle(cx, cy, r - 1, kAccent);
-  tft.fillCircle(cx, cy, r - 4, kBgDark);
+static void fillSkewQuad(SparkyTft& tft, int tlx, int tly, int trx, int try_, int brx, int bry, int blx, int bly,
+                         uint16_t c) {
+  tft.fillTriangle(tlx, tly, trx, try_, brx, bry, c);
+  tft.fillTriangle(tlx, tly, brx, bry, blx, bly, c);
+}
 
-  // Large checkmark (pass/verification)
-  int  tickW = size / 8;
-  int  leg   = size / 3;
-  int  x0    = cx - leg;
-  int  y0    = cy + leg / 2;
-  int  x1    = cx - leg / 3;
-  int  y1    = cy + leg;
-  int  x2    = cx + leg;
-  int  y2    = cy - leg;
-  for (int d = -tickW; d <= tickW; d++) {
-    tft.drawLine(x0 + d, y0, x1 + d, y1, kGreen);
-    tft.drawLine(x1 + d, y1, x2 + d, y2, kGreen);
+/**
+ * Reference layout: pure R/W/B phases, black slanted N, safety-green tick (vertex on red, arms A–C),
+ * then glowing green circle framing the mark.
+ */
+void drawIndustryGraphic(SparkyTft& tft, int centerX, int centerY, int size, uint16_t innerBg) {
+  (void)innerBg;
+  const int barH = (size * 54) / 100;
+  const int barW = (size * 22) / 100;
+  const int gap = (size * 5) / 100;
+  int skew = (barH * 22) / 100;
+  if (skew < 2) skew = 2;
+  if (barH < 14 || barW < 8) return;
+
+  const int phaseCx = centerX;
+  const int yTop = centerY - barH / 2;
+  const int span = 3 * barW + 2 * gap + skew;
+  const int startX = phaseCx - span / 2;
+
+  const uint16_t phaseCol[3] = {kPhaseRed, kPhaseWhite, kPhaseBlue};
+  for (int i = 0; i < 3; i++) {
+    const int ox = startX + i * (barW + gap);
+    const int tlx = ox;
+    const int tly = yTop;
+    const int trx = ox + barW;
+    const int try_ = yTop;
+    const int brx = ox + barW + skew;
+    const int bry = yTop + barH;
+    const int blx = ox + skew;
+    const int bly = yTop + barH;
+    fillSkewQuad(tft, tlx, tly, trx, try_, brx, bry, blx, bly, phaseCol[i]);
+    if (i == 1) {
+      tft.drawLine(tlx, tly + 1, blx, bly - 1, 0x8410);
+      tft.drawLine(trx, try_ + 1, brx, bry - 1, 0x8410);
+    }
   }
-  tft.fillTriangle(x0, y0, x1, y1, x2, y2, kGreen);
-  tft.drawTriangle(x0, y0, x1, y1, x2, y2, kWhite);
 
-  // Small “cable” lines (stylized wires) below
-  int ly = cy + r - 2;
-  tft.drawFastHLine(cx - r + 4, ly,     (r - 4) * 2, kAccentDim);
-  tft.drawFastHLine(cx - r + 6, ly + 4, (r - 6) * 2, kAccentDim);
+  const int ny = yTop + barH;
+  const int nh = (size * 14) / 100;
+  if (nh < 7) return;
+  const int nLeft = startX + skew;
+  const int nWide = 3 * barW + 2 * gap;
+  fillSkewQuad(tft, nLeft, ny, nLeft + nWide, ny, nLeft + nWide + skew, ny + nh, nLeft + skew, ny + nh, kNeutralN);
+  tft.drawFastHLine(nLeft + 2, ny + nh / 2, nWide - 4, kNeutralHi);
+
+  /* Tick: bottom vertex B on lower-left red; A = left arm; C = top-right across W/B */
+  const int xB = startX + (barW * 22) / 100;
+  const int yB = yTop + (barH * 86) / 100;
+  const int xA = startX - (size * 14) / 100;
+  const int yA = yTop + (barH * 58) / 100;
+  const int xC = startX + 3 * barW + 2 * gap + (skew * 92) / 100;
+  const int yC = yTop + (barH * 10) / 100;
+
+  for (int g = 7; g >= 2; g--) {
+    const int o = g * 2;
+    tft.fillTriangle(xA - o / 2, yA + o / 5, xB, yB + o / 4, xC + o / 3, yC - o / 4, kRingGlowD);
+  }
+  for (int g = 3; g >= 1; g--) {
+    const int o = g * 2;
+    tft.fillTriangle(xA - o / 3, yA + o / 6, xB, yB + o / 5, xC + o / 4, yC - o / 5, kRingGlowM);
+  }
+  tft.fillTriangle(xA, yA, xB, yB, xC, yC, kSafetyGreen);
+  tft.drawLine(xA + 1, yA, xB - 1, yB - 1, kSafetyHi);
+  tft.drawLine(xB + 1, yB - 1, xC - 1, yC + 1, kSafetyHi);
+
+  /* Bounding box → center & radius for enclosing circle */
+  int minX = startX - 2;
+  int maxX = startX + 3 * barW + 2 * gap + skew + 2;
+  int minY = yTop - 2;
+  int maxY = ny + nh + 2;
+  if (xA < minX) minX = xA;
+  if (xC > maxX) maxX = xC;
+  if (yC < minY) minY = yC;
+
+  const int cx = (minX + maxX) / 2;
+  const int cy = (minY + maxY) / 2;
+  const int halfW = (maxX - minX + 1) / 2;
+  const int halfH = (maxY - minY + 1) / 2;
+  int ringR = (int)(sqrtf((float)(halfW * halfW + halfH * halfH))) + (size * 6) / 100;
+  if (ringR < size / 3) ringR = size / 3;
+
+  for (int g = 10; g >= 1; g--) {
+    tft.drawCircle(cx, cy, ringR + g, kRingGlowD);
+  }
+  for (int g = 2; g >= 0; g--) {
+    tft.drawCircle(cx, cy, ringR + g, kRingGlowM);
+  }
+  tft.drawCircle(cx, cy, ringR, kSafetyGreen);
+  tft.drawCircle(cx, cy, ringR - 1, kSafetyHi);
+}
+
+static void drawBootLogoRaster(SparkyTft& tft, int w, int h) {
+  const int graphicY = bootGraphicCenterY(h);
+  const int x = w / 2 - BOOT_LOGO_W / 2;
+  const int y = graphicY - BOOT_LOGO_H / 2;
+#if defined(SPARKYCHECK_PANEL_43B)
+  tft.drawRGBBitmap(x, y, kBootLogoRgb565, BOOT_LOGO_W, BOOT_LOGO_H);
+#else
+  tft.pushImage(x, y, BOOT_LOGO_W, BOOT_LOGO_H, (uint16_t*)kBootLogoRgb565);
+#endif
 }
 
 void showFirst(SparkyTft& tft) {
   const int w = tft.width();
   const int h = tft.height();
 
-  // Background: dark gradient effect (two bands)
-  tft.fillRect(0, 0, w, h / 2, kBgDark);
-  tft.fillRect(0, h / 2, w, h - h / 2, kBgMid);
-
-  // Top: product name
-  tft.setTextColor(kWhite, kBgDark);
-  tft.setTextSize(3);
-  tft.setCursor(w / 2 - 120, 28);
-  tft.print("SparkyCheck");
-
-  // Tagline
-  tft.setTextSize(1);
-  tft.setTextColor(kAccentDim, kBgDark);
-  tft.setCursor(w / 2 - 95, 58);
-  tft.print("Electrical Verification Device");
-
-  // Industry graphic (centered in upper area)
-  drawIndustryGraphic(tft, w / 2, 130, 100);
-
-  // Creator lines – bottom right (hidden admin hold target)
-  tft.setTextColor(kAccentDim, kBgMid);
-  tft.setTextSize(1);
-  const int blockW = 106, blockH = 34;
-  const int blockX = w - blockW - 10;
-  const int blockY = h - blockH - 10;
-  const int lineH = 10;
-  const char* lines[3] = { kCreatorLine1, kCreatorLine2, kCreatorLine3 };
-  for (int i = 0; i < 3; i++) {
-    int tw = (int)strlen(lines[i]) * 6;  // Text size 1 default width
-    int tx = blockX + (blockW - tw) / 2;
-    int ty = blockY + 2 + i * lineH;
-    tft.setCursor(tx, ty);
-    tft.print(lines[i]);
+  const int bands = 16;
+  for (int i = 0; i < bands; i++) {
+    uint16_t c = lerp565(kBootNearBlack, kBgMid, i, bands - 1);
+    int y0 = (i * h) / bands;
+    int y1 = ((i + 1) * h) / bands;
+    tft.fillRect(0, y0, w, y1 - y0 + 1, c);
   }
 
-  // Hint – centre bottom
+  const char* title = "SparkyCheck";
+  tft.setTextWrap(false);
+  tft.setTextColor(kWhite, kBgDark);
+  tft.setTextSize(3);
+  {
+    int tw = (int)strlen(title) * 6 * 3;
+    int tx = (w - tw) / 2;
+    if (tx < 8) tx = 8;
+    tft.setCursor(tx, 32);
+    tft.print(title);
+  }
+
+  drawBootLogoRaster(tft, w, h);
+
   tft.setTextColor(kAccentDim, kBgMid);
   tft.setTextSize(1);
-  tft.setCursor(w / 2 - 55, h - 22);
-  tft.print("Touch to continue");
+  {
+    int tw = (int)strlen(kCreatorCredit) * 6;
+    int tx = w - tw - 12;
+    int ty = h - 16;
+    tft.setCursor(tx, ty);
+    tft.print(kCreatorCredit);
+  }
+
+  tft.setTextColor(kAccentDim, kBgMid);
+  tft.setCursor(w / 2 - 52, h - 36);
+  tft.print("Tap to continue");
 }
 
-bool isCreatorCreditTouchRegion(SparkyTft& tft, int x, int y) {
+bool isBootLogoTouchRegion(SparkyTft& tft, int x, int y) {
   const int w = tft.width();
   const int h = tft.height();
-  const int blockW = 106, blockH = 34;
-  const int rx = w - blockW - 14;
-  const int ry = h - blockH - 14;
-  const int rw = blockW + 8;
-  const int rh = blockH + 8;
-  return x >= rx && x < rx + rw && y >= ry && y < ry + rh;
+  const int cy = bootGraphicCenterY(h);
+  const int cx = w / 2;
+  const int pad = 8;
+  const int halfW = BOOT_LOGO_W / 2 + pad;
+  const int halfH = BOOT_LOGO_H / 2 + pad;
+  return x >= cx - halfW && x < cx + halfW && y >= cy - halfH && y < cy + halfH;
 }
 
 void showDisclaimer(SparkyTft& tft) {
@@ -148,9 +250,9 @@ void showDisclaimer(SparkyTft& tft) {
   // Accept button (bottom centre) – must tap to continue
   const int btnW = 160, btnH = 44, btnY = h - 52;
   const int btnX = (w - btnW) / 2;
-  tft.fillRoundRect(btnX, btnY, btnW, btnH, 6, kGreen);
+  tft.fillRoundRect(btnX, btnY, btnW, btnH, 6, kSafetyGreen);
   tft.drawRoundRect(btnX, btnY, btnW, btnH, 6, kWhite);
-  tft.setTextColor(TFT_BLACK, kGreen);
+  tft.setTextColor(TFT_BLACK, kSafetyGreen);
   tft.setTextSize(2);
   tft.setCursor(btnX + 28, btnY + 12);
   tft.print("I Accept");

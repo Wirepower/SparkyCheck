@@ -1,8 +1,16 @@
 Boot / splash assets for SparkyCheck.
 
-A pre-made "boot hero" image (electrical verification theme) is available in the
-Cursor project assets folder. Copy it here as boot_hero.png if you want to show
-it on the device (e.g. via SPIFFS/LittleFS or by converting to a C array).
+**Boot logo on device**
 
-The first boot screen is currently drawn in code (see src/BootScreen.cpp) and
-shows "SparkyCheck", "Created by Frank", and a checkmark/cable graphic.
+1. Export your artwork as a **24-bit uncompressed BMP** (e.g. from Paint, GIMP, or Inkscape export → PNG → save as BMP).
+2. Save or replace **`assets/boot_logo.bmp`**.
+3. From the project root run: **`python tools/embed_boot_logo.py`**  
+   (This regenerates **`include/boot_logo_embedded.h`**. Commit both files when the logo changes.)
+
+To generate a placeholder BMP and header for a clean clone:  
+**`python tools/embed_boot_logo.py --placeholder`**
+
+Reference SVGs live under **`assets/boot-logo-samples/`** (export to BMP yourself for embedding).
+
+The splash also shows **SparkyCheck**, creator credit, and **Tap to continue** (see `src/BootScreen.cpp`).  
+`drawIndustryGraphic()` remains available as a code-drawn fallback motif if needed elsewhere.

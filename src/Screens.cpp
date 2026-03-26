@@ -22,8 +22,252 @@ static const uint16_t kWhite = 0xFFFF;
 static const uint16_t kGreen = 0x07E0;
 static const uint16_t kRed = 0xF800;
 
+/** Readable text on 4.3" landscape or tall portrait (matches EEZ layout helpers). */
+static bool sparkyReadableUi(int w, int h) {
+  return (w >= 700) || (h >= 700) || (w >= 480 && h >= 600);
+}
+
+/** Narrow width (e.g. portrait 480×800): title must sit below Back, not on the same row. */
+static bool sparkyTestFlowNarrowHeader(int w) {
+  return w < 600;
+}
+
+static void sparkyMainMenuLayout(int w, int h, int* y0, int* btnH, int* gap) {
+  if (w >= 700) {
+    *y0 = 88;
+    *btnH = 64;
+    *gap = 14;
+  } else if (h >= 700) {
+    *y0 = 100;
+    *btnH = 56;
+    *gap = 14;
+  } else {
+    *y0 = 80;
+    *btnH = 48;
+    *gap = 12;
+  }
+}
+
+/** Test list row Y and height (must match EezMockupUi testSelectRowGeometryDims). */
+static void sparkyTestSelectRowMetrics(int w, int h, int row, int* outY, int* outRowH) {
+  const int n = VERIFY_TEST_COUNT;
+  const int g = 10;
+  const int top = (w >= 700) ? 114 : ((h >= 700) ? 106 : 90);
+  int usable = h - top - 28;
+  if (usable < n * 28) usable = n * 28;
+  int rowH = (usable - (n - 1) * g) / n;
+  if (rowH < 28) rowH = 28;
+  if (rowH > 54) rowH = 54;
+  *outY = top + row * (rowH + g);
+  *outRowH = rowH;
+}
+
+/** Word-wrap with each line centered (Adafruit fixed width font). Returns Y after last line. */
+static int sparkyDrawWrappedWordsCentered(SparkyTft* tft, const char* text, int w, int y, int margin, uint8_t ts,
+                                         uint16_t fg, uint16_t bg) {
+  if (!text || !text[0]) return y;
+  tft->setTextWrap(false);
+  tft->setTextSize(ts);
+  tft->setTextColor(fg, bg);
+  const int cw = 6 * (int)ts;
+  const int lineH = 7 * (int)ts + 4;
+  const int maxW = w - 2 * margin;
+  if (maxW < cw * 4) return y;
+
+  char lineBuf[140];
+  lineBuf[0] = '\0';
+  const char* p = text;
+
+  while (*p) {
+    while (*p == ' ') p++;
+    if (!*p) break;
+    char word[72];
+    int wl = 0;
+    while (*p && *p != ' ' && wl < (int)sizeof(word) - 1) word[wl++] = *p++;
+    word[wl] = '\0';
+    if (wl <= 0) continue;
+
+    int cur = (int)strlen(lineBuf);
+    int need = cur + (cur > 0 ? 1 : 0) + wl;
+    if (cur > 0 && need * cw > maxW) {
+      int tw = cur * cw;
+      int tx = margin + (maxW - tw) / 2;
+      if (tx < margin) tx = margin;
+      tft->setCursor(tx, y);
+      tft->print(lineBuf);
+      y += lineH;
+      lineBuf[0] = '\0';
+      cur = 0;
+    }
+
+    if (wl * cw > maxW) {
+      for (int i = 0; i < wl; i++) {
+        char one[2] = {word[i], '\0'};
+        cur = (int)strlen(lineBuf);
+        if (cur > 0 && (cur + 1) * cw > maxW) {
+          int tw = cur * cw;
+          int tx = margin + (maxW - tw) / 2;
+          if (tx < margin) tx = margin;
+          tft->setCursor(tx, y);
+          tft->print(lineBuf);
+          y += lineH;
+          lineBuf[0] = '\0';
+        }
+        strncat(lineBuf, one, sizeof(lineBuf) - strlen(lineBuf) - 1);
+      }
+      continue;
+    }
+
+    cur = (int)strlen(lineBuf);
+    if (cur + (cur > 0 ? 1 : 0) + wl >= (int)sizeof(lineBuf) - 1) {
+      int tw = cur * cw;
+      int tx = margin + (maxW - tw) / 2;
+      if (tx < margin) tx = margin;
+      tft->setCursor(tx, y);
+      tft->print(lineBuf);
+      y += lineH;
+      lineBuf[0] = '\0';
+    }
+    if (lineBuf[0]) strncat(lineBuf, " ", sizeof(lineBuf) - strlen(lineBuf) - 1);
+    strncat(lineBuf, word, sizeof(lineBuf) - strlen(lineBuf) - 1);
+  }
+  if (lineBuf[0]) {
+    int cur = (int)strlen(lineBuf);
+    int tw = cur * cw;
+    int tx = margin + (maxW - tw) / 2;
+    if (tx < margin) tx = margin;
+    tft->setCursor(tx, y);
+    tft->print(lineBuf);
+    y += lineH;
+  }
+  return y;
+}
+
+/** AS/NZS scope under Select test: split at natural break so lines stay balanced and centered. */
+static void sparkyDrawVerificationScope(SparkyTft* tft, int w, int y0, uint8_t ts) {
+  char scope[96];
+  Standards_getVerificationScopeLine(scope, sizeof(scope));
+  const char* key = " Sec 8 & ";
+  char* hit = strstr(scope, key);
+  tft->setTextSize(ts);
+  tft->setTextColor(kAccent, kBg);
+  if (hit) {
+    *hit = '\0';
+    const char* b = hit + strlen(key);
+    const char* a = scope;
+    int tw1 = (int)strlen(a) * 6 * (int)ts;
+    int tw2 = (int)strlen(b) * 6 * (int)ts;
+    tft->setCursor((w - tw1) / 2, y0);
+    tft->print(a);
+    tft->setCursor((w - tw2) / 2, y0 + 7 * (int)ts + 2);
+    tft->print(b);
+  } else {
+    sparkyDrawWrappedWordsCentered(tft, scope, w, y0, 20, ts, kAccent, kBg);
+  }
+}
+
+/** Draw centered label in a button; reduces text size if needed. */
+static void sparkyDrawBtnLabel(SparkyTft* tft, int x, int y, int bw, int bh, const char* text, uint8_t ts) {
+  if (!text || !text[0]) return;
+  tft->setTextWrap(false);
+  uint8_t t = ts < 1 ? 1 : ts;
+  while (t > 1 && (int)strlen(text) * 6 * (int)t > bw - 12) t--;
+  int tw = (int)strlen(text) * 6 * (int)t;
+  int tx = x + (bw - tw) / 2;
+  if (tx < x + 4) tx = x + 4;
+  tft->setTextSize(t);
+  const int fh = 7 * (int)t;
+  int ty = y + (bh - fh) / 2;
+  if (ty < y + 2) ty = y + 2;
+  tft->setCursor(tx, ty);
+  tft->print(text);
+}
+
+static void sparkyBackLabelCoords(int backW, int backH, int backX, int backY, int* outTx, int* outTy) {
+  const char* b = "Back";
+  const uint8_t ts = 2;
+  int tw = (int)strlen(b) * 6 * (int)ts;
+  *outTx = backX + (backW - tw) / 2;
+  if (*outTx < backX + 4) *outTx = backX + 4;
+  const int fh = 7 * (int)ts;
+  *outTy = backY + (backH - fh) / 2;
+  if (*outTy < backY + 2) *outTy = backY + 2;
+}
+
+static void sparkySettingsLayout(int w, int h, bool field, int* y0, int* btnH, int* gap, int* nRows, int* backY) {
+  const bool r = sparkyReadableUi(w, h);
+  *gap = 6;
+  *btnH = r ? 38 : 32;
+  *y0 = 56;
+  *nRows = field ? 7 : 8;
+  *backY = *y0 + *nRows * (*btnH + *gap) + 8;
+}
+
+/** Layout for test-flow numeric entry: shared by draw + touch (STEP_RESULT_ENTRY). */
+typedef struct {
+  int rcdLineY;   /* >= 0 if "Required max" line is shown */
+  int valueRowY;
+  int delX, delY, delW, delH;
+  int uy, uh, uw, uGap;
+  int kx, ky, cellW, cellH, gap;
+  uint8_t keypadTs;
+} ResultEntryLayout;
+
+static void layoutResultEntry(int w, int h, int yAfterInstr, bool showRcdReq, int unitCount, ResultEntryLayout* L) {
+  const int marginX = 20;
+  const int bottomPad = 12;
+  /* Narrow portrait: allow value/keypad block slightly higher to reclaim vertical space. */
+  const int minTop = (w < 600) ? 72 : 84;
+  int y = yAfterInstr + 8;
+  if (y < minTop) y = minTop;
+
+  if (showRcdReq) {
+    L->rcdLineY = y;
+    y += 26;
+  } else {
+    L->rcdLineY = -1;
+  }
+
+  const int valueRowH = 40;
+  L->valueRowY = y;
+  L->delW = 124;
+  L->delH = 52;
+  L->delX = w - marginX - L->delW;
+  L->delY = y + (valueRowH - L->delH) / 2;
+
+  L->uGap = 8;
+  L->uh = 44;
+  L->uy = y + valueRowH + 8;
+  L->uw = unitCount > 0 ? (w - 2 * marginX - (unitCount - 1) * L->uGap) / unitCount : 100;
+
+  L->gap = 10;
+  L->kx = marginX;
+  L->ky = L->uy + L->uh + L->gap;
+
+  int availH = h - bottomPad - L->ky;
+  if (availH < 4 * 44 + 3 * L->gap) {
+    L->uh = 36;
+    L->ky = L->uy + L->uh + 8;
+    availH = h - bottomPad - L->ky;
+  }
+  if (availH < 0) availH = 0;
+  L->cellW = (w - 2 * marginX - 2 * L->gap) / 3;
+  if (availH > 3 * L->gap) {
+    L->cellH = (availH - 3 * L->gap) / 4;
+  } else {
+    L->cellH = availH > 0 ? availH / 4 : 28;
+  }
+  if (L->cellH < 28) L->cellH = 28;
+  /* Ensure 4 rows + gaps do not extend past the panel. */
+  while (4 * L->cellH + 3 * L->gap > availH && L->cellH > 24) L->cellH--;
+  /* Tall portrait: use large keypad digits like landscape (w may be only 480). */
+  L->keypadTs = (w >= 700 || h >= 700) ? (uint8_t)3 : (uint8_t)2;
+}
+
 static char s_reportSavedBasename[48] = "";
 static int s_modeSelectChoice = 0;  /* 0 = Training, 1 = Field */
+/** Bottom of instruction text on STEP_RESULT_ENTRY (for layoutResultEntry in draw + touch). */
+static int s_resultEntryYAfterInstr = 0;
 
 /* Verification coach state */
 static int s_selectedTestType = 0;
@@ -151,6 +395,10 @@ static void showPrompt(SparkyTft* tft, const char* line1, const char* line2, uin
 
 static void showSavedPrompt(SparkyTft* tft, const char* detail) {
   showPrompt(tft, "Setting saved", detail, kGreen);
+}
+
+void Screens_showSavedPrompt(SparkyTft* tft, const char* detail) {
+  showSavedPrompt(tft, detail);
 }
 
 static void getResultUnitOptions(VerifyResultKind kind, const ResultUnitOption** out, int* outCount, int* outDefaultIdx) {
@@ -412,71 +660,84 @@ void Screens_draw(SparkyTft* tft, ScreenId id) {
       break;
     }
     case SCREEN_MAIN_MENU: {
+      int y0 = 0, btnH = 0, gap = 0;
+      sparkyMainMenuLayout(w, h, &y0, &btnH, &gap);
+      const bool readable = sparkyReadableUi(w, h);
       bool panelWide = (w >= 700);
       tft->setTextColor(kWhite, kBg);
       tft->setTextSize(2);
-      tft->setCursor(20, 16);
-      tft->print("SparkyCheck");
+      {
+        const char* title = "SparkyCheck";
+        int tw = (int)strlen(title) * 6 * 2;
+        tft->setCursor((w - tw) / 2, 16);
+        tft->print(title);
+      }
       tft->setTextSize(1);
       tft->setTextColor(kAccent, kBg);
-      tft->setCursor(20, 44);
-      tft->print(AppState_isFieldMode() ? "Field mode" : "Training mode");
-      int btnW = w - 40, btnH = panelWide ? 64 : 44, y = panelWide ? 88 : 76;
-      int labelSize = panelWide ? 2 : 1;
-      int labelYOff = panelWide ? 24 : 12;
+      {
+        const char* mode = AppState_isFieldMode() ? "Field mode" : "Training mode";
+        int twm = (int)strlen(mode) * 6;
+        tft->setCursor((w - twm) / 2, 44);
+        tft->print(mode);
+      }
+      int btnW = w - 40, y = y0;
+      const uint8_t labelSize = readable ? (uint8_t)2 : (uint8_t)1;
       tft->fillRoundRect(20, y, btnW, btnH, 8, kBtn);
       tft->drawRoundRect(20, y, btnW, btnH, 8, kWhite);
       tft->setTextColor(kWhite, kBtn);
-      tft->setTextSize(labelSize);
-      tft->setCursor(panelWide ? 44 : 36, y + labelYOff);
-      tft->print("Start verification");
-      y += btnH + (panelWide ? 14 : 12);
+      sparkyDrawBtnLabel(tft, 20, y, btnW, btnH, "Start verification", labelSize);
+      y += btnH + gap;
       tft->fillRoundRect(20, y, btnW, btnH, 8, kBtn);
       tft->drawRoundRect(20, y, btnW, btnH, 8, kWhite);
       tft->setTextColor(kWhite, kBtn);
-      tft->setCursor(panelWide ? 44 : 36, y + labelYOff);
-      tft->print("View reports");
-      y += btnH + (panelWide ? 14 : 12);
+      sparkyDrawBtnLabel(tft, 20, y, btnW, btnH, "View reports", labelSize);
+      y += btnH + gap;
       tft->fillRoundRect(20, y, btnW, btnH, 8, kBtn);
       tft->drawRoundRect(20, y, btnW, btnH, 8, kWhite);
       tft->setTextColor(kWhite, kBtn);
-      tft->setCursor(panelWide ? 44 : 36, y + labelYOff);
-      tft->print("Settings");
+      sparkyDrawBtnLabel(tft, 20, y, btnW, btnH, "Settings", labelSize);
       break;
     }
     case SCREEN_TEST_SELECT: {
       bool panelWide = (w >= 700);
+      const bool readable = sparkyReadableUi(w, h);
       tft->setTextColor(kWhite, kBg);
       tft->setTextSize(panelWide ? 3 : 2);
-      tft->setCursor(20, 10);
-      tft->print("Select test");
-      int backW = panelWide ? 90 : 48;
-      int backH = panelWide ? 34 : 24;
-      int backX = w - (panelWide ? 102 : 62);
+      {
+        const char* t = "Select test";
+        int tw = (int)strlen(t) * 6 * (panelWide ? 3 : 2);
+        tft->setCursor((w - tw) / 2, 10);
+        tft->print(t);
+      }
+      int backW = panelWide ? 96 : 92;
+      int backH = 36;
+      int backX = w - backW - 12;
       int backY = panelWide ? 10 : 8;
       tft->fillRoundRect(backX, backY, backW, backH, 6, kBtn);
       tft->drawRoundRect(backX, backY, backW, backH, 6, kWhite);
-      tft->setTextSize(1);
+      tft->setTextSize(2);
       tft->setTextColor(kWhite, kBtn);
-      tft->setCursor(backX + (panelWide ? 20 : 6), backY + (panelWide ? 11 : 4));
-      tft->print("Back");
-      tft->setTextSize(panelWide ? 2 : 1);
-      tft->setTextColor(kAccent, kBg);
-      tft->setCursor(20, panelWide ? 50 : 38);
-      { char scope[96];
-        Standards_getVerificationScopeLine(scope, sizeof(scope));
-        tft->print(scope);
+      {
+        int tx = 0, ty = 0;
+        sparkyBackLabelCoords(backW, backH, backX, backY, &tx, &ty);
+        tft->setCursor(tx, ty);
+        tft->print("Back");
       }
-      int rowH = panelWide ? 38 : 18, y = panelWide ? 84 : 48;
-      tft->setTextWrap(false);
+      {
+        const int scopeY = panelWide ? 48 : (h >= 700 ? 50 : 42);
+        sparkyDrawVerificationScope(tft, w, scopeY, 2);
+      }
       for (int i = 0; i < VERIFY_TEST_COUNT; i++) {
-        tft->fillRoundRect(20, y, w - 40, rowH - 2, 6, kBtn);
-        tft->drawRoundRect(20, y, w - 40, rowH - 2, 6, kWhite);
+        int y = 0, rh = 0;
+        sparkyTestSelectRowMetrics(w, h, i, &y, &rh);
+        const int bh = rh - 2;
+        tft->fillRoundRect(20, y, w - 40, bh, 6, kBtn);
+        tft->drawRoundRect(20, y, w - 40, bh, 6, kWhite);
         tft->setTextColor(kWhite, kBtn);
-        tft->setTextSize(panelWide ? 2 : 1);
-        tft->setCursor(28, y + (panelWide ? 11 : 5));
-        tft->print(VerificationSteps_getTestName((VerifyTestId)i));
-        y += rowH;
+        {
+          uint8_t ts = panelWide ? (uint8_t)2 : (readable ? (uint8_t)2 : (uint8_t)1);
+          sparkyDrawBtnLabel(tft, 20, y, w - 40, bh, VerificationSteps_getTestName((VerifyTestId)i), ts);
+        }
       }
       tft->setTextWrap(true);
       break;
@@ -524,97 +785,145 @@ void Screens_draw(SparkyTft* tft, ScreenId id) {
     }
     case SCREEN_TEST_FLOW: {
       if (s_flowPhase == 1) {
+        const int backW = 96, backH = 36;
+        const int backX = w - backW - 12;
+        const int backY = 8;
+        tft->fillRoundRect(backX, backY, backW, backH, 6, kBtn);
+        tft->drawRoundRect(backX, backY, backW, backH, 6, kWhite);
+        tft->setTextSize(2);
+        tft->setTextColor(kWhite, kBtn);
+        {
+          int tx = 0, ty = 0;
+          sparkyBackLabelCoords(backW, backH, backX, backY, &tx, &ty);
+          tft->setCursor(tx, ty);
+          tft->print("Back");
+        }
+        const bool narrowResult = sparkyTestFlowNarrowHeader(w);
+        const char* rt = "Result";
+        const int twr = (int)strlen(rt) * 6 * 2;
+        const int yResultTitle = narrowResult ? (backY + backH + 8) : 16;
         tft->setTextColor(kWhite, kBg);
         tft->setTextSize(2);
-        tft->setCursor(20, 16);
-        tft->print("Result");
-        tft->fillRoundRect(w - 70, 6, 50, 24, 6, kBtn);
-        tft->drawRoundRect(w - 70, 6, 50, 24, 6, kWhite);
-        tft->setTextColor(kWhite, kBtn);
-        tft->setTextSize(1);
-        tft->setCursor(w - 62, 12);
-        tft->print("Back");
-        tft->fillRect(20, 52, w - 40, 72, s_resultPass ? kGreen : kRed);
+        tft->setCursor((w - twr) / 2, yResultTitle);
+        tft->print(rt);
+        const int passBoxY = narrowResult ? (yResultTitle + 7 * 2 + 12) : 52;
+        tft->fillRect(20, passBoxY, w - 40, 72, s_resultPass ? kGreen : kRed);
         tft->setTextColor(TFT_BLACK, s_resultPass ? kGreen : kRed);
         tft->setTextSize(3);
-        tft->setCursor(w/2 - 30, 78);
+        {
+          const int passTextY = passBoxY + (72 - 7 * 3) / 2;
+          tft->setCursor(w / 2 - 30, passTextY);
+        }
         tft->print(s_resultPass ? "PASS" : "FAIL");
-        tft->setTextSize(1);
+        tft->setTextSize(2);
         tft->setTextColor(kWhite, kBg);
-        tft->setCursor(20, 138);
-        char buf[80];
-        if (s_resultUnit && s_resultUnit[0])
-          snprintf(buf, sizeof(buf), "%s: %.3f %s", s_resultLabel ? s_resultLabel : "", (double)s_resultValue, s_resultUnit);
-        else
-          snprintf(buf, sizeof(buf), "%s: Verified", s_resultLabel ? s_resultLabel : "Test");
-        tft->print(buf);
-        tft->setCursor(20, 154);
+        int yRes = passBoxY + 72 + 8;
+        {
+          char buf[80];
+          if (s_resultUnit && s_resultUnit[0])
+            snprintf(buf, sizeof(buf), "%s: %.3f %s", s_resultLabel ? s_resultLabel : "", (double)s_resultValue, s_resultUnit);
+          else
+            snprintf(buf, sizeof(buf), "%s: Verified", s_resultLabel ? s_resultLabel : "Test");
+          yRes = sparkyDrawWrappedWordsCentered(tft, buf, w, yRes, 20, 2, kWhite, kBg);
+        }
         if (s_selectedTestType == (int)VERIFY_RCD && s_rcdRequiredMaxMs > 0.0f) {
           char crit[64];
           snprintf(crit, sizeof(crit), "Criterion: <= %.3f ms", (double)s_rcdRequiredMaxMs);
+          tft->setCursor(20, yRes + 4);
+          tft->setTextSize(1);
+          tft->setTextColor(kAccent, kBg);
           tft->print(crit);
-          tft->setCursor(20, 166);
+          yRes += 20;
         }
-        tft->print(s_resultClause ? s_resultClause : "");
-        int btnY = h - 52;
-        tft->fillRoundRect(20, btnY, w - 40, 44, 8, kAccent);
-        tft->drawRoundRect(20, btnY, w - 40, 44, 8, kWhite);
+        if (s_resultClause && s_resultClause[0]) {
+          tft->setTextSize(1);
+          tft->setTextColor(kAccent, kBg);
+          yRes = sparkyDrawWrappedWordsCentered(tft, s_resultClause, w, yRes + 6, 20, 1, kAccent, kBg);
+        }
+        (void)yRes;
+        int btnY = h - 56;
+        tft->fillRoundRect(20, btnY, w - 40, 48, 8, kAccent);
+        tft->drawRoundRect(20, btnY, w - 40, 48, 8, kWhite);
         tft->setTextColor(TFT_BLACK, kAccent);
-        tft->setCursor(w/2 - 42, btnY + 12);
-        tft->print("End session");
+        sparkyDrawBtnLabel(tft, 20, btnY, w - 40, 48, "End session", 2);
         break;
       }
       int count = VerificationSteps_getStepCount((VerifyTestId)s_selectedTestType);
       if (s_stepIndex >= count) break;
       VerifyStep step;
       VerificationSteps_getStep((VerifyTestId)s_selectedTestType, s_stepIndex, &step);
-      tft->setTextColor(step.type == STEP_SAFETY ? kAccent : kWhite, kBg);
+      const bool r = sparkyReadableUi(w, h);
+      const uint8_t titleTs = r ? 3 : 2;
+      const int backW = 96, backH = 36;
+      const int backX = w - backW - 12;
+      const int backY = 8;
+
+      tft->fillRoundRect(backX, backY, backW, backH, 6, kBtn);
+      tft->drawRoundRect(backX, backY, backW, backH, 6, kWhite);
       tft->setTextSize(2);
-      tft->setCursor(20, 10);
-      tft->print(step.title);
-      tft->fillRoundRect(w - 70, 6, 50, 24, 6, kBtn);
-      tft->drawRoundRect(w - 70, 6, 50, 24, 6, kWhite);
       tft->setTextColor(kWhite, kBtn);
-      tft->setTextSize(1);
-      tft->setCursor(w - 62, 12);
-      tft->print("Back");
-      tft->setTextSize(1);
+      {
+        int tx = 0, ty = 0;
+        sparkyBackLabelCoords(backW, backH, backX, backY, &tx, &ty);
+        tft->setCursor(tx, ty);
+        tft->print("Back");
+      }
+      const bool narrowHeader = sparkyTestFlowNarrowHeader(w);
+      int stepProgY;
+      if (narrowHeader) {
+        const int titleY0 = backY + backH + 6;
+        const int titleEndY = sparkyDrawWrappedWordsCentered(
+            tft, step.title, w, titleY0, 20, titleTs, step.type == STEP_SAFETY ? kAccent : kWhite, kBg);
+        stepProgY = titleEndY + 8;
+      } else {
+        tft->setTextSize(titleTs);
+        tft->setTextColor(step.type == STEP_SAFETY ? kAccent : kWhite, kBg);
+        {
+          int tw = (int)strlen(step.title) * 6 * titleTs;
+          tft->setCursor((w - tw) / 2, 14);
+          tft->print(step.title);
+        }
+        stepProgY = 48;
+      }
+      tft->setTextSize(2);
       tft->setTextColor(kAccent, kBg);
-      tft->setCursor(20, 36);
-      tft->print(step.clause);
-      tft->setCursor(w - 72, 36);
-      char prog[16];
-      snprintf(prog, sizeof(prog), "Step %d of %d", s_stepIndex + 1, count);
-      tft->print(prog);
-      tft->setTextColor(kWhite, kBg);
-      tft->setCursor(20, 52);
-      tft->print(step.instruction);
+      {
+        char prog[20];
+        snprintf(prog, sizeof(prog), "Step %d of %d", s_stepIndex + 1, count);
+        tft->setCursor(20, stepProgY);
+        tft->print(prog);
+      }
+
+      /* Start clause/instruction below "Step n of m" (text size 2 ≈ 16px tall). */
+      const int kStepProgressBottom = stepProgY + 8 * 2 + 12;
+      int yBelow = kStepProgressBottom;
+      if (step.clause && step.clause[0])
+        yBelow = sparkyDrawWrappedWordsCentered(tft, step.clause, w, yBelow, 20, 1, kAccent, kBg) + 8;
+      int yAfterInstr = sparkyDrawWrappedWordsCentered(tft, step.instruction, w, yBelow, 20, 2, kWhite, kBg);
+
       if (step.type == STEP_SAFETY) {
-        int btnY = h - 54;
-        tft->fillRoundRect(20, btnY, w - 40, 44, 8, kGreen);
-        tft->drawRoundRect(20, btnY, w - 40, 44, 8, kWhite);
+        int btnY = h - 56;
+        tft->fillRoundRect(20, btnY, w - 40, 52, 8, kGreen);
+        tft->drawRoundRect(20, btnY, w - 40, 52, 8, kWhite);
         tft->setTextColor(TFT_BLACK, kGreen);
-        tft->setCursor(w/2 - 38, btnY + 12);
-        tft->print("OK / I have done this");
+        sparkyDrawBtnLabel(tft, 20, btnY, w - 40, 52, "OK / I have done this", 2);
       } else if (step.type == STEP_VERIFY_YESNO) {
-        int btnY = h - 54, half = (w - 50) / 2;
-        tft->fillRoundRect(20, btnY, half, 44, 8, kGreen);
-        tft->drawRoundRect(20, btnY, half, 44, 8, kWhite);
+        int btnY = h - 56, half = (w - 50) / 2;
+        bool wide = (w >= 700) || (h >= 700);
+        tft->fillRoundRect(20, btnY, half, 52, 8, kGreen);
+        tft->drawRoundRect(20, btnY, half, 52, 8, kWhite);
         tft->setTextColor(TFT_BLACK, kGreen);
-        tft->setCursor(20 + half/2 - 12, btnY + 12);
-        tft->print("Yes");
-        tft->fillRoundRect(30 + half, btnY, half, 44, 8, kBtn);
-        tft->drawRoundRect(30 + half, btnY, half, 44, 8, kWhite);
+        sparkyDrawBtnLabel(tft, 20, btnY, half, 52, "Yes", wide ? 3 : 2);
+        tft->fillRoundRect(30 + half, btnY, half, 52, 8, kBtn);
+        tft->drawRoundRect(30 + half, btnY, half, 52, 8, kWhite);
         tft->setTextColor(kWhite, kBtn);
-        tft->setCursor(30 + half + half/2 - 10, btnY + 12);
-        tft->print("No");
+        sparkyDrawBtnLabel(tft, 30 + half, btnY, half, 52, "No", wide ? 3 : 2);
       } else if (step.type == STEP_INFO) {
-        int btnY = h - 54;
-        tft->fillRoundRect(20, btnY, w - 40, 44, 8, kGreen);
-        tft->drawRoundRect(20, btnY, w - 40, 44, 8, kWhite);
+        int btnY = h - 56;
+        tft->fillRoundRect(20, btnY, w - 40, 52, 8, kGreen);
+        tft->drawRoundRect(20, btnY, w - 40, 52, 8, kWhite);
         tft->setTextColor(TFT_BLACK, kGreen);
-        tft->setCursor(w/2 - 12, btnY + 12);
-        tft->print("OK");
+        sparkyDrawBtnLabel(tft, 20, btnY, w - 40, 52, "OK", 2);
       } else if (step.type == STEP_RESULT_ENTRY) {
         ensureResultEntryInputState(step.resultKind);
         const ResultUnitOption* units = nullptr;
@@ -623,52 +932,51 @@ void Screens_draw(SparkyTft* tft, ScreenId id) {
         getResultUnitOptions(step.resultKind, &units, &unitCount, &defaultIdx);
         if (s_resultInputUnitIdx < 0 || s_resultInputUnitIdx >= unitCount) s_resultInputUnitIdx = defaultIdx;
 
+        const bool showRcdReq = (step.resultKind == RESULT_RCD_MS && s_rcdRequiredMaxMs > 0.0f);
+        s_resultEntryYAfterInstr = yAfterInstr;
+        ResultEntryLayout rel;
+        layoutResultEntry(w, h, yAfterInstr, showRcdReq, unitCount, &rel);
+
         tft->setTextColor(kWhite, kBg);
-        if (step.resultKind == RESULT_RCD_MS && s_rcdRequiredMaxMs > 0.0f) {
+        tft->setTextSize(2);
+        if (rel.rcdLineY >= 0) {
           char reqBuf[44];
           snprintf(reqBuf, sizeof(reqBuf), "Required max: %.3f ms", (double)s_rcdRequiredMaxMs);
-          tft->setCursor(20, 84);
+          tft->setCursor(20, rel.rcdLineY);
           tft->print(reqBuf);
         }
-        tft->setCursor(20, 98);
+        tft->setCursor(20, rel.valueRowY);
         tft->print("Value:");
-        tft->setCursor(20, 112);
+        tft->setCursor(20, rel.valueRowY + 22);
         tft->print(s_resultInputLen > 0 ? s_resultInput : "(none)");
         tft->print(" ");
         tft->print(units[s_resultInputUnitIdx].label);
 
-        tft->fillRoundRect(w - 74, 96, 54, 20, 6, kAccent);
-        tft->drawRoundRect(w - 74, 96, 54, 20, 6, kWhite);
+        tft->fillRoundRect(rel.delX, rel.delY, rel.delW, rel.delH, 8, kAccent);
+        tft->drawRoundRect(rel.delX, rel.delY, rel.delW, rel.delH, 8, kWhite);
         tft->setTextColor(TFT_BLACK, kAccent);
-        tft->setCursor(w - 60, 102);
-        tft->print("Del");
+        sparkyDrawBtnLabel(tft, rel.delX, rel.delY, rel.delW, rel.delH, "Del", 2);
 
-        int uy = 120, uh = 18, uGap = 4;
-        int uw = (w - 40 - (unitCount - 1) * uGap) / unitCount;
         for (int i = 0; i < unitCount; i++) {
-          int ux = 20 + i * (uw + uGap);
+          int ux = 20 + i * (rel.uw + rel.uGap);
           uint16_t bg = (i == s_resultInputUnitIdx) ? kGreen : kBtn;
-          tft->fillRoundRect(ux, uy, uw, uh, 6, bg);
-          tft->drawRoundRect(ux, uy, uw, uh, 6, kWhite);
+          tft->fillRoundRect(ux, rel.uy, rel.uw, rel.uh, 8, bg);
+          tft->drawRoundRect(ux, rel.uy, rel.uw, rel.uh, 8, kWhite);
           tft->setTextColor(i == s_resultInputUnitIdx ? TFT_BLACK : kWhite, bg);
-          int tx = ux + uw / 2 - ((int)strlen(units[i].label) * 6) / 2;
-          tft->setCursor(tx < ux + 2 ? ux + 2 : tx, uy + 6);
-          tft->print(units[i].label);
+          sparkyDrawBtnLabel(tft, ux, rel.uy, rel.uw, rel.uh, units[i].label, 2);
         }
 
         const char* keys[12] = { "1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0", "OK" };
-        int cellW = (w - 50) / 3, cellH = 20, gap = 6, startX = 20, startY = 142;
         for (int row = 0; row < 4; row++) {
           for (int col = 0; col < 3; col++) {
             int idx = row * 3 + col;
-            int kx = startX + col * (cellW + gap), ky = startY + row * (cellH + gap);
+            int kx = rel.kx + col * (rel.cellW + rel.gap);
+            int ky = rel.ky + row * (rel.cellH + rel.gap);
             uint16_t bg = (strcmp(keys[idx], "OK") == 0) ? kGreen : kBtn;
-            tft->fillRoundRect(kx, ky, cellW, cellH, 6, bg);
-            tft->drawRoundRect(kx, ky, cellW, cellH, 6, kWhite);
+            tft->fillRoundRect(kx, ky, rel.cellW, rel.cellH, 8, bg);
+            tft->drawRoundRect(kx, ky, rel.cellW, rel.cellH, 8, kWhite);
             tft->setTextColor(strcmp(keys[idx], "OK") == 0 ? TFT_BLACK : kWhite, bg);
-            int tw = (int)strlen(keys[idx]) * 6;
-            tft->setCursor(kx + (cellW - tw) / 2, ky + 6);
-            tft->print(keys[idx]);
+            sparkyDrawBtnLabel(tft, kx, ky, rel.cellW, rel.cellH, keys[idx], rel.keypadTs);
           }
         }
       }
@@ -726,11 +1034,17 @@ void Screens_draw(SparkyTft* tft, ScreenId id) {
     case SCREEN_SETTINGS: {
       tft->setTextColor(kWhite, kBg);
       tft->setTextSize(2);
-      tft->setCursor(20, 10);
-      tft->print("Settings");
-      int btnW = w - 40, btnH = 30, y = 42, gap = 2;
+      {
+        const char* t = "Settings";
+        int tw = (int)strlen(t) * 6 * 2;
+        tft->setCursor((w - tw) / 2, 10);
+        tft->print(t);
+      }
+      int y = 0, btnH = 0, gap = 0, nRows = 0, backY = 0;
       bool field = AppState_isFieldMode();
-      int nRows = field ? 7 : 8;
+      sparkySettingsLayout(w, h, field, &y, &btnH, &gap, &nRows, &backY);
+      const int btnW = w - 40;
+      const uint8_t lblTs = sparkyReadableUi(w, h) ? (uint8_t)2 : (uint8_t)1;
       for (int i = 0; i < nRows; i++) {
         const char* label = "";
         if (i == 0) label = "Screen rotation";
@@ -744,22 +1058,36 @@ void Screens_draw(SparkyTft* tft, ScreenId id) {
         tft->fillRoundRect(20, y, btnW, btnH, 6, kBtn);
         tft->drawRoundRect(20, y, btnW, btnH, 6, kWhite);
         tft->setTextColor(kWhite, kBtn);
-        tft->setTextSize(1);
-        tft->setCursor(28, y + 6);
-        tft->print(label);
         if (i == 1) {
-          tft->setCursor(28, y + 16);
-          if (WifiManager_isConnected()) { char ip[20]; WifiManager_getIpString(ip, sizeof(ip)); tft->print(ip); }
-          else tft->print("Not connected");
-        }
-        if (i == 2) tft->setCursor(28, y + 16), tft->print(AppState_getBuzzerEnabled() ? "On" : "Off");
+          tft->setTextSize(lblTs);
+          tft->setCursor(28, y + 4);
+          tft->print("WiFi connection");
+          tft->setTextSize(1);
+          tft->setCursor(28, y + 4 + (lblTs == 2 ? 16 : 14));
+          if (WifiManager_isConnected()) {
+            char ip[20];
+            WifiManager_getIpString(ip, sizeof(ip));
+            tft->print(ip);
+          } else
+            tft->print("Not connected");
+        } else if (i == 2) {
+          tft->setTextSize(lblTs);
+          tft->setCursor(28, y + 4);
+          tft->print("Buzzer (sound)");
+          tft->setTextSize(1);
+          tft->setCursor(28, y + 4 + (lblTs == 2 ? 16 : 14));
+          tft->print(AppState_getBuzzerEnabled() ? "On" : "Off");
+        } else
+          sparkyDrawBtnLabel(tft, 20, y, btnW, btnH, label, lblTs);
         y += btnH + gap;
       }
-      tft->fillRoundRect(20, y, 80, 28, 6, kBtn);
-      tft->drawRoundRect(20, y, 80, 28, 6, kWhite);
-      tft->setTextColor(kWhite, kBtn);
-      tft->setCursor(36, y + 6);
-      tft->print("Back");
+      {
+        const int backH = 40;
+        tft->fillRoundRect(20, backY, btnW, backH, 6, kBtn);
+        tft->drawRoundRect(20, backY, btnW, backH, 6, kWhite);
+        tft->setTextColor(kWhite, kBtn);
+        sparkyDrawBtnLabel(tft, 20, backY, btnW, backH, "Back", 2);
+      }
       break;
     }
     case SCREEN_EMAIL_SETTINGS: {
@@ -876,27 +1204,31 @@ void Screens_draw(SparkyTft* tft, ScreenId id) {
     case SCREEN_ROTATION: {
       tft->setTextColor(kWhite, kBg);
       tft->setTextSize(2);
-      tft->setCursor(20, 14);
-      tft->print("Screen orientation");
+      {
+        const char* t = "Screen orientation";
+        int tw = (int)strlen(t) * 6 * 2;
+        tft->setCursor((w - tw) / 2, 10);
+        tft->print(t);
+      }
       int r = AppState_getRotation();
       int btnW = w - 40, btnH = 48, y = 60;
       tft->fillRoundRect(20, y, btnW, btnH, 8, r == 0 ? kGreen : kBtn);
       tft->drawRoundRect(20, y, btnW, btnH, 8, kWhite);
       tft->setTextColor(r == 0 ? TFT_BLACK : kWhite, r == 0 ? kGreen : kBtn);
-      tft->setCursor(28, y + 14);
-      tft->print("Portrait");
+      sparkyDrawBtnLabel(tft, 20, y, btnW, btnH, "Portrait", 2);
       y += 58;
       tft->fillRoundRect(20, y, btnW, btnH, 8, r == 1 ? kGreen : kBtn);
       tft->drawRoundRect(20, y, btnW, btnH, 8, kWhite);
       tft->setTextColor(r == 1 ? TFT_BLACK : kWhite, r == 1 ? kGreen : kBtn);
-      tft->setCursor(28, y + 14);
-      tft->print("Landscape");
-      y += 60;
-      tft->fillRoundRect(20, y, 80, 36, 6, kBtn);
-      tft->drawRoundRect(20, y, 80, 36, 6, kWhite);
-      tft->setTextColor(kWhite, kBtn);
-      tft->setCursor(40, y + 10);
-      tft->print("Back");
+      sparkyDrawBtnLabel(tft, 20, y, btnW, btnH, "Landscape", 2);
+      {
+        const int backH = 44;
+        const int by = h - 52;
+        tft->setTextColor(kWhite, kBtn);
+        tft->fillRoundRect(20, by, btnW, backH, 6, kBtn);
+        tft->drawRoundRect(20, by, btnW, backH, 6, kWhite);
+        sparkyDrawBtnLabel(tft, 20, by, btnW, backH, "Back", 2);
+      }
       break;
     }
     case SCREEN_WIFI_LIST: {
@@ -1498,11 +1830,10 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
       }
       break;
     case SCREEN_MAIN_MENU: {
-      bool panelWide = (w >= 700);
-      int btnH = panelWide ? 64 : 44;
-      int y0 = panelWide ? 88 : 76;
-      int y1 = y0 + btnH + (panelWide ? 14 : 12);
-      int y2 = y1 + btnH + (panelWide ? 14 : 12);
+      int y0 = 0, btnH = 0, gap = 0;
+      sparkyMainMenuLayout(w, h, &y0, &btnH, &gap);
+      int y1 = y0 + btnH + gap;
+      int y2 = y1 + btnH + gap;
       if (inRect(ix, iy, 20, y0, w - 40, btnH)) return handled(SCREEN_TEST_SELECT);
       if (inRect(ix, iy, 20, y1, w - 40, btnH)) return handled(SCREEN_REPORT_LIST);
       if (inRect(ix, iy, 20, y2, w - 40, btnH)) {
@@ -1518,15 +1849,15 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
     }
     case SCREEN_TEST_SELECT: {
       bool panelWide = (w >= 700);
-      int backW = panelWide ? 90 : 48;
-      int backH = panelWide ? 34 : 24;
-      int backX = w - (panelWide ? 102 : 62);
+      int backW = panelWide ? 96 : 92;
+      int backH = 36;
+      int backX = w - backW - 12;
       int backY = panelWide ? 10 : 8;
       if (inRect(ix, iy, backX, backY, backW, backH)) return handled(SCREEN_MAIN_MENU);
-      int rowH = panelWide ? 38 : 18;
-      int y0 = panelWide ? 84 : 48;
       for (int i = 0; i < VERIFY_TEST_COUNT; i++) {
-        if (inRect(ix, iy, 20, y0 + i * rowH, w - 40, rowH - 2)) {
+        int y0 = 0, rh = 0;
+        sparkyTestSelectRowMetrics(w, h, i, &y0, &rh);
+        if (inRect(ix, iy, 20, y0, w - 40, rh - 2)) {
           s_selectedTestType = i;
           s_stepIndex = 0;
           s_flowPhase = 0;
@@ -1587,7 +1918,7 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
     }
     case SCREEN_TEST_FLOW: {
       int count = VerificationSteps_getStepCount((VerifyTestId)s_selectedTestType);
-      if (inRect(ix, iy, w - 70, 6, 50, 24)) {
+      if (inRect(ix, iy, w - 108, 8, 96, 36)) {
         if (s_flowPhase == 1) {
           s_flowPhase = 0;
           s_stepIndex = (count > 0) ? count - 1 : 0;
@@ -1607,7 +1938,7 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
         return handled(SCREEN_TEST_SELECT);
       }
       if (s_flowPhase == 1) {
-        if (inRect(ix, iy, 20, h - 52, w - 40, 44)) {
+        if (inRect(ix, iy, 20, h - 56, w - 40, 48)) {
           ReportGenerator_setStudentId(AppState_getMode() == APP_MODE_TRAINING ? s_studentId : "");
           ReportGenerator_begin(nullptr);
           char valBuf[24];
@@ -1637,7 +1968,7 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
       VerifyStep step;
       VerificationSteps_getStep((VerifyTestId)s_selectedTestType, s_stepIndex, &step);
       if (step.type == STEP_SAFETY) {
-        if (inRect(ix, iy, 20, h - 54, w - 40, 44)) {
+        if (inRect(ix, iy, 20, h - 56, w - 40, 52)) {
           s_stepIndex++;
           if (s_stepIndex >= count) {
             s_flowPhase = 1;
@@ -1655,8 +1986,8 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
           return handled(current);
         }
       } else if (step.type == STEP_VERIFY_YESNO) {
-        int half = (w - 50) / 2, btnY = h - 54;
-        if (inRect(ix, iy, 20, btnY, half, 44)) {
+        int half = (w - 50) / 2, btnY = h - 56;
+        if (inRect(ix, iy, 20, btnY, half, 52)) {
           if (s_stepIndex == 2 && s_selectedTestType == (int)VERIFY_INSULATION) s_resultIsSheathedHeating = true;
           s_stepIndex++;
           if (s_stepIndex >= count) {
@@ -1674,9 +2005,22 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
           Screens_draw(tft, current);
           return handled(current);
         }
-        if (inRect(ix, iy, 30 + half, btnY, half, 44)) { /* No – do not advance, or could advance with fail */ }
+        if (inRect(ix, iy, 30 + half, btnY, half, 52)) {
+          /* No — fail at this step; go to result screen */
+          s_flowPhase = 1;
+          s_resultPass = false;
+          s_resultLabel = VerificationSteps_getTestName((VerifyTestId)s_selectedTestType);
+          s_resultUnit = "";
+          VerificationSteps_getStep((VerifyTestId)s_selectedTestType, s_stepIndex, &step);
+          s_resultClause = step.clause;
+          s_resultValue = 0.0f;
+          s_testCompletedMs = millis();
+          syncTrainingFlowEvent("result_confirmed", false, nullptr);
+          Screens_draw(tft, current);
+          return handled(current);
+        }
       } else if (step.type == STEP_INFO) {
-        if (inRect(ix, iy, 20, h - 54, w - 40, 44)) {
+        if (inRect(ix, iy, 20, h - 56, w - 40, 52)) {
           s_stepIndex++;
           if (s_stepIndex >= count) {
             s_flowPhase = 1;
@@ -1701,17 +2045,19 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
         getResultUnitOptions(step.resultKind, &units, &unitCount, &defaultIdx);
         if (s_resultInputUnitIdx < 0 || s_resultInputUnitIdx >= unitCount) s_resultInputUnitIdx = defaultIdx;
 
-        if (inRect(ix, iy, w - 74, 96, 54, 20)) {
+        const bool showRcdReq = (step.resultKind == RESULT_RCD_MS && s_rcdRequiredMaxMs > 0.0f);
+        ResultEntryLayout rel;
+        layoutResultEntry(w, h, s_resultEntryYAfterInstr, showRcdReq, unitCount, &rel);
+
+        if (inRect(ix, iy, rel.delX, rel.delY, rel.delW, rel.delH)) {
           if (s_resultInputLen > 0) s_resultInput[--s_resultInputLen] = '\0';
           Screens_draw(tft, current);
           return handled(current);
         }
 
-        int uy = 120, uh = 18, uGap = 4;
-        int uw = (w - 40 - (unitCount - 1) * uGap) / unitCount;
         for (int i = 0; i < unitCount; i++) {
-          int ux = 20 + i * (uw + uGap);
-          if (inRect(ix, iy, ux, uy, uw, uh)) {
+          int ux = 20 + i * (rel.uw + rel.uGap);
+          if (inRect(ix, iy, ux, rel.uy, rel.uw, rel.uh)) {
             s_resultInputUnitIdx = i;
             Screens_draw(tft, current);
             return handled(current);
@@ -1719,12 +2065,12 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
         }
 
         const char* keys[12] = { "1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0", "OK" };
-        int cellW = (w - 50) / 3, cellH = 20, gap = 6, startX = 20, startY = 142;
         for (int row = 0; row < 4; row++) {
           for (int col = 0; col < 3; col++) {
             int idx = row * 3 + col;
-            int kx = startX + col * (cellW + gap), ky = startY + row * (cellH + gap);
-            if (!inRect(ix, iy, kx, ky, cellW, cellH)) continue;
+            int kx = rel.kx + col * (rel.cellW + rel.gap);
+            int ky = rel.ky + row * (rel.cellH + rel.gap);
+            if (!inRect(ix, iy, kx, ky, rel.cellW, rel.cellH)) continue;
             const char* key = keys[idx];
             if (strcmp(key, "OK") == 0) {
               if (s_resultInputLen <= 0) {
@@ -1818,9 +2164,9 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
         Screens_setPinCancelTarget(SCREEN_MAIN_MENU);
         return handled(SCREEN_PIN_ENTER);
       }
-      int btnH = 30, gap = 2, y = 42;
+      int y = 0, btnH = 0, gap = 0, nRows = 0, backY = 0;
       bool field = AppState_isFieldMode();
-      int nRows = field ? 7 : 8;
+      sparkySettingsLayout(w, h, field, &y, &btnH, &gap, &nRows, &backY);
       if (inRect(ix, iy, 20, y, w - 40, btnH)) return handled(SCREEN_ROTATION);
       y += btnH + gap;
       if (inRect(ix, iy, 20, y, w - 40, btnH)) return handled(SCREEN_WIFI_LIST);
@@ -1846,11 +2192,10 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
       }
       y += btnH + gap;
       if (!field && inRect(ix, iy, 20, y, w - 40, btnH)) return handled(SCREEN_CHANGE_PIN);
-      { int backY = 42 + nRows * (btnH + gap);
-        if (inRect(ix, iy, 20, backY, 80, 28)) {
-          s_trainingSettingsUnlocked = false;
-          return handled(SCREEN_MAIN_MENU);
-        } }
+      if (inRect(ix, iy, 20, backY, w - 40, 40)) {
+        s_trainingSettingsUnlocked = false;
+        return handled(SCREEN_MAIN_MENU);
+      }
       break;
     }
     case SCREEN_ROTATION:
@@ -1864,7 +2209,7 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
         showSavedPrompt(tft, "Display: Landscape");
         return handled(SCREEN_SETTINGS);
       }
-      if (inRect(ix, iy, 20, 178, 80, 36)) return handled(SCREEN_SETTINGS);
+      if (inRect(ix, iy, 20, h - 52, w - 40, 44)) return handled(SCREEN_SETTINGS);
       break;
     case SCREEN_WIFI_LIST: {
       if (inRect(ix, iy, 20, 62, 100, 28)) {

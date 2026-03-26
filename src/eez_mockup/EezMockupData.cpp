@@ -43,6 +43,8 @@ static const EezMockupButton kButtons_screen_test_select[] = {
   { 18, 440, 350, 44, "SWP D/R (motor)", SCREEN_TEST_FLOW },
   { 18, 492, 350, 44, "SWP D/R (appliance)", SCREEN_TEST_FLOW },
   { 18, 544, 350, 44, "SWP D/R (heater/sheathed)", SCREEN_TEST_FLOW },
+  /* Top-right Back — matches Screens.cpp hit area (legacy delegate uses same rect). */
+  { 718, 8, 72, 28, "Back", SCREEN_MAIN_MENU },
 };
 
 static const EezMockupLabel kLabels_screen_student_id[] = {

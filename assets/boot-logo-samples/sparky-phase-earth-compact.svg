@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Tighter layout for corner watermark or small splash -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 200" width="320" height="200">
+  <defs>
+    <radialGradient id="bgs" cx="50%" cy="40%" r="75%">
+      <stop offset="0%" stop-color="#1e293b"/>
+      <stop offset="100%" stop-color="#020617"/>
+    </radialGradient>
+  </defs>
+  <rect width="320" height="200" fill="url(#bgs)"/>
+
+  <g transform="translate(148, 92)">
+    <g transform="skewX(-14)">
+      <rect x="-58" y="-42" width="20" height="54" rx="2" fill="#ef4444"/>
+      <rect x="-32" y="-42" width="20" height="54" rx="2" fill="#f8fafc" stroke="#64748b" stroke-width="0.8"/>
+      <rect x="-6" y="-42" width="20" height="54" rx="2" fill="#3b82f6"/>
+    </g>
+    <rect x="-64" y="16" width="128" height="11" rx="2" fill="#0a0a0a"/>
+  </g>
+
+  <g transform="translate(248, 82)">
+    <circle r="40" fill="#14532d"/>
+    <circle r="35" fill="#16a34a" stroke="#86efac" stroke-width="2.5"/>
+    <path d="M -16 1 L -5 13 L 18 -14" fill="none" stroke="#ecfdf5" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+</svg>

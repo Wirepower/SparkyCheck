@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  SparkyCheck — hero mark:
+  R/W/B = phases · Black = N (aligned to skewed feet) · Green seal + tick = PE + check tool
+  N strip is inside the same skewX group as the phases so edges line up.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 280" width="480" height="280">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="38%" r="82%">
+      <stop offset="0%" stop-color="#1a2332"/>
+      <stop offset="45%" stop-color="#0f172a"/>
+      <stop offset="100%" stop-color="#020617"/>
+    </radialGradient>
+    <linearGradient id="phR" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ff5f52"/>
+      <stop offset="100%" stop-color="#b71c1c"/>
+    </linearGradient>
+    <linearGradient id="phW" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#cbd5e1"/>
+    </linearGradient>
+    <linearGradient id="phB" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#93c5fd"/>
+      <stop offset="100%" stop-color="#1e40af"/>
+    </linearGradient>
+    <linearGradient id="neu" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#475569"/>
+      <stop offset="40%" stop-color="#0a0a0a"/>
+      <stop offset="100%" stop-color="#1e1e1e"/>
+    </linearGradient>
+    <filter id="drop" x="-35%" y="-35%" width="170%" height="170%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="3"/>
+      <feOffset dy="2" result="s"/>
+      <feMerge>
+        <feMergeNode in="s"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="earthGlow" x="-80%" y="-80%" width="260%" height="260%">
+      <feGaussianBlur stdDeviation="2.5" result="g"/>
+      <feMerge>
+        <feMergeNode in="g"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <rect width="480" height="280" fill="url(#bg)"/>
+
+  <!-- Phases + N share skew so N lines up with the three colour feet (x: -72..18, bottom y=16) -->
+  <g transform="translate(168, 122)" filter="url(#drop)">
+    <g transform="skewX(-13)">
+      <rect x="-72" y="-50" width="26" height="66" rx="3" fill="url(#phR)"/>
+      <rect x="-40" y="-50" width="26" height="66" rx="3" fill="url(#phW)" stroke="#64748b" stroke-width="1"/>
+      <rect x="-8" y="-50" width="26" height="66" rx="3" fill="url(#phB)"/>
+      <!-- N: exactly under L1–L3 footprint (width = 90 = 3×26 + 2×gaps 6) -->
+      <rect x="-72" y="16" width="90" height="13" rx="2" fill="url(#neu)"/>
+      <rect x="-72" y="16" width="90" height="2" fill="#64748b" opacity="0.35"/>
+    </g>
+  </g>
+
+  <!-- PE seal — moved closer to the phase block -->
+  <g transform="translate(272, 108)" filter="url(#earthGlow)">
+    <circle r="54" fill="#052e16"/>
+    <circle r="48" fill="#14532d"/>
+    <circle r="42" fill="#15803d" stroke="#4ade80" stroke-width="2.5"/>
+    <circle r="36" fill="none" stroke="#86efac" stroke-width="1.5" opacity="0.9"/>
+    <path d="M -22 2 L -8 19 L 26 -18" fill="none" stroke="#ecfdf5" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M -22 2 L -8 19 L 26 -18" fill="none" stroke="#22c55e" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <circle cx="96" cy="58" r="1.5" fill="#38bdf8" opacity="0.55"/>
+  <circle cx="392" cy="210" r="1.2" fill="#fbbf24" opacity="0.45"/>
+</svg>

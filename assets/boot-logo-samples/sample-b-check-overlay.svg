@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Sample B: tick integrated over the bars (strong "verified" cue) -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 200" width="320" height="200">
+  <rect width="320" height="200" fill="#6B6B6B"/>
+  <g transform="translate(160, 108)">
+    <g transform="skewX(-18)">
+      <rect x="-54" y="-32" width="22" height="52" fill="#D62828" rx="2"/>
+      <rect x="-26" y="-32" width="22" height="52" fill="#F5F5F5" rx="2"/>
+      <rect x="2" y="-32" width="22" height="52" fill="#1E3A8A" rx="2"/>
+    </g>
+    <rect x="-48" y="24" width="96" height="8" fill="#111111" rx="1"/>
+  </g>
+  <!-- Check scaled to sit across the bars -->
+  <path d="M 108 88 L 138 118 L 212 52" fill="none" stroke="#22C55E" stroke-width="16" stroke-linecap="round" stroke-linejoin="round" opacity="0.95"/>
+</svg>

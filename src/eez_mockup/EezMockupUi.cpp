@@ -6,8 +6,86 @@
 #include "AppState.h"
 #include "EezMockupData.h"
 #include "Screens.h"
+#include "VerificationSteps.h"
+#include "Standards.h"
 
 namespace {
+
+/** Enough pixels in either dimension for comfortable text (landscape 800 or portrait 800). */
+static bool readableUi(SparkyTft* tft) {
+  if (!tft) return false;
+  const int W = tft->width(), H = tft->height();
+  return (W >= 700) || (H >= 700) || (W >= 480 && H >= 600);
+}
+
+/** Layout tuned for horizontal 800-class panels. */
+static bool layoutLandWide(SparkyTft* tft) {
+  return tft && tft->width() >= 700;
+}
+
+static void mainMenuButtonLayoutDims(int W, int H, int* y0, int* btnH, int* gap) {
+  if (W >= 700) {
+    *y0 = 88;
+    *btnH = 64;
+    *gap = 14;
+  } else if (H >= 700) {
+    *y0 = 100;
+    *btnH = 56;
+    *gap = 14;
+  } else {
+    *y0 = 80;
+    *btnH = 48;
+    *gap = 12;
+  }
+}
+
+static void mainMenuButtonLayout(SparkyTft* tft, int* y0, int* btnH, int* gap) {
+  mainMenuButtonLayoutDims(tft->width(), tft->height(), y0, btnH, gap);
+}
+
+/** Match Screens.cpp sparkySettingsLayout for touch/delegate parity. */
+static void settingsLayoutDims(int W, int H, bool field, int* y0, int* btnH, int* gap, int* nRows, int* backY) {
+  const bool r = (W >= 700) || (H >= 700) || (W >= 480 && H >= 600);
+  *gap = 6;
+  *btnH = r ? 38 : 32;
+  *y0 = 56;
+  *nRows = field ? 7 : 8;
+  *backY = *y0 + *nRows * (*btnH + *gap) + 8;
+}
+
+/** Vertical distribution for test list (shared by draw rects and Screens_handleTouch delegates). */
+static void testSelectRowGeometryDims(int W, int H, int row, int* outMidY, int* outRowH) {
+  const int n = VERIFY_TEST_COUNT;
+  const int gap = 10;
+  /* Leave room for title + wrapped scope line above the list */
+  const int top = (W >= 700) ? 114 : ((H >= 700) ? 106 : 90);
+  int usable = H - top - 28;
+  if (usable < n * 28) usable = n * 28;
+  int rowH = (usable - (n - 1) * gap) / n;
+  if (rowH < 28) rowH = 28;
+  if (rowH > 54) rowH = 54;
+  const int y = top + row * (rowH + gap);
+  *outMidY = y + rowH / 2;
+  *outRowH = rowH;
+}
+
+static void testSelectRowGeometry(SparkyTft* tft, int row, int* outMidY, int* outRowH) {
+  testSelectRowGeometryDims(tft->width(), tft->height(), row, outMidY, outRowH);
+}
+
+static void backButtonSizeDims(int W, int* bw, int* bh) {
+  if (W >= 700) {
+    *bw = 96;
+    *bh = 36;
+  } else {
+    *bw = 92;
+    *bh = 36;
+  }
+}
+
+static void backButtonSize(SparkyTft* tft, int* bw, int* bh) {
+  backButtonSizeDims(tft->width(), bw, bh);
+}
 
 static const uint16_t kBg = 0x18E3;
 static const uint16_t kBtn = 0x2D6A;
@@ -60,6 +138,23 @@ static bool inRect(int x, int y, int rx, int ry, int rw, int rh) {
   return x >= rx && x < (rx + rw) && y >= ry && y < (ry + rh);
 }
 
+/** Slightly expand hit target (helps finger alignment vs drawn compact rows). */
+static bool inRectPad(int x, int y, int rx, int ry, int rw, int rh, int pad) {
+  rx -= pad;
+  ry -= pad;
+  rw += 2 * pad;
+  rh += 2 * pad;
+  if (rx < 0) {
+    rw += rx;
+    rx = 0;
+  }
+  if (ry < 0) {
+    rh += ry;
+    ry = 0;
+  }
+  return inRect(x, y, rx, ry, rw, rh);
+}
+
 static int sx(SparkyTft* tft, int x) {
   if (!tft) return x;
   return (x * tft->width()) / 800;
@@ -98,6 +193,9 @@ static int compactButtonsTop(SparkyTft* tft, const EezMockupScreen* screen) {
   int maxLabelBottom = 0;
   if (!tft || !screen) return 60;
   for (size_t i = 0; i < screen->labelCount; i++) {
+    if (screen->labels[i].x >= 350) continue;
+    /* EEZ mockup subtitle row(s) — omit in production UI */
+    if (screen->labels[i].y >= 38 && screen->labels[i].y <= 50) continue;
     int ly = sy(tft, screen->labels[i].y);
     if (ly > maxLabelBottom) maxLabelBottom = ly;
   }
@@ -107,13 +205,194 @@ static int compactButtonsTop(SparkyTft* tft, const EezMockupScreen* screen) {
   return top;
 }
 
+/**
+ * Match Screens.cpp full-width / centered layout (EEZ JSON uses narrow left column — wrong on device).
+ */
 static void getButtonRect(SparkyTft* tft, const EezMockupScreen* screen, size_t index, int* outX, int* outY, int* outW, int* outH) {
   if (!tft || !screen || index >= screen->buttonCount || !outX || !outY || !outW || !outH) return;
+  const ScreenId sid = screen->id;
+  const int w = tft->width();
+  const int h = tft->height();
+
+  if (sid == SCREEN_MAIN_MENU && index < 3) {
+    int y0 = 0, btnH = 0, gap = 0;
+    mainMenuButtonLayout(tft, &y0, &btnH, &gap);
+    *outX = 20;
+    *outY = y0 + (int)index * (btnH + gap);
+    *outW = w - 40;
+    *outH = btnH;
+    return;
+  }
+
+  if (sid == SCREEN_MODE_SELECT) {
+    if (index == 0) {
+      *outX = 20;
+      *outY = 80;
+      *outW = w - 40;
+      *outH = 56;
+      return;
+    }
+    if (index == 1) {
+      *outX = 20;
+      *outY = 150;
+      *outW = w - 40;
+      *outH = 56;
+      return;
+    }
+    if (index == 2) {
+      *outX = w / 2 - 60;
+      *outY = 220;
+      *outW = 120;
+      *outH = 44;
+      return;
+    }
+  }
+
+  if (sid == SCREEN_TEST_SELECT) {
+    if (index < (size_t)VERIFY_TEST_COUNT) {
+      int midY = 0, rowH = 0;
+      testSelectRowGeometry(tft, (int)index, &midY, &rowH);
+      *outX = 20;
+      *outY = midY - rowH / 2;
+      *outW = w - 40;
+      *outH = rowH;
+      return;
+    }
+    if (index == (size_t)VERIFY_TEST_COUNT) {
+      int bw = 0, bh = 0;
+      backButtonSize(tft, &bw, &bh);
+      *outX = w - bw - 12;
+      *outY = layoutLandWide(tft) ? 10 : 8;
+      *outW = bw;
+      *outH = bh;
+      return;
+    }
+  }
+
+  if (sid == SCREEN_SETTINGS) {
+    const char* lbl = screen->buttons[index].text;
+    const bool field = AppState_isFieldMode();
+    int y0 = 0, btnH = 0, gap = 0, nRows = 0, backY = 0;
+    settingsLayoutDims(w, h, field, &y0, &btnH, &gap, &nRows, &backY);
+    if (field && lbl && strcmp(lbl, "Change PIN") == 0) {
+      *outX = 0;
+      *outY = -100;
+      *outW = 0;
+      *outH = 0;
+      return;
+    }
+    if (field) {
+      if (index < 7) {
+        *outX = 20;
+        *outY = y0 + (int)index * (btnH + gap);
+        *outW = w - 40;
+        *outH = btnH;
+        return;
+      }
+      if (index == 8 && lbl && strcmp(lbl, "Back") == 0) {
+        *outX = 20;
+        *outY = backY;
+        *outW = w - 40;
+        *outH = 40;
+        return;
+      }
+    } else {
+      if (index < 8) {
+        *outX = 20;
+        *outY = y0 + (int)index * (btnH + gap);
+        *outW = w - 40;
+        *outH = btnH;
+        return;
+      }
+      if (index == 8) {
+        *outX = 20;
+        *outY = backY;
+        *outW = w - 40;
+        *outH = 40;
+        return;
+      }
+    }
+  }
+
+  if (sid == SCREEN_ROTATION) {
+    if (index == 0) {
+      *outX = 20;
+      *outY = 60;
+      *outW = w - 40;
+      *outH = 48;
+      return;
+    }
+    if (index == 1) {
+      *outX = 20;
+      *outY = 118;
+      *outW = w - 40;
+      *outH = 48;
+      return;
+    }
+    if (index == 2) {
+      *outX = 20;
+      *outY = h - 52;
+      *outW = w - 40;
+      *outH = 44;
+      return;
+    }
+  }
+
+  if (sid == SCREEN_REPORT_LIST) {
+    *outX = 20;
+    *outY = h - 52;
+    *outW = w - 40;
+    *outH = 40;
+    return;
+  }
+
+  if (sid == SCREEN_REPORT_SAVED) {
+    *outX = w / 2 - 50;
+    *outY = h - 56;
+    *outW = 100;
+    *outH = 44;
+    return;
+  }
+
+  if (sid == SCREEN_ABOUT) {
+    *outX = 20;
+    *outY = h - 44;
+    *outW = w - 40;
+    *outH = 36;
+    return;
+  }
+
+  if (sid == SCREEN_WIFI_LIST) {
+    if (index == 0) {
+      *outX = 20;
+      *outY = 62;
+      *outW = 100;
+      *outH = 28;
+      return;
+    }
+    if (index == 1) {
+      *outX = 20;
+      *outY = 98;
+      *outW = w - 40;
+      *outH = 28;
+      return;
+    }
+    if (index == 2) {
+      *outX = 20;
+      *outY = h - 42;
+      *outW = 80;
+      *outH = 34;
+      return;
+    }
+  }
+
   if (!useCompactButtonLayout(tft, screen)) {
-    *outX = sx(tft, screen->buttons[index].x);
+    *outX = 20;
     *outY = sy(tft, screen->buttons[index].y);
-    *outW = sw(tft, screen->buttons[index].w);
-    *outH = sh(tft, screen->buttons[index].h);
+    *outW = w - 40;
+    int hh = sh(tft, screen->buttons[index].h);
+    if (hh < 36) hh = 36;
+    *outH = hh;
     return;
   }
 
@@ -125,31 +404,100 @@ static void getButtonRect(SparkyTft* tft, const EezMockupScreen* screen, size_t 
   int usableH = tft->height() - top - 10;
   int rowH = (usableH - (n - 1) * gap) / (n > 0 ? n : 1);
   if (rowH < 14) rowH = 14;
-  if (rowH > 40) rowH = 40;
+  /* Slightly taller caps on 800-class panels for text size 2–3 in stacked rows */
+  if (rowH > (tft->width() >= 700 ? 44 : 40)) rowH = (tft->width() >= 700 ? 44 : 40);
   *outX = left;
   *outY = top + (int)index * (rowH + gap);
   *outW = width;
   *outH = rowH;
 }
 
-static void drawButton(SparkyTft* tft, int x, int y, int w, int h, const char* text, bool accent) {
+static uint8_t mockupLabelTextSize(SparkyTft* tft) {
+  if (!tft) return 1;
+  if (readableUi(tft)) return 2;
+  if (tft->width() >= 400) return 2;
+  return 1;
+}
+
+static uint8_t mockupButtonTextSize(SparkyTft* tft) {
+  if (!tft) return 1;
+  if (tft->width() >= 700) return 3;
+  if (readableUi(tft)) return 2;
+  if (tft->width() >= 400) return 2;
+  return 1;
+}
+
+static uint8_t eeButtonTextSize(SparkyTft* tft, ScreenId sid, const char* text) {
+  if (!tft) return 1;
+  const int W = tft->width();
+  const bool land = W >= 700;
+  const bool r = readableUi(tft);
+  if (sid == SCREEN_MAIN_MENU) return r ? 2 : 1;
+  if (sid == SCREEN_MODE_SELECT) return r ? 2 : 1;
+  if (sid == SCREEN_TEST_SELECT) {
+    if (text && strcmp(text, "Back") == 0) return r ? 2 : 1;
+    if (land) return 3;
+    if (r) return 2;
+    return 2;
+  }
+  if (sid == SCREEN_SETTINGS || sid == SCREEN_ROTATION || sid == SCREEN_WIFI_LIST || sid == SCREEN_REPORT_LIST ||
+      sid == SCREEN_REPORT_SAVED || sid == SCREEN_ABOUT)
+    return r ? 2 : 1;
+  return mockupButtonTextSize(tft);
+}
+
+static void drawButton(SparkyTft* tft, int x, int y, int w, int h, const char* text, bool accent, uint8_t tsIn) {
   uint16_t bg = accent ? kGreen : kBtn;
   uint16_t fg = accent ? kBlack : kWhite;
   tft->fillRoundRect(x, y, w, h, 8, bg);
   tft->drawRoundRect(x, y, w, h, 8, kWhite);
-  tft->setTextSize(1);
+  const char* t = text ? text : "";
+  size_t len = strlen(t);
+  uint8_t ts = tsIn < 1 ? 1 : tsIn;
+  uint8_t minTs = (tft && readableUi(tft)) ? 2 : 1;
+  if (minTs == 2 && (int)len * 6 * 2 > w - 12) minTs = 1;
+  while (ts > minTs && (int)len * 6 * (int)ts > w - 12) ts--;
+  tft->setTextSize(ts);
+  tft->setTextWrap(false);
   tft->setTextColor(fg, bg);
-  int tw = (int)strlen(text ? text : "") * 6;
+  int tw = (int)len * 6 * (int)ts;
   int tx = x + (w - tw) / 2;
   if (tx < x + 4) tx = x + 4;
-  int ty = y + (h / 2) - 4;
+  /* Adafruit classic font: ~7px glyph height at scale 1; center in button */
+  const int fh = 7 * (int)ts;
+  int ty = y + (h - fh) / 2;
+  if (ty < y + 2) ty = y + 2;
+  if (ty + fh > y + h - 1) ty = y + h - fh - 1;
   tft->setCursor(tx, ty);
-  tft->print(text ? text : "");
+  tft->print(t);
 }
 
 static bool screenButtonCenterLegacy(ScreenId screen, const char* label, int w, int h, int* outX, int* outY) {
   if (!label || !outX || !outY) return false;
   const bool panelWide = (w >= 700);
+
+  if (screen == SCREEN_MAIN_MENU) {
+    int y0 = 0, btnH = 0, gap = 0;
+    mainMenuButtonLayoutDims(w, h, &y0, &btnH, &gap);
+    const int y1 = y0 + btnH + gap;
+    const int y2 = y1 + btnH + gap;
+    if (strcmp(label, "Start verification") == 0) {
+      *outX = w / 2;
+      *outY = y0 + btnH / 2;
+      return true;
+    }
+    if (strcmp(label, "View reports") == 0) {
+      *outX = w / 2;
+      *outY = y1 + btnH / 2;
+      return true;
+    }
+    if (strcmp(label, "Settings") == 0) {
+      *outX = w / 2;
+      *outY = y2 + btnH / 2;
+      return true;
+    }
+    return false;
+  }
 
   if (screen == SCREEN_MODE_SELECT) {
     if (strcmp(label, "Training (apprentice/supervised)") == 0) {
@@ -170,29 +518,6 @@ static bool screenButtonCenterLegacy(ScreenId screen, const char* label, int w, 
     return false;
   }
 
-  if (screen == SCREEN_MAIN_MENU) {
-    int btnH = panelWide ? 64 : 44;
-    int y0 = panelWide ? 88 : 76;
-    int y1 = y0 + btnH + (panelWide ? 14 : 12);
-    int y2 = y1 + btnH + (panelWide ? 14 : 12);
-    if (strcmp(label, "Start verification") == 0) {
-      *outX = w / 2;
-      *outY = y0 + btnH / 2;
-      return true;
-    }
-    if (strcmp(label, "View reports") == 0) {
-      *outX = w / 2;
-      *outY = y1 + btnH / 2;
-      return true;
-    }
-    if (strcmp(label, "Settings") == 0) {
-      *outX = w / 2;
-      *outY = y2 + btnH / 2;
-      return true;
-    }
-    return false;
-  }
-
   if (screen == SCREEN_TEST_SELECT) {
     int row = -1;
     if (strcmp(label, "Earth continuity (conductors)") == 0) row = 0;
@@ -207,20 +532,20 @@ static bool screenButtonCenterLegacy(ScreenId screen, const char* label, int w, 
     else if (strcmp(label, "SWP D/R (heater/sheathed)") == 0) row = 9;
 
     if (row >= 0) {
-      int rowH = panelWide ? 38 : 18;
-      int y0 = panelWide ? 84 : 48;
+      int midY = 0, rowH = 0;
+      testSelectRowGeometryDims(w, h, row, &midY, &rowH);
       *outX = w / 2;
-      *outY = y0 + row * rowH + (rowH / 2);
+      *outY = midY;
       return true;
     }
 
     if (strcmp(label, "Back") == 0) {
-      int backW = panelWide ? 90 : 48;
-      int backH = panelWide ? 34 : 24;
-      int backX = w - (panelWide ? 102 : 62);
-      int backY = panelWide ? 10 : 8;
-      *outX = backX + backW / 2;
-      *outY = backY + backH / 2;
+      int bw = 0, bh = 0;
+      backButtonSizeDims(w, &bw, &bh);
+      const int backX = w - bw - 12;
+      const int backY = panelWide ? 10 : 8;
+      *outX = backX + bw / 2;
+      *outY = backY + bh / 2;
       return true;
     }
     return false;
@@ -245,11 +570,9 @@ static bool screenButtonCenterLegacy(ScreenId screen, const char* label, int w, 
   }
 
   if (screen == SCREEN_SETTINGS) {
-    int btnH = 30;
-    int gap = 2;
-    int y = 42;
+    int y0 = 0, btnH = 0, gap = 0, nRows = 0, backY = 0;
     bool field = AppState_isFieldMode();
-    int nRows = field ? 7 : 8;
+    settingsLayoutDims(w, h, field, &y0, &btnH, &gap, &nRows, &backY);
     int row = -1;
     if (strcmp(label, "Screen rotation") == 0) row = 0;
     else if (strcmp(label, "WiFi connection") == 0) row = 1;
@@ -263,13 +586,12 @@ static bool screenButtonCenterLegacy(ScreenId screen, const char* label, int w, 
     if (row >= 0) {
       if (field && row >= 7) return false;
       *outX = w / 2;
-      *outY = y + row * (btnH + gap) + btnH / 2;
+      *outY = y0 + row * (btnH + gap) + btnH / 2;
       return true;
     }
     if (strcmp(label, "Back") == 0) {
-      int backY = 42 + nRows * (btnH + gap);
-      *outX = 60;
-      *outY = backY + 14;
+      *outX = w / 2;
+      *outY = backY + 20;
       return true;
     }
     return false;
@@ -287,8 +609,8 @@ static bool screenButtonCenterLegacy(ScreenId screen, const char* label, int w, 
       return true;
     }
     if (strcmp(label, "Back") == 0) {
-      *outX = 60;
-      *outY = 178 + 18;
+      *outX = w / 2;
+      *outY = h - 52 + 22;
       return true;
     }
     return false;
@@ -462,6 +784,67 @@ static bool screenButtonCenterLegacy(ScreenId screen, const char* label, int w, 
   return false;
 }
 
+/**
+ * If EEZ label text drifts from Screens.cpp strings, map by button index to the same
+ * synthetic point Screens_handleTouch expects (required for test rows, mode, main menu).
+ */
+static bool screenButtonCenterByIndex(ScreenId screen, size_t index, int w, int h, int* outX, int* outY) {
+  (void)h;
+  if (!outX || !outY) return false;
+  const bool panelWide = (w >= 700);
+
+  switch (screen) {
+    case SCREEN_MODE_SELECT:
+      if (index == 0) {
+        *outX = w / 2;
+        *outY = 80 + 28;
+        return true;
+      }
+      if (index == 1) {
+        *outX = w / 2;
+        *outY = 150 + 28;
+        return true;
+      }
+      if (index == 2) {
+        *outX = w / 2;
+        *outY = 220 + 22;
+        return true;
+      }
+      return false;
+    case SCREEN_MAIN_MENU: {
+      if (index > 2) return false;
+      int y0 = 0, btnH = 0, gap = 0;
+      mainMenuButtonLayoutDims(w, h, &y0, &btnH, &gap);
+      const int y1 = y0 + btnH + gap;
+      const int y2 = y1 + btnH + gap;
+      const int yc[3] = {y0 + btnH / 2, y1 + btnH / 2, y2 + btnH / 2};
+      *outX = w / 2;
+      *outY = yc[index];
+      return true;
+    }
+    case SCREEN_TEST_SELECT:
+      if (index < (size_t)VERIFY_TEST_COUNT) {
+        int midY = 0, rowH = 0;
+        testSelectRowGeometryDims(w, h, (int)index, &midY, &rowH);
+        *outX = w / 2;
+        *outY = midY;
+        return true;
+      }
+      if (index == (size_t)VERIFY_TEST_COUNT) {
+        int bw = 0, bh = 0;
+        backButtonSizeDims(w, &bw, &bh);
+        const int backX = w - bw - 12;
+        const int backY = panelWide ? 10 : 8;
+        *outX = backX + bw / 2;
+        *outY = backY + bh / 2;
+        return true;
+      }
+      return false;
+    default:
+      return false;
+  }
+}
+
 }  // namespace
 
 void EezMockupUi_draw(SparkyTft* tft, ScreenId id) {
@@ -479,32 +862,83 @@ void EezMockupUi_draw(SparkyTft* tft, ScreenId id) {
   }
 
   tft->fillScreen(kBg);
-  tft->setTextSize(1);
+  uint8_t lblTs = mockupLabelTextSize(tft);
+  tft->setTextSize(lblTs);
   tft->setTextColor(kWhite, kBg);
+  tft->setTextWrap(false);
 
+  /* Omit design-note column and EEZ subtitle row (y≈42). */
   for (size_t i = 0; i < screen->labelCount; i++) {
-    int x = sx(tft, screen->labels[i].x);
-    int y = sy(tft, screen->labels[i].y);
-    if (y < 0 || y >= tft->height()) continue;
-    tft->setCursor(x, y);
-    tft->print(screen->labels[i].text ? screen->labels[i].text : "");
+    if (screen->labels[i].x >= 350) continue;
+    /* EEZ mockup subtitle row(s) — omit in production UI */
+    if (screen->labels[i].y >= 38 && screen->labels[i].y <= 50) continue;
+    const char* txt = screen->labels[i].text ? screen->labels[i].text : "";
+    if (!txt[0]) continue;
+    int yp = sy(tft, screen->labels[i].y);
+    if (yp < 0 || yp >= tft->height()) continue;
+    const bool title = (screen->labels[i].y <= 14 && screen->labels[i].x < 100);
+    if (title) {
+      int tw = (int)strlen(txt) * 6 * (int)lblTs;
+      int xp = (tft->width() - tw) / 2;
+      if (xp < 8) xp = 8;
+      tft->setCursor(xp, yp);
+    } else {
+      tft->setCursor(sx(tft, screen->labels[i].x), yp);
+    }
+    tft->print(txt);
+  }
+
+  if (screen->id == SCREEN_MAIN_MENU) {
+    tft->setTextSize(1);
+    tft->setTextColor(kAccent, kBg);
+    const char* mode = AppState_isFieldMode() ? "Field mode" : "Training mode";
+    int twm = (int)strlen(mode) * 6;
+    tft->setCursor((tft->width() - twm) / 2, layoutLandWide(tft) ? 44 : (tft->height() >= 700 ? 52 : 40));
+    tft->print(mode);
+  }
+
+  if (screen->id == SCREEN_TEST_SELECT) {
+    const int ts = layoutLandWide(tft) ? 2 : (readableUi(tft) ? 2 : 1);
+    tft->setTextSize(ts);
+    tft->setTextColor(kAccent, kBg);
+    char scope[96];
+    Standards_getVerificationScopeLine(scope, sizeof(scope));
+    const char* key = " Sec 8 & ";
+    char* hit = strstr(scope, key);
+    const int yScope = layoutLandWide(tft) ? 48 : (tft->height() >= 700 ? 50 : 42);
+    if (hit) {
+      *hit = '\0';
+      const char* b = hit + strlen(key);
+      int tw1 = (int)strlen(scope) * 6 * ts;
+      int tw2 = (int)strlen(b) * 6 * ts;
+      tft->setCursor((tft->width() - tw1) / 2, yScope);
+      tft->print(scope);
+      tft->setCursor((tft->width() - tw2) / 2, yScope + 7 * ts + 2);
+      tft->print(b);
+    } else {
+      tft->setTextWrap(true);
+      tft->setCursor(20, yScope);
+      tft->print(scope);
+      tft->setTextWrap(false);
+    }
   }
 
   for (size_t i = 0; i < screen->buttonCount; i++) {
+    if (screen->id == SCREEN_SETTINGS && AppState_isFieldMode() && screen->buttons[i].text &&
+        strcmp(screen->buttons[i].text, "Change PIN") == 0)
+      continue;
     int x = 0;
     int y = 0;
     int w = 0;
     int h = 0;
     getButtonRect(tft, screen, i, &x, &y, &w, &h);
+    if (h <= 0 || y < -50) continue;
     bool accent = isAccentButton(screen->buttons[i].text);
     if (y >= tft->height()) continue;
-    drawButton(tft, x, y, w, h, screen->buttons[i].text, accent);
+    uint8_t btnTs = eeButtonTextSize(tft, screen->id, screen->buttons[i].text);
+    drawButton(tft, x, y, w, h, screen->buttons[i].text, accent, btnTs);
   }
 
-  // Simple footer to indicate that this path is EEZ-derived.
-  tft->setTextColor(kAccent, kBg);
-  tft->setCursor(8, tft->height() - 10);
-  tft->print("EEZ mockup runtime");
   sparkyDisplayFlush(tft);
 }
 
@@ -533,18 +967,50 @@ ScreenId EezMockupUi_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, u
     int bw = 0;
     int bh = 0;
     getButtonRect(tft, screen, i, &bx, &by, &bw, &bh);
-    if (!inRect(ix, iy, bx, by, bw, bh)) continue;
+    if (!inRectPad(ix, iy, bx, by, bw, bh, 3)) continue;
 
     s_handledButton = true;
 
+    if (current == SCREEN_ROTATION) {
+      const char* lbl = screen->buttons[i].text;
+      if (lbl && strcmp(lbl, "Portrait") == 0) {
+        AppState_setRotation(0);
+        Screens_showSavedPrompt(tft, "Display: Portrait");
+        return SCREEN_SETTINGS;
+      }
+      if (lbl && strcmp(lbl, "Landscape") == 0) {
+        AppState_setRotation(1);
+        Screens_showSavedPrompt(tft, "Display: Landscape");
+        return SCREEN_SETTINGS;
+      }
+      if (lbl && strcmp(lbl, "Back") == 0) return SCREEN_SETTINGS;
+    }
+
     int lx = 0;
     int ly = 0;
-    if (screenButtonCenterLegacy(current, screen->buttons[i].text, tft->width(), tft->height(), &lx, &ly)) {
+    bool haveLegacy = screenButtonCenterLegacy(current, screen->buttons[i].text, tft->width(), tft->height(), &lx, &ly);
+    if (!haveLegacy) {
+      haveLegacy = screenButtonCenterByIndex(current, i, tft->width(), tft->height(), &lx, &ly);
+    }
+    if (haveLegacy) {
       ScreenId next = Screens_handleTouch(tft, current, (uint16_t)lx, (uint16_t)ly);
+      if (next == current && EezMockupData_findScreen(current)) {
+        EezMockupUi_draw(tft, current);
+      }
       return next;
     }
 
-    // Fallback to static EEZ mockup navigation mapping.
+    /* When mockup layout matches legacy (non-compact), raw coords work for WiFi list, About, etc. */
+    if (!useCompactButtonLayout(tft, screen)) {
+      ScreenId n = Screens_handleTouch(tft, current, (uint16_t)ix, (uint16_t)iy);
+      if (Screens_didHandleButton() || n != current) {
+        if (n == current && EezMockupData_findScreen(current)) EezMockupUi_draw(tft, current);
+        s_handledButton = Screens_didHandleButton();
+        return n;
+      }
+    }
+
+    /* Last resort: static screen link only (no Screens state updates). */
     return screen->buttons[i].target;
   }
 
