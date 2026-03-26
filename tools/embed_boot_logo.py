@@ -56,6 +56,27 @@ def read_bmp_24(path: str) -> tuple[int, int, list[int]]:
         return w, h, out
 
 
+def downscale_rgb565_if_needed(
+    w: int, h: int, pixels: list[int], max_dim: int
+) -> tuple[int, int, list[int]]:
+    """Fit inside max_dim×max_dim (aspect preserved) to keep flash size reasonable."""
+    if max(w, h) <= max_dim:
+        return w, h, pixels
+    if w >= h:
+        nw = max_dim
+        nh = max(1, int(round(h * max_dim / w)))
+    else:
+        nh = max_dim
+        nw = max(1, int(round(w * max_dim / h)))
+    out: list[int] = [0] * (nw * nh)
+    for y in range(nh):
+        sy = (y * (h - 1)) // (nh - 1) if nh > 1 else 0
+        for x in range(nw):
+            sx = (x * (w - 1)) // (nw - 1) if nw > 1 else 0
+            out[y * nw + x] = pixels[sy * w + sx]
+    return nw, nh, out
+
+
 def write_header(out_path: str, w: int, h: int, pixels: list[int]) -> None:
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     full = os.path.join(root, out_path)
@@ -131,9 +152,10 @@ def main() -> None:
             "Export your logo as 24-bit BMP (no compression), or run:\n"
             "  python tools/embed_boot_logo.py --placeholder"
         )
-    w, h, pix = read_bmp_24(in_path)
-    if w > 480 or h > 480:
-        raise SystemExit("Logo is very large; prefer <= 480x480 for flash use.")
+    w0, h0, pix = read_bmp_24(in_path)
+    w, h, pix = downscale_rgb565_if_needed(w0, h0, pix, 480)
+    if (w, h) != (w0, h0):
+        print(f"Scaled logo from {w0}x{h0} to {w}x{h} (max 480px for firmware).")
     out_rel = os.path.join("include", "boot_logo_embedded.h")
     write_header(out_rel, w, h, pix)
     print(f"Wrote {out_rel} ({w}x{h}, {len(pix)} pixels)")
