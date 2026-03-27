@@ -6,6 +6,7 @@
 #include <ESP_Mail_Client.h>
 #include <stdio.h>
 #include <string.h>
+#include "boot_logo_embedded.h"
 
 static void setErr(char* err, unsigned err_size, const char* msg) {
   if (!err || err_size == 0) return;
@@ -17,6 +18,84 @@ static char s_subjectBuf[220];
 static char s_bodyHtmlBuf[3200];
 static char s_testBodyBuf[900];
 static char s_testHtmlCoreBuf[1200];
+static uint8_t s_inlineLogoBmpBuf[70000];
+static size_t s_inlineLogoBmpSize = 0;
+
+static bool buildInlineBootLogoBmp120(uint8_t* out, size_t outSize, size_t* outWritten) {
+  if (!out || !outWritten) return false;
+  *outWritten = 0;
+
+  const size_t srcWords = sizeof(kBootLogoRgb565) / sizeof(kBootLogoRgb565[0]);
+  int srcW = (int)BOOT_LOGO_W;
+  int srcH = (int)BOOT_LOGO_H;
+  if ((size_t)srcW * (size_t)srcH != srcWords) {
+    srcH = (srcW > 0) ? (int)(srcWords / (size_t)srcW) : 1;
+    if (srcH <= 0) srcH = 1;
+  }
+
+  const int outW = 120;
+  const int outH = (srcW > 0) ? (int)((srcH * outW) / srcW) : 120;
+  if (outH <= 0) return false;
+
+  const size_t rowBytes = (size_t)outW * 3u; /* 24-bit RGB BMP */
+  const size_t pad = (4u - (rowBytes % 4u)) % 4u;
+  const size_t imgBytes = (rowBytes + pad) * (size_t)outH;
+  const size_t fileSize = 54u + imgBytes;
+  if (outSize < fileSize) return false;
+
+  /* BMP header (BITMAPFILEHEADER + BITMAPINFOHEADER, 54 bytes total). */
+  uint8_t* p = out;
+  memset(p, 0, 54);
+  p[0] = 'B'; p[1] = 'M';
+  p[2] = (uint8_t)(fileSize & 0xFF);
+  p[3] = (uint8_t)((fileSize >> 8) & 0xFF);
+  p[4] = (uint8_t)((fileSize >> 16) & 0xFF);
+  p[5] = (uint8_t)((fileSize >> 24) & 0xFF);
+  p[10] = 54; /* pixel data offset */
+  p[14] = 40; /* DIB header size */
+  /* width */
+  p[18] = (uint8_t)(outW & 0xFF);
+  p[19] = (uint8_t)((outW >> 8) & 0xFF);
+  p[20] = (uint8_t)((outW >> 16) & 0xFF);
+  p[21] = (uint8_t)((outW >> 24) & 0xFF);
+  /* height */
+  p[22] = (uint8_t)(outH & 0xFF);
+  p[23] = (uint8_t)((outH >> 8) & 0xFF);
+  p[24] = (uint8_t)((outH >> 16) & 0xFF);
+  p[25] = (uint8_t)((outH >> 24) & 0xFF);
+  p[26] = 1; /* planes LSB */
+  p[27] = 0;
+  p[28] = 24; /* bits per pixel */
+  p[34] = (uint8_t)(imgBytes & 0xFF);
+  p[35] = (uint8_t)((imgBytes >> 8) & 0xFF);
+  p[36] = (uint8_t)((imgBytes >> 16) & 0xFF);
+  p[37] = (uint8_t)((imgBytes >> 24) & 0xFF);
+
+  uint8_t* pix = out + 54;
+  for (int y = outH - 1; y >= 0; y--) {
+    int sy = (outH > 0 && srcH > 0) ? (y * srcH) / outH : 0;
+    for (int x = 0; x < outW; x++) {
+      int sx = (outW > 0 && srcW > 0) ? (x * srcW) / outW : 0;
+      size_t idx = (size_t)sy * (size_t)srcW + (size_t)sx;
+      if (idx >= srcWords) idx = (srcWords > 0) ? (srcWords - 1) : 0;
+      uint16_t c = (uint16_t)pgm_read_word(&kBootLogoRgb565[idx]);
+      uint8_t r5 = (uint8_t)((c >> 11) & 0x1F);
+      uint8_t g6 = (uint8_t)((c >> 5) & 0x3F);
+      uint8_t b5 = (uint8_t)(c & 0x1F);
+      uint8_t r = (uint8_t)((r5 * 255) / 31);
+      uint8_t g = (uint8_t)((g6 * 255) / 63);
+      uint8_t b = (uint8_t)((b5 * 255) / 31);
+      /* BMP uses BGR order */
+      *pix++ = b;
+      *pix++ = g;
+      *pix++ = r;
+    }
+    for (size_t k = 0; k < pad; k++) *pix++ = 0;
+  }
+
+  *outWritten = fileSize;
+  return true;
+}
 
 static void readIdentity(char* deviceId, unsigned devSize, char* cubicleId, unsigned cubSize) {
   if (deviceId && devSize) {
@@ -54,15 +133,9 @@ void EmailTest_buildBrandedHtml(const char* heading, const char* body_html, char
     "<tr><td align='center'>"
     "<table role='presentation' width='640' cellspacing='0' cellpadding='0' style='max-width:640px;background:#ffffff;border:1px solid #cbd5e1;border-radius:10px;overflow:hidden;font-family:Arial,sans-serif;color:#0f172a;'>"
     "<tr><td style='background:#1d3557;padding:16px 20px;color:#fff;'>"
-    "<table role='presentation' cellspacing='0' cellpadding='0' style='border-collapse:collapse;margin:0 0 10px 0;'>"
-    "<tr>"
-    "<td style='width:52px;height:52px;background:#0b162a;border:1px solid #8ecae6;border-radius:8px;text-align:center;vertical-align:middle;font-size:22px;font-weight:700;color:#22c55e;'>S</td>"
-    "<td style='padding-left:10px;vertical-align:middle;'>"
+    "<img src=\"sparky_logo.bmp\" width='120' height='45' style='display:block;max-width:120px;height:auto;border:0;margin:0 0 10px 0;' alt='SparkyCheck logo'/>"
     "<div style='font-size:22px;line-height:1.1;font-weight:700;color:#ffffff;'>SparkyCheck</div>"
-    "<div style='font-size:12px;line-height:1.2;color:#cbd5e1;'>Professional Electrical Verification Companion</div>"
-    "</td>"
-    "</tr>"
-    "</table>"
+    "<div style='font-size:12px;line-height:1.2;color:#cbd5e1;margin-top:2px;'>Professional Electrical Verification Companion</div>"
     "<div style='font-size:20px;font-weight:700;letter-spacing:0.2px;'>SparkyCheck</div>"
     "<div style='font-size:12px;opacity:0.9;'>Professional Electrical Verification Companion</div>"
     "</td></tr>"
@@ -171,6 +244,18 @@ bool EmailTest_sendCustomNow(const char* subject_base,
   message.html.charSet = F("utf-8");
   message.html.transfer_encoding = Content_Transfer_Encoding::enc_7bit;
   message.priority = esp_mail_smtp_priority::esp_mail_smtp_priority_normal;
+
+  /* Inline attachment for mail clients that block external/data URIs. */
+  s_inlineLogoBmpSize = 0;
+  if (buildInlineBootLogoBmp120(s_inlineLogoBmpBuf, sizeof(s_inlineLogoBmpBuf), &s_inlineLogoBmpSize)) {
+    SMTP_Attachment logoAtt{};
+    logoAtt.descr.filename = "sparky_logo.bmp";
+    logoAtt.descr.mime = "image/bmp";
+    logoAtt.descr.content_id = "sparky_logo";
+    logoAtt.blob.data = s_inlineLogoBmpBuf;
+    logoAtt.blob.size = s_inlineLogoBmpSize;
+    message.addInlineImage(logoAtt);
+  }
 
   smtp.debug(0);
   if (!smtp.connect(&session)) {

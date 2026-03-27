@@ -17,6 +17,7 @@
 #include <esp_vfs_fat.h>
 #include <sdmmc_cmd.h>
 #include <driver/spi_master.h>
+#include <driver/i2c.h>
 #include "boot_logo_web_embedded.h"
 
 #include <stdio.h>
@@ -398,7 +399,7 @@ static String settingsPage(void) {
   b += "<p class='small' id='emailTestStatusLine'>Email test status: ";
   b += esc(s_emailTestStatus);
   b += "</p>";
-  b += "<script>(async function(){const el=document.getElementById('emailTestStatusLine');if(!el)return;async function poll(){try{const r=await fetch('/admin/email-test-status',{cache:'no-store'});if(!r.ok)return;const j=await r.json();el.textContent='Email test status: '+(j.status||'Unknown');}catch(e){}};poll();setInterval(poll,2000);})();</script>";
+  b += "<script>(async function(){const el=document.getElementById('emailTestStatusLine');if(!el)return;async function poll(){try{const r=await fetch('/admin/email-test-status',{cache:'no-store',credentials:'same-origin'});if(!r.ok)return;const j=await r.json();el.textContent='Email test status: '+(j.status||'Unknown');}catch(e){}};poll();setInterval(poll,2000);})();</script>";
   b += "</div>";
 
   if (!fieldMode) {
@@ -535,13 +536,10 @@ static bool mountSdCard(void) {
 #if defined(SPARKYCHECK_PANEL_43B)
   if (s_sd43bMounted) return true;
   /* Mirrors Waveshare demo: TF over SPI with CS through CH422G (EXIO4). */
-  Wire.begin(8, 9);
-  Wire.beginTransmission(0x24);
-  Wire.write((uint8_t)0x01);
-  if (Wire.endTransmission() != 0) return false;
-  Wire.beginTransmission(0x38);
-  Wire.write((uint8_t)0x0A);
-  if (Wire.endTransmission() != 0) return false;
+  uint8_t write_buf = 0x01;
+  if (i2c_master_write_to_device((i2c_port_t)0, 0x24, &write_buf, 1, 1000 / portTICK_PERIOD_MS) != ESP_OK) return false;
+  write_buf = 0x0A;
+  if (i2c_master_write_to_device((i2c_port_t)0, 0x38, &write_buf, 1, 1000 / portTICK_PERIOD_MS) != ESP_OK) return false;
 
   spi_bus_config_t bus_cfg = {};
   bus_cfg.mosi_io_num = 11;
@@ -871,6 +869,19 @@ static String testsPage(AsyncWebServerRequest* req) {
       if (fromFs.length() > 0 && fromFs.length() < sizeof(s_testsJson)) {
         strncpy(s_testsJson, fromFs.c_str(), sizeof(s_testsJson) - 1);
         s_testsJson[sizeof(s_testsJson) - 1] = '\0';
+        /* If rules are empty/missing, repair and persist so the editor shows rule controls. */
+        DynamicJsonDocument docFix(131072);
+        if (deserializeJson(docFix, s_testsJson) == DeserializationError::Ok) {
+          if (ensureDefaultRulesInDoc(docFix)) {
+            String fixed;
+            serializeJsonPretty(docFix, fixed);
+            strncpy(s_testsJson, fixed.c_str(), sizeof(s_testsJson) - 1);
+            s_testsJson[sizeof(s_testsJson) - 1] = '\0';
+            if (!LittleFS.exists("/config")) LittleFS.mkdir("/config");
+            File fw = LittleFS.open(kTestsPath, "w");
+            if (fw) { fw.print(fixed); fw.close(); }
+          }
+        }
       }
     }
   }
@@ -883,6 +894,15 @@ static String testsPage(AsyncWebServerRequest* req) {
       buildTestsJsonFromActive(s_testsJson, sizeof(s_testsJson));
     doc.clear();
     deserializeJson(doc, s_testsJson);
+  }
+  if (!doc.isNull() && ensureDefaultRulesInDoc(doc)) {
+    String fixed;
+    serializeJsonPretty(doc, fixed);
+    strncpy(s_testsJson, fixed.c_str(), sizeof(s_testsJson) - 1);
+    s_testsJson[sizeof(s_testsJson) - 1] = '\0';
+    if (!LittleFS.exists("/config")) LittleFS.mkdir("/config");
+    File fw = LittleFS.open(kTestsPath, "w");
+    if (fw) { fw.print(fixed); fw.close(); }
   }
   JsonArray tests = doc["tests"].as<JsonArray>();
   if (tests.isNull() || tests.size() == 0) {
@@ -1120,24 +1140,21 @@ static String postValue(AsyncWebServerRequest* req, const char* key) {
 
 static void adminEmailTestTask(void* arg) {
   const uint32_t jobId = (uint32_t)(uintptr_t)arg;
-  if (jobId == s_emailTestActiveJobId) {
-    snprintf(s_emailTestStatus, sizeof(s_emailTestStatus), "Sending...");
-  }
+  (void)jobId;
+  snprintf(s_emailTestStatus, sizeof(s_emailTestStatus), "Sending...");
   char err[160] = "";
   const bool ok = EmailTest_sendNow(err, sizeof(err));
-  if (jobId == s_emailTestActiveJobId) {
-    if (ok) {
-      snprintf(s_flashMsg, sizeof(s_flashMsg), "Test email sent.");
-      snprintf(s_emailTestStatus, sizeof(s_emailTestStatus), "Sent successfully.");
-      s_flashErr = false;
-    } else {
-      snprintf(s_flashMsg, sizeof(s_flashMsg), "Test email failed: %s", err[0] ? err : "unknown");
-      snprintf(s_emailTestStatus, sizeof(s_emailTestStatus), "Failed: %s", err[0] ? err : "unknown");
-      s_flashErr = true;
-    }
-    s_emailTestRunning = false;
-    s_emailTestPending = false;
+  if (ok) {
+    snprintf(s_flashMsg, sizeof(s_flashMsg), "Test email sent.");
+    snprintf(s_emailTestStatus, sizeof(s_emailTestStatus), "Sent successfully.");
+    s_flashErr = false;
+  } else {
+    snprintf(s_flashMsg, sizeof(s_flashMsg), "Test email failed: %s", err[0] ? err : "unknown");
+    snprintf(s_emailTestStatus, sizeof(s_emailTestStatus), "Failed: %s", err[0] ? err : "unknown");
+    s_flashErr = true;
   }
+  s_emailTestRunning = false;
+  s_emailTestPending = false;
   vTaskDelete(nullptr);
 }
 
@@ -2049,7 +2066,8 @@ void AdminPortal_init(void) {
   });
 
   s_server.on("/admin/email-test-status", HTTP_GET, [](AsyncWebServerRequest* req) {
-    if (!isAuthorized(req)) { req->send(403, "text/plain", "Forbidden"); return; }
+    /* Always return JSON so the polling UI can recover even if session cookies drop. */
+    if (!isAuthorized(req)) { req->send(200, "application/json", "{\"pending\":false,\"status\":\"Not authorized\"}"); return; }
     String j = "{\"pending\":";
     j += s_emailTestPending ? "true" : "false";
     j += ",\"status\":\"";
