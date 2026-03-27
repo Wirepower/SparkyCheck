@@ -8,6 +8,7 @@
 #include "BatteryStatus.h"
 #include "OtaUpdate.h"
 #include "GoogleSync.h"
+#include "EmailTest.h"
 #include "Standards.h"
 #include "VerificationSteps.h"
 #include "SparkyDisplay.h"
@@ -1524,6 +1525,10 @@ static void screens_draw_impl(SparkyTft* tft, ScreenId id, bool fullClear) {
         else tft->print(AppState_isFieldMode() ? "Edit recipient email" : "Edit teacher email");
         y += 28;
       }
+      tft->fillRoundRect(20, h - 72, w - 40, 26, 6, kBtn);
+      tft->drawRoundRect(20, h - 72, w - 40, 26, 6, kWhite);
+      tft->setTextColor(kWhite, kBtn);
+      sparkyDrawBtnLabel(tft, 20, h - 72, w - 40, 26, "Send test email", 1);
       tft->fillRoundRect(20, h - 38, 80, 30, 6, kBtn);
       tft->drawRoundRect(20, h - 38, 80, 30, 6, kWhite);
       tft->setTextColor(kWhite, kBtn);
@@ -1950,7 +1955,7 @@ static void screens_draw_impl(SparkyTft* tft, ScreenId id, bool fullClear) {
 
       btnY += btnH + gap;
       uint16_t installColor = OtaUpdate_hasPendingUpdate() ? kAccent : kBtn;
-      uint16_t installText = OtaUpdate_hasPendingUpdate() ? TFT_BLACK : kWhite;
+      uint16_t installText = kWhite;
       tft->fillRoundRect(20, btnY, w - 40, btnH, 6, installColor);
       tft->drawRoundRect(20, btnY, w - 40, btnH, 6, kWhite);
       tft->setTextColor(installText, installColor);
@@ -3088,6 +3093,17 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
           s_editBuffer[s_editLen] = '\0';
           return handled(SCREEN_EMAIL_FIELD_EDIT);
         }
+      }
+      if (inRect(ix, iy, 20, h - 72, w - 40, 26)) {
+        char err[160] = "";
+        if (EmailTest_sendNow(err, sizeof(err)))
+          showSavedPrompt(tft, "Test email sent");
+        else {
+          char msg[96];
+          snprintf(msg, sizeof(msg), "Email failed: %s", err[0] ? err : "error");
+          showSavedPrompt(tft, msg);
+        }
+        return handled(SCREEN_EMAIL_SETTINGS);
       }
       if (inRect(ix, iy, 20, h - 38, 80, 30)) return handled(SCREEN_SETTINGS);
       break;

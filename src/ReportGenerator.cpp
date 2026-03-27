@@ -6,6 +6,7 @@
 #include "AppState.h"
 #include "Standards.h"
 #include "GoogleSync.h"
+#include "EmailTest.h"
 #include <LittleFS.h>
 #include <SD_MMC.h>
 #include <Arduino.h>
@@ -146,6 +147,65 @@ bool ReportGenerator_end(void) {
                        s_report.student_id, rules_ver, s_report.rows, s_report.count)) {
     s_report.active = false;
     return false;
+  }
+
+  if (AppState_getEmailReportEnabled() && s_report.count > 0) {
+    char textBody[2200];
+    char htmlCore[3000];
+    int okCount = 0;
+    for (int i = 0; i < s_report.count; i++) if (s_report.rows[i].passed) okCount++;
+    int failCount = s_report.count - okCount;
+
+    int n = snprintf(textBody, sizeof(textBody),
+                     "SparkyCheck report summary\r\n\r\n"
+                     "Job: %s\r\n"
+                     "Device: %s\r\n"
+                     "Student: %s\r\n"
+                     "Rules: %s\r\n"
+                     "Results: %d total, %d pass, %d fail\r\n\r\n",
+                     s_report.basename,
+                     device_id[0] ? device_id : "(not set)",
+                     s_report.student_id[0] ? s_report.student_id : "(not set)",
+                     rules_ver,
+                     s_report.count, okCount, failCount);
+    if (n < 0) n = 0;
+    for (int i = 0; i < s_report.count && n < (int)sizeof(textBody) - 4; i++) {
+      n += snprintf(textBody + n, sizeof(textBody) - (unsigned)n, "- %s: %s %s [%s]\r\n",
+                    s_report.rows[i].name, s_report.rows[i].value, s_report.rows[i].unit,
+                    s_report.rows[i].passed ? "PASS" : "FAIL");
+    }
+
+    n = snprintf(htmlCore, sizeof(htmlCore),
+                 "<p><strong>SparkyCheck report summary</strong></p>"
+                 "<p><strong>Job:</strong> %s<br/>"
+                 "<strong>Device:</strong> %s<br/>"
+                 "<strong>Student:</strong> %s<br/>"
+                 "<strong>Rules:</strong> %s<br/>"
+                 "<strong>Results:</strong> %d total, %d pass, %d fail</p>"
+                 "<table style='border-collapse:collapse;width:100%%'>"
+                 "<tr><th style='border:1px solid #cbd5e1;padding:6px;text-align:left'>Test</th>"
+                 "<th style='border:1px solid #cbd5e1;padding:6px;text-align:left'>Value</th>"
+                 "<th style='border:1px solid #cbd5e1;padding:6px;text-align:left'>Unit</th>"
+                 "<th style='border:1px solid #cbd5e1;padding:6px;text-align:left'>Result</th></tr>",
+                 s_report.basename,
+                 device_id[0] ? device_id : "(not set)",
+                 s_report.student_id[0] ? s_report.student_id : "(not set)",
+                 rules_ver,
+                 s_report.count, okCount, failCount);
+    if (n < 0) n = 0;
+    for (int i = 0; i < s_report.count && n < (int)sizeof(htmlCore) - 96; i++) {
+      n += snprintf(htmlCore + n, sizeof(htmlCore) - (unsigned)n,
+                    "<tr><td style='border:1px solid #cbd5e1;padding:6px'>%s</td>"
+                    "<td style='border:1px solid #cbd5e1;padding:6px'>%s</td>"
+                    "<td style='border:1px solid #cbd5e1;padding:6px'>%s</td>"
+                    "<td style='border:1px solid #cbd5e1;padding:6px'>%s</td></tr>",
+                    s_report.rows[i].name, s_report.rows[i].value, s_report.rows[i].unit,
+                    s_report.rows[i].passed ? "PASS" : "FAIL");
+    }
+    if (n < (int)sizeof(htmlCore) - 16) snprintf(htmlCore + n, sizeof(htmlCore) - (unsigned)n, "</table>");
+
+    char emErr[160] = "";
+    EmailTest_sendCustomNow("SparkyCheck Report", "Verification Report", textBody, htmlCore, emErr, sizeof(emErr));
   }
 
   /* Field mode: also persist report copies on SD card when available. */

@@ -4,6 +4,7 @@
 #include "VerificationSteps.h"
 #include "BatteryStatus.h"
 #include "TestLimits.h"
+#include "EmailTest.h"
 
 #include <Arduino.h>
 #include <WiFi.h>
@@ -51,7 +52,7 @@ static const char* kCss =
   "h1,h2{margin:6px 0 10px 0;}label{display:block;margin-top:8px;font-size:14px;color:#dbeafe;}"
   "input,select{width:100%;padding:8px;border-radius:6px;border:1px solid #8ecae6;background:#0f172a;color:#fff;}"
   ".row{display:grid;grid-template-columns:1fr 1fr;gap:10px;}"
-  ".btn{margin-top:10px;background:#22c55e;color:#001;padding:9px 12px;border-radius:8px;border:none;cursor:pointer;font-weight:700;}"
+  ".btn{margin-top:10px;background:#22c55e;color:#fff;padding:9px 12px;border-radius:8px;border:none;cursor:pointer;font-weight:700;}"
   ".btn2{background:#334155;color:#fff;}.small{font-size:12px;color:#cbd5e1;}";
 
 static bool isSessionValid(void) {
@@ -144,9 +145,9 @@ static String htmlPage(const String& title, const String& body) {
   h += title;
   h += "</title><style>";
   h += kCss;
-  h += "</style></head><body><div class='brand'><canvas id='brandCanvas' width='120' height='120'></canvas><div class='fallback' id='brandFallback'>SparkyCheck</div><div class='meta' id='brandMeta'>Frank Offer · 2026<br/>SparkyCheck Creator</div></div><div class='wrap'>";
+  h += "</style></head><body><div class='brand'><img id='brandImg' src='/admin/logo.bmp?v=10' alt='SparkyCheck logo' style='width:120px;height:auto;border:1px solid #8ecae6;border-radius:8px;background:#0b162a' onerror=\"this.style.display='none';var f=document.getElementById('brandFallback');if(f)f.style.display='flex';\"/><div class='fallback' id='brandFallback' style='display:none'>SparkyCheck</div><div class='meta' id='brandMeta'>Frank Offer · 2026<br/>SparkyCheck Creator</div></div><div class='wrap'>";
   h += body;
-  h += "</div><script>(async function(){const cv=document.getElementById('brandCanvas');const fb=document.getElementById('brandFallback');const meta=document.getElementById('brandMeta');try{const r=await fetch('/admin/logo565?v=9',{cache:'no-store'});if(!r.ok)throw new Error('HTTP '+r.status);const w=parseInt(r.headers.get('X-Logo-W')||'120',10)||120;const h=parseInt(r.headers.get('X-Logo-H')||'120',10)||120;const buf=await r.arrayBuffer();const need=w*h*2;if(buf.byteLength<need)throw new Error('short data '+buf.byteLength+'/'+need);const dv=new DataView(buf);cv.width=w;cv.height=h;const ctx=cv.getContext('2d');if(!ctx)throw new Error('canvas unavailable');const id=ctx.createImageData(w,h);for(let i=0,j=0;i<w*h&&j<id.data.length;i++,j+=4){const c=dv.getUint16(i*2,true);id.data[j]=(((c>>11)&31)*255/31)|0;id.data[j+1]=(((c>>5)&63)*255/63)|0;id.data[j+2]=((c&31)*255/31)|0;id.data[j+3]=255;}ctx.putImageData(id,0,0);cv.style.display='block';if(fb)fb.style.display='none';if(meta)meta.innerHTML='Frank Offer · 2026<br/>SparkyCheck Creator<br/><span style=\"color:#86efac\">Logo OK '+w+'x'+h+'</span>';}catch(e){if(fb){fb.style.display='flex';fb.textContent='Logo unavailable';}if(meta)meta.innerHTML='Frank Offer · 2026<br/>SparkyCheck Creator<br/><span style=\"color:#fca5a5\">Logo error: '+String(e.message||e)+'</span><br/><a href=\"/admin/logo.bmp\" style=\"color:#93c5fd\">Open BMP</a> | <a href=\"/admin/logo-info\" style=\"color:#93c5fd\">Logo info</a>';}})();</script>";
+  h += "</div><script>(function(){var m=document.getElementById('brandMeta'); if(m) m.innerHTML='Frank Offer · 2026<br/>SparkyCheck Creator<br/><a href=\"/admin/logo.bmp\" style=\"color:#93c5fd\">Open BMP</a> | <a href=\"/admin/logo-info\" style=\"color:#93c5fd\">Logo info</a>';})();</script>";
   h += "</body></html>";
   return h;
 }
@@ -349,7 +350,10 @@ static String settingsPage(void) {
   b += "</label><input name='report_to' value='" + esc(reportTo) + "'/><p class='small'>Example: ";
   b += fieldMode ? "supervisor@company.com" : "teacher@tafe.edu.au";
   b += "</p>";
-  b += "<button class='btn' type='submit'>Save Email</button></form></div>";
+  b += "<button class='btn' type='submit'>Save Email</button></form>";
+  b += "<form method='post' action='/admin/email-test'><button class='btn btn2' type='submit'>Send test email</button></form>";
+  b += "<p class='small'>Sends a generic test message using current saved SMTP settings.</p>";
+  b += "</div>";
 
   if (!fieldMode) {
     b += "<div class='card'><h2>Training Sync / SharePoint</h2><form method='post' action='/admin/save'>";
@@ -465,6 +469,14 @@ static void ensureTestsJsonLoaded(void) {
     }
     s_testsJson[sizeof(s_testsJson) - 1] = '\0';
   }
+}
+
+static bool mountSdCard(void) {
+  if (SD_MMC.begin("/sdcard", true, false)) return true;
+  SD_MMC.end();
+  if (SD_MMC.begin()) return true;
+  SD_MMC.end();
+  return false;
 }
 
 static bool activateAndPersistTestsJson(const String& json, String* outErr) {
@@ -969,7 +981,7 @@ static String testsPage(AsyncWebServerRequest* req) {
   b += "<form method='post' action='/tests-import-sd'><button class='btn btn2' type='submit'>Import tests from SD (/tests.json)</button></form>";
   b += "<form method='post' action='/admin/tests/factory'><button class='btn btn2' type='submit' onclick='return confirm(\"Restore factory tests and remove custom tests?\")'>Restore factory defaults</button></form>";
   b += "</div>";
-  b += "<script>(async function(){try{const ta=document.getElementById('liveJsonEditor');if(!ta)return;const r=await fetch('/tests-json-live',{cache:'no-store'});if(!r.ok)throw new Error('fetch');ta.value=await r.text();}catch(e){const ta=document.getElementById('liveJsonEditor');if(ta)ta.value='{\"tests\":[],\"rules\":[]}';}})();</script>";
+  b += "<script>(async function(){try{const ta=document.getElementById('liveJsonEditor');if(!ta)return;const r=await fetch('/tests-json-live',{cache:'no-store'});if(!r.ok)throw new Error('fetch '+r.status);const txt=await r.text();const start=txt.trim().charAt(0);if(start!=='{'&&start!=='[')throw new Error('non-json response');try{ta.value=JSON.stringify(JSON.parse(txt),null,2);}catch(_){ta.value=txt;}}catch(e){const ta=document.getElementById('liveJsonEditor');if(ta)ta.value='{\"tests\":[],\"rules\":[]}\\n\\nLive JSON load failed: '+String(e.message||e);}})();</script>";
   return htmlPage("SparkyCheck Tests", b);
 }
 
@@ -1164,8 +1176,19 @@ void AdminPortal_init(void) {
 
   s_server.on("/tests-json-live", HTTP_GET, [](AsyncWebServerRequest* req) {
     if (!isAuthorized(req)) { req->send(403, "text/plain", "Forbidden"); return; }
-    ensureTestsJsonLoaded();
-    AsyncWebServerResponse* resp = req->beginResponse(200, "application/json", s_testsJson);
+    String json;
+    if (LittleFS.exists(kTestsPath)) {
+      File f = LittleFS.open(kTestsPath, "r");
+      if (f) {
+        json = f.readString();
+        f.close();
+      }
+    }
+    if (!json.length()) {
+      ensureTestsJsonLoaded();
+      json = String(s_testsJson);
+    }
+    AsyncWebServerResponse* resp = req->beginResponse(200, "application/json", json);
     resp->addHeader("Cache-Control", "no-store");
     req->send(resp);
   });
@@ -1175,7 +1198,7 @@ void AdminPortal_init(void) {
 
   s_server.on("/tests-import-sd", HTTP_POST, [](AsyncWebServerRequest* req) {
     if (!isAuthorized(req)) { req->send(403, "text/plain", "Forbidden"); return; }
-    if (!SD_MMC.begin("/sdcard", true, false)) {
+    if (!mountSdCard()) {
       strncpy(s_flashMsg, "SD import failed: SD not mounted.", sizeof(s_flashMsg) - 1);
       s_flashMsg[sizeof(s_flashMsg) - 1] = '\0';
       s_flashErr = true;
@@ -1192,6 +1215,7 @@ void AdminPortal_init(void) {
     }
     String json = fsd.readString();
     fsd.close();
+    SD_MMC.end();
     String err;
     if (!activateAndPersistTestsJson(json, &err)) {
       snprintf(s_flashMsg, sizeof(s_flashMsg), "SD import failed: %s", err.c_str());
@@ -1213,7 +1237,7 @@ void AdminPortal_init(void) {
 
   s_server.on("/tests-export-sd", HTTP_POST, [](AsyncWebServerRequest* req) {
     if (!isAuthorized(req)) { req->send(403, "text/plain", "Forbidden"); return; }
-    if (!SD_MMC.begin("/sdcard", true, false)) {
+    if (!mountSdCard()) {
       strncpy(s_flashMsg, "SD export failed: SD not mounted.", sizeof(s_flashMsg) - 1);
       s_flashMsg[sizeof(s_flashMsg) - 1] = '\0';
       s_flashErr = true;
@@ -1231,6 +1255,7 @@ void AdminPortal_init(void) {
     }
     fsd.print(s_testsJson);
     fsd.close();
+    SD_MMC.end();
     strncpy(s_flashMsg, "Exported tests to SD: /tests.json", sizeof(s_flashMsg) - 1);
     s_flashMsg[sizeof(s_flashMsg) - 1] = '\0';
     s_flashErr = false;
@@ -1773,6 +1798,24 @@ void AdminPortal_init(void) {
         strncpy(s_flashMsg, "Admin PIN updated.", sizeof(s_flashMsg) - 1);
         s_flashMsg[sizeof(s_flashMsg) - 1] = '\0';
       }
+    }
+    AsyncWebServerResponse* resp = req->beginResponse(302);
+    resp->addHeader("Location", "/admin");
+    req->send(resp);
+  });
+
+  s_server.on("/admin/email-test", HTTP_POST, [](AsyncWebServerRequest* req) {
+    if (!isAuthorized(req)) {
+      req->send(403, "text/plain", "Forbidden");
+      return;
+    }
+    char err[160] = "";
+    if (EmailTest_sendNow(err, sizeof(err))) {
+      snprintf(s_flashMsg, sizeof(s_flashMsg), "Test email sent.");
+      s_flashErr = false;
+    } else {
+      snprintf(s_flashMsg, sizeof(s_flashMsg), "Test email failed: %s", err[0] ? err : "unknown");
+      s_flashErr = true;
     }
     AsyncWebServerResponse* resp = req->beginResponse(302);
     resp->addHeader("Location", "/admin");
