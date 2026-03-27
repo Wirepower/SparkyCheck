@@ -205,21 +205,23 @@ bool isBootLogoTouchRegion(SparkyTft& tft, int x, int y) {
 void showDisclaimer(SparkyTft& tft) {
   const int w = tft.width();
   const int h = tft.height();
-  const bool largeUi = (w >= 700);
-  const int margin = largeUi ? 20 : 12;
+  const bool largeUi = (w >= 700 || h >= 700);
+  const int margin = largeUi ? 28 : 14;
+  const int titleTs = largeUi ? 4 : 3;
   const int bodyTs = largeUi ? 2 : 1;
-  const int bodyLineH = largeUi ? 24 : 16;
+  const int bodyLineH = largeUi ? 26 : 16;
 
   tft.fillScreen(kBgDark);
   tft.setTextColor(kWhite, kBgDark);
-  tft.setTextSize(3);
+  tft.setTextSize(titleTs);
   const char* title = "DISCLAIMER";
-  int tw = (int)strlen(title) * 6 * 3;
+  int tw = (int)strlen(title) * 6 * titleTs;
   int tx = (w - tw) / 2;
   if (tx < margin) tx = margin;
-  tft.setCursor(tx, 10);
+  const int titleY = largeUi ? 20 : 10;
+  tft.setCursor(tx, titleY);
   tft.print(title);
-  tft.drawFastHLine(tx, 36, tw, kWhite);
+  tft.drawFastHLine(tx, titleY + 7 * titleTs + 5, tw, kWhite);
 
   char d1[80], d2[80];
   Standards_getDisclaimerStandardLines(d1, sizeof(d1), d2, sizeof(d2));
@@ -234,7 +236,9 @@ void showDisclaimer(SparkyTft& tft) {
   const int lineCount = (int)(sizeof(lines) / sizeof(lines[0]));
   tft.setTextColor(kAccentDim, kBgDark);
   tft.setTextSize(bodyTs);
-  int y = 52;
+  const int bodyTop = titleY + 7 * titleTs + (largeUi ? 22 : 14);
+  const int bodyBottom = h - (largeUi ? 26 : 16);
+  int y = bodyTop;
   for (int i = 0; i < lineCount; i++) {
     int lineW = (int)strlen(lines[i]) * 6 * bodyTs;
     int lx = (w - lineW) / 2;
@@ -242,6 +246,7 @@ void showDisclaimer(SparkyTft& tft) {
     tft.setCursor(lx, y);
     tft.print(lines[i]);
     y += bodyLineH;
+    if (y > bodyBottom) break;
   }
 
   sparkyDisplayFlush(&tft);

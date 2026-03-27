@@ -724,7 +724,7 @@ static void drawOskRowSyncLetters(SparkyTft* tft, const QwertyKeyboardLayout* qk
 
 /* Small "connected Wi‑Fi" glyph in the top-right status area. */
 static void drawWifiConnectedIcon(SparkyTft* tft) {
-  if (!WifiManager_isConnected()) return;
+  if (!WifiManager_isConnected() && !AdminPortal_isApActive()) return;
   const int cx = getW(tft) - 50;
   const int cy = 16;
   const int radii[3] = { 4, 7, 10 };
@@ -738,8 +738,6 @@ static void drawWifiConnectedIcon(SparkyTft* tft) {
 }
 
 static void drawBatteryStatusIcon(SparkyTft* tft) {
-  int pct = 0;
-  if (!BatteryStatus_getPercent(&pct)) return;
   int w = getW(tft);
   const int x = w - 26;
   const int y = 7;
@@ -747,6 +745,13 @@ static void drawBatteryStatusIcon(SparkyTft* tft) {
   const int bh = 10;
   tft->drawRect(x, y, bw, bh, kWhite);
   tft->fillRect(x + bw, y + 3, 2, 4, kWhite);
+  int pct = 0;
+  if (!BatteryStatus_getPercent(&pct)) {
+    /* Show a visible placeholder even when ADC battery sensing is disabled. */
+    tft->drawLine(x + 3, y + 2, x + bw - 4, y + bh - 3, kAccent);
+    tft->drawLine(x + 3, y + bh - 3, x + bw - 4, y + 2, kAccent);
+    return;
+  }
   int fillW = (pct * (bw - 4)) / 100;
   uint16_t fill = pct > 50 ? kGreen : (pct > 20 ? kAccent : kRed);
   tft->fillRect(x + 2, y + 2, fillW, bh - 4, fill);
@@ -1194,7 +1199,7 @@ static void screens_draw_impl(SparkyTft* tft, ScreenId id, bool fullClear) {
         tft->print(rt);
         const int passBoxY = narrowResult ? (yResultTitle + 7 * 2 + 12) : 52;
         tft->fillRect(20, passBoxY, w - 40, 72, s_resultPass ? kGreen : kRed);
-        tft->setTextColor(s_resultPass ? kWhite : TFT_BLACK, s_resultPass ? kGreen : kRed);
+        tft->setTextColor(kWhite, s_resultPass ? kGreen : kRed);
         tft->setTextSize(3);
         {
           const int passTextY = passBoxY + (72 - 7 * 3) / 2;

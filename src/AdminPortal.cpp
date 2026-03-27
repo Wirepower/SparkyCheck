@@ -144,9 +144,9 @@ static String htmlPage(const String& title, const String& body) {
   h += title;
   h += "</title><style>";
   h += kCss;
-  h += "</style></head><body><div class='brand'><canvas id='brandCanvas' width='120' height='120'></canvas><div class='fallback' id='brandFallback'>SparkyCheck</div><div class='meta'>Frank Offer · 2026<br/>SparkyCheck Creator</div></div><div class='wrap'>";
+  h += "</style></head><body><div class='brand'><canvas id='brandCanvas' width='120' height='120'></canvas><div class='fallback' id='brandFallback'>SparkyCheck</div><div class='meta' id='brandMeta'>Frank Offer · 2026<br/>SparkyCheck Creator</div></div><div class='wrap'>";
   h += body;
-  h += "</div><script>(async function(){const cv=document.getElementById('brandCanvas');const fb=document.getElementById('brandFallback');try{const r=await fetch('/admin/logo565?v=8',{cache:'no-store'});if(!r.ok)throw new Error('fetch');const w=parseInt(r.headers.get('X-Logo-W')||'120',10)||120;const h=parseInt(r.headers.get('X-Logo-H')||'120',10)||120;const buf=await r.arrayBuffer();const dv=new DataView(buf);cv.width=w;cv.height=h;const ctx=cv.getContext('2d');const id=ctx.createImageData(w,h);for(let i=0,j=0;i<w*h&&j<id.data.length;i++,j+=4){const c=dv.getUint16(i*2,true);id.data[j]=(((c>>11)&31)*255/31)|0;id.data[j+1]=(((c>>5)&63)*255/63)|0;id.data[j+2]=((c&31)*255/31)|0;id.data[j+3]=255;}ctx.putImageData(id,0,0);cv.style.display='block';if(fb)fb.style.display='none';}catch(e){if(fb)fb.style.display='flex';}})();</script>";
+  h += "</div><script>(async function(){const cv=document.getElementById('brandCanvas');const fb=document.getElementById('brandFallback');const meta=document.getElementById('brandMeta');try{const r=await fetch('/admin/logo565?v=9',{cache:'no-store'});if(!r.ok)throw new Error('HTTP '+r.status);const w=parseInt(r.headers.get('X-Logo-W')||'120',10)||120;const h=parseInt(r.headers.get('X-Logo-H')||'120',10)||120;const buf=await r.arrayBuffer();const need=w*h*2;if(buf.byteLength<need)throw new Error('short data '+buf.byteLength+'/'+need);const dv=new DataView(buf);cv.width=w;cv.height=h;const ctx=cv.getContext('2d');if(!ctx)throw new Error('canvas unavailable');const id=ctx.createImageData(w,h);for(let i=0,j=0;i<w*h&&j<id.data.length;i++,j+=4){const c=dv.getUint16(i*2,true);id.data[j]=(((c>>11)&31)*255/31)|0;id.data[j+1]=(((c>>5)&63)*255/63)|0;id.data[j+2]=((c&31)*255/31)|0;id.data[j+3]=255;}ctx.putImageData(id,0,0);cv.style.display='block';if(fb)fb.style.display='none';if(meta)meta.innerHTML='Frank Offer · 2026<br/>SparkyCheck Creator<br/><span style=\"color:#86efac\">Logo OK '+w+'x'+h+'</span>';}catch(e){if(fb){fb.style.display='flex';fb.textContent='Logo unavailable';}if(meta)meta.innerHTML='Frank Offer · 2026<br/>SparkyCheck Creator<br/><span style=\"color:#fca5a5\">Logo error: '+String(e.message||e)+'</span><br/><a href=\"/admin/logo.bmp\" style=\"color:#93c5fd\">Open BMP</a> | <a href=\"/admin/logo-info\" style=\"color:#93c5fd\">Logo info</a>';}})();</script>";
   h += "</body></html>";
   return h;
 }
@@ -1006,6 +1006,21 @@ void AdminPortal_init(void) {
 
   s_server.on("/admin/logo565", HTTP_GET, [](AsyncWebServerRequest* req) {
     streamBootLogo565(req);
+  });
+
+  s_server.on("/admin/logo-info", HTTP_GET, [](AsyncWebServerRequest* req) {
+    const int outW = 120;
+    const int outH = (BOOT_LOGO_H * outW) / BOOT_LOGO_W;
+    String j = "{";
+    j += "\"bootW\":" + String((int)BOOT_LOGO_W) + ",";
+    j += "\"bootH\":" + String((int)BOOT_LOGO_H) + ",";
+    j += "\"outW\":" + String(outW) + ",";
+    j += "\"outH\":" + String(outH) + ",";
+    j += "\"bytes565\":" + String(outW * outH * 2);
+    j += "}";
+    AsyncWebServerResponse* resp = req->beginResponse(200, "application/json", j);
+    resp->addHeader("Cache-Control", "no-store");
+    req->send(resp);
   });
 
   s_server.on("/admin/login", HTTP_POST, [](AsyncWebServerRequest* req) {
