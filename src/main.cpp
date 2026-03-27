@@ -19,6 +19,8 @@
 SparkyTft tft;
 static ScreenId s_currentScreen = SCREEN_MAIN_MENU;
 static bool s_appReady = false;
+static bool s_otaAutoDone = false;
+static unsigned long s_otaAutoAfterMs = 0;
 
 void setup() {
   Serial.begin(115200);
@@ -62,7 +64,8 @@ void setup() {
   OtaUpdate_init();
   GoogleSync_init();
   AdminPortal_init();
-  OtaUpdate_runAutoFlow();
+  /* Defer OTA HTTPS so web server + AsyncTCP get heap first */
+  s_otaAutoAfterMs = millis() + 8000UL;
   if (adminGesture) {
     Screens_setModeSelectChoice(AppState_getMode() == APP_MODE_FIELD ? 1 : 0);
     Screens_setPinSuccessTarget(SCREEN_MODE_SELECT);
@@ -89,6 +92,10 @@ void loop() {
 
   GoogleSync_tick();
   AdminPortal_tick();
+  if (!s_otaAutoDone && (long)(millis() - s_otaAutoAfterMs) >= 0) {
+    OtaUpdate_runAutoFlow();
+    s_otaAutoDone = true;
+  }
 
   static bool s_touchWasDown = false;
   uint16_t x = 0, y = 0;

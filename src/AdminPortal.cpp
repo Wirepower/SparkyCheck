@@ -52,6 +52,13 @@ static bool ensureDefaultRulesInDoc(DynamicJsonDocument& doc);
 
 static const unsigned long kSessionTtlMs = 15UL * 60UL * 1000UL;
 static const unsigned long kPortalTickMs = 5000UL;
+
+static void tryStartServer(void) {
+  /* Start listening before heavy LittleFS/tests activation so AsyncTCP can allocate its task. */
+  Serial.printf("[Admin] begin web server (heap=%u)\n", (unsigned)ESP.getFreeHeap());
+  s_server.begin();
+  Serial.println("[Admin] web server listen on :80");
+}
 #if defined(SPARKYCHECK_PANEL_43B)
 static sdmmc_card_t* s_sd43bCard = nullptr;
 static sdmmc_host_t s_sd43bHost = SDSPI_HOST_DEFAULT();
@@ -1188,6 +1195,9 @@ void AdminPortal_init(void) {
   s_server.on("/admin/login", HTTP_GET, [](AsyncWebServerRequest* req) {
     sendHtmlNoCache(req, loginPage(""));
   });
+  s_server.on("/", HTTP_GET, [](AsyncWebServerRequest* req) {
+    req->redirect("/admin");
+  });
 
   s_server.on("/admin/logo.bmp", HTTP_GET, [](AsyncWebServerRequest* req) {
     streamBootLogoBmp(req);
@@ -2092,6 +2102,8 @@ void AdminPortal_init(void) {
     req->redirect("/admin");
   });
 
+  tryStartServer();
+
   // Build baseline JSON from embedded defaults (firmware baseline).
   String factoryJson;
   getFactoryTestsJson(&factoryJson);
@@ -2130,9 +2142,16 @@ void AdminPortal_init(void) {
     s_testsJson[sizeof(s_testsJson) - 1] = '\0';
   }
 
-  s_server.begin();
+  if (WifiManager_isConnected()) {
+    char ip[20] = "";
+    if (WifiManager_getIpString(ip, sizeof(ip)))
+      Serial.printf("[Admin] Open http://%s/admin (STA)\n", ip);
+  } else {
+    Serial.println("[Admin] STA offline — use SoftAP SparkyCheck / connect then http://192.168.4.1/admin");
+  }
+  Serial.printf("[Admin] init done (heap=%u)\n", (unsigned)ESP.getFreeHeap());
+
   s_started = true;
-  AdminPortal_tick();
 }
 
 void AdminPortal_tick(void) {
@@ -2153,11 +2172,8 @@ void AdminPortal_tick(void) {
   unsigned long now = millis();
   if ((long)(now - s_nextPortalTickMs) < 0) return;
   s_nextPortalTickMs = now + kPortalTickMs;
-  if (WifiManager_isConnected()) {
-    stopFallbackAp();
-  } else {
-    startFallbackAp();
-  }
+  if (WifiManager_isConnected()) stopFallbackAp();
+  else startFallbackAp();
 }
 
 bool AdminPortal_isApActive(void) {
