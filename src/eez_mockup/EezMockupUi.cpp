@@ -8,6 +8,9 @@
 #include "Screens.h"
 #include "VerificationSteps.h"
 #include "Standards.h"
+#include "WifiManager.h"
+#include "AdminPortal.h"
+#include "BatteryStatus.h"
 
 namespace {
 
@@ -126,7 +129,7 @@ static const uint16_t kBtn = 0x2D6A;
 static const uint16_t kAccent = 0xFD20;
 static const uint16_t kWhite = 0xFFFF;
 static const uint16_t kGreen = kBtn;
-static const uint16_t kBlack = 0x0000;
+static const uint16_t kRed = 0xF800;
 
 static bool s_handledButton = false;
 
@@ -469,7 +472,7 @@ static uint8_t eeButtonTextSize(SparkyTft* tft, ScreenId sid, const char* text) 
 
 static void drawButton(SparkyTft* tft, int x, int y, int w, int h, const char* text, bool accent, uint8_t tsIn) {
   uint16_t bg = accent ? kGreen : kBtn;
-  uint16_t fg = accent ? kBlack : kWhite;
+  uint16_t fg = kWhite;
   tft->fillRoundRect(x, y, w, h, 8, bg);
   tft->drawRoundRect(x, y, w, h, 8, kWhite);
   const char* t = text ? text : "";
@@ -491,6 +494,39 @@ static void drawButton(SparkyTft* tft, int x, int y, int w, int h, const char* t
   if (ty + fh > y + h - 1) ty = y + h - fh - 1;
   tft->setCursor(tx, ty);
   tft->print(t);
+}
+
+static void drawWifiStatusIcon(SparkyTft* tft) {
+  if (!tft) return;
+  if (!WifiManager_isConnected() && !AdminPortal_isApActive()) return;
+  const int cx = tft->width() - 50;
+  const int cy = 16;
+  const int radii[3] = {4, 7, 10};
+  for (int i = 0; i < 3; i++) {
+    const int r = radii[i];
+    tft->drawCircle(cx, cy, r, kWhite);
+    tft->fillRect(cx - r - 1, cy, 2 * r + 2, r + 2, kBg);
+  }
+  tft->fillCircle(cx, cy + 4, 2, kWhite);
+}
+
+static void drawBatteryStatusIcon(SparkyTft* tft) {
+  if (!tft) return;
+  const int x = tft->width() - 26;
+  const int y = 7;
+  const int bw = 18;
+  const int bh = 10;
+  tft->drawRect(x, y, bw, bh, kWhite);
+  tft->fillRect(x + bw, y + 3, 2, 4, kWhite);
+  int pct = 0;
+  if (!BatteryStatus_getPercent(&pct)) {
+    tft->drawLine(x + 3, y + 2, x + bw - 4, y + bh - 3, kAccent);
+    tft->drawLine(x + 3, y + bh - 3, x + bw - 4, y + 2, kAccent);
+    return;
+  }
+  int fillW = (pct * (bw - 4)) / 100;
+  uint16_t fill = pct > 50 ? kWhite : (pct > 20 ? kAccent : kRed);
+  tft->fillRect(x + 2, y + 2, fillW, bh - 4, fill);
 }
 
 static bool screenButtonCenterLegacy(ScreenId screen, const char* label, int w, int h, int* outX, int* outY) {
@@ -956,6 +992,8 @@ void EezMockupUi_draw(SparkyTft* tft, ScreenId id) {
     drawButton(tft, x, y, w, h, screen->buttons[i].text, accent, btnTs);
   }
 
+  drawWifiStatusIcon(tft);
+  drawBatteryStatusIcon(tft);
   sparkyDisplayFlush(tft);
 }
 

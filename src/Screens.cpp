@@ -1502,7 +1502,7 @@ static void screens_draw_impl(SparkyTft* tft, ScreenId id, bool fullClear) {
       tft->print("Email settings");
       tft->setTextSize(1);
       char tmp[APP_STATE_EMAIL_STR_LEN];
-      int rowH = 28, y = 38;
+      int rowH = 20, y = 34;
       AppState_getSmtpServer(tmp, sizeof(tmp));
       tft->setCursor(20, y); tft->print("1. SMTP server"); tft->setCursor(w/2, y); tft->print(strlen(tmp) ? tmp : "-"); y += rowH;
       AppState_getSmtpPort(tmp, sizeof(tmp));
@@ -1512,19 +1512,10 @@ static void screens_draw_impl(SparkyTft* tft, ScreenId id, bool fullClear) {
       AppState_getSmtpPass(tmp, sizeof(tmp));
       tft->setCursor(20, y); tft->print("4. SMTP password"); tft->setCursor(w/2, y); tft->print(strlen(tmp) ? "****" : "-"); y += rowH;
       AppState_getReportToEmail(tmp, sizeof(tmp));
-      tft->setCursor(20, y); tft->print(AppState_isFieldMode() ? "5. Recipient email" : "5. Teacher email"); tft->setCursor(w/2, y); tft->print(strlen(tmp) ? tmp : "-"); y += rowH + 6;
-      for (int i = 0; i < 5; i++) {
-        tft->fillRoundRect(20, y, w - 40, 26, 4, kBtn);
-        tft->drawRoundRect(20, y, w - 40, 26, 4, kWhite);
-        tft->setTextColor(kWhite, kBtn);
-        tft->setCursor(26, y + 6);
-        if (i == 0) tft->print("Edit SMTP server");
-        else if (i == 1) tft->print("Edit port");
-        else if (i == 2) tft->print("Edit sender email");
-        else if (i == 3) tft->print("Edit SMTP password");
-        else tft->print(AppState_isFieldMode() ? "Edit recipient email" : "Edit teacher email");
-        y += 28;
-      }
+      tft->setCursor(20, y); tft->print(AppState_isFieldMode() ? "5. Recipient email" : "5. Teacher email"); tft->setCursor(w/2, y); tft->print(strlen(tmp) ? tmp : "-"); y += rowH + 2;
+      tft->setTextColor(kAccent, kBg);
+      tft->setCursor(20, y);
+      tft->print("Tap any row above to edit.");
       tft->fillRoundRect(20, h - 72, w - 40, 26, 6, kBtn);
       tft->drawRoundRect(20, h - 72, w - 40, 26, 6, kWhite);
       tft->setTextColor(kWhite, kBtn);
@@ -3076,9 +3067,10 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
       break;
     }
     case SCREEN_EMAIL_SETTINGS: {
-      int editY = 38 + 5 * 28 + 6;
+      const int rowY0 = 34;
+      const int rowH = 20;
       for (int i = 0; i < 5; i++) {
-        if (inRect(ix, iy, 20, editY + i * 28, w - 40, 26)) {
+        if (inRect(ix, iy, 20, rowY0 + i * rowH - 2, w - 40, rowH + 2)) {
           s_editingEmailField = i;
           s_oskLettersMode = true;
           s_oskLetterUpper = false;

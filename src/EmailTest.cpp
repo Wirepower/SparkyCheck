@@ -12,6 +12,12 @@ static void setErr(char* err, unsigned err_size, const char* msg) {
   snprintf(err, err_size, "%s", msg ? msg : "Unknown error");
 }
 
+/* Avoid large stack allocations in web/device callbacks. */
+static char s_subjectBuf[220];
+static char s_bodyHtmlBuf[3200];
+static char s_testBodyBuf[900];
+static char s_testHtmlCoreBuf[1200];
+
 static void readIdentity(char* deviceId, unsigned devSize, char* cubicleId, unsigned cubSize) {
   if (deviceId && devSize) {
     AppState_getDeviceIdOverride(deviceId, devSize);
@@ -48,6 +54,15 @@ void EmailTest_buildBrandedHtml(const char* heading, const char* body_html, char
     "<tr><td align='center'>"
     "<table role='presentation' width='640' cellspacing='0' cellpadding='0' style='max-width:640px;background:#ffffff;border:1px solid #cbd5e1;border-radius:10px;overflow:hidden;font-family:Arial,sans-serif;color:#0f172a;'>"
     "<tr><td style='background:#1d3557;padding:16px 20px;color:#fff;'>"
+    "<table role='presentation' cellspacing='0' cellpadding='0' style='border-collapse:collapse;margin:0 0 10px 0;'>"
+    "<tr>"
+    "<td style='width:52px;height:52px;background:#0b162a;border:1px solid #8ecae6;border-radius:8px;text-align:center;vertical-align:middle;font-size:22px;font-weight:700;color:#22c55e;'>S</td>"
+    "<td style='padding-left:10px;vertical-align:middle;'>"
+    "<div style='font-size:22px;line-height:1.1;font-weight:700;color:#ffffff;'>SparkyCheck</div>"
+    "<div style='font-size:12px;line-height:1.2;color:#cbd5e1;'>Professional Electrical Verification Companion</div>"
+    "</td>"
+    "</tr>"
+    "</table>"
     "<div style='font-size:20px;font-weight:700;letter-spacing:0.2px;'>SparkyCheck</div>"
     "<div style='font-size:12px;opacity:0.9;'>Professional Electrical Verification Companion</div>"
     "</td></tr>"
@@ -69,11 +84,9 @@ bool EmailTest_sendNow(char* err, unsigned err_size) {
   char cubicleId[APP_STATE_TRAINING_SYNC_CUBICLE_LEN] = "";
   char deviceId[APP_STATE_DEVICE_ID_LEN] = "";
   readIdentity(deviceId, sizeof(deviceId), cubicleId, sizeof(cubicleId));
-  char body[600];
-  char bodyHtmlCore[500];
   char ip[24] = "";
   snprintf(ip, sizeof(ip), "%s", WiFi.localIP().toString().c_str());
-  snprintf(body, sizeof(body),
+  snprintf(s_testBodyBuf, sizeof(s_testBodyBuf),
            "Hello,\r\n\r\n"
            "This is a test email from SparkyCheck.\r\n\r\n"
            "If you received this, your SMTP settings are working.\r\n"
@@ -88,7 +101,7 @@ bool EmailTest_sendNow(char* err, unsigned err_size) {
            ip[0] ? ip : "(offline)",
            AppState_isFieldMode() ? "Field" : "Training",
            (unsigned long)millis());
-  snprintf(bodyHtmlCore, sizeof(bodyHtmlCore),
+  snprintf(s_testHtmlCoreBuf, sizeof(s_testHtmlCoreBuf),
            "<p>Hello,</p>"
            "<p>This is a <strong>test email from SparkyCheck</strong>.</p>"
            "<p>If you received this, your SMTP settings are working correctly.</p>"
@@ -103,7 +116,7 @@ bool EmailTest_sendNow(char* err, unsigned err_size) {
            ip[0] ? ip : "(offline)",
            AppState_isFieldMode() ? "Field" : "Training",
            (unsigned long)millis());
-  return EmailTest_sendCustomNow("SparkyCheck SMTP Test Email", "SMTP Test Email", body, bodyHtmlCore, err, err_size);
+  return EmailTest_sendCustomNow("SparkyCheck SMTP Test Email", "SMTP Test Email", s_testBodyBuf, s_testHtmlCoreBuf, err, err_size);
 }
 
 bool EmailTest_sendCustomNow(const char* subject_base,
@@ -119,9 +132,6 @@ bool EmailTest_sendCustomNow(const char* subject_base,
   char reportTo[APP_STATE_EMAIL_STR_LEN] = "";
   char cubicleId[APP_STATE_TRAINING_SYNC_CUBICLE_LEN] = "";
   char deviceId[APP_STATE_DEVICE_ID_LEN] = "";
-  char subject[200];
-  char bodyHtml[2800];
-
   AppState_getSmtpServer(smtpServer, sizeof(smtpServer));
   AppState_getSmtpPort(smtpPort, sizeof(smtpPort));
   AppState_getSmtpUser(smtpUser, sizeof(smtpUser));
@@ -135,8 +145,8 @@ bool EmailTest_sendCustomNow(const char* subject_base,
   }
   int port = atoi(smtpPort);
   if (port <= 0) port = 587;
-  buildSubjectWithIdentity(subject_base, deviceId, cubicleId, subject, sizeof(subject));
-  EmailTest_buildBrandedHtml(heading, body_html_core, bodyHtml, sizeof(bodyHtml));
+  buildSubjectWithIdentity(subject_base, deviceId, cubicleId, s_subjectBuf, sizeof(s_subjectBuf));
+  EmailTest_buildBrandedHtml(heading, body_html_core, s_bodyHtmlBuf, sizeof(s_bodyHtmlBuf));
 
   SMTPSession smtp;
   ESP_Mail_Session session;
@@ -152,12 +162,12 @@ bool EmailTest_sendCustomNow(const char* subject_base,
   SMTP_Message message;
   message.sender.name = F("SparkyCheck");
   message.sender.email = smtpUser;
-  message.subject = subject;
+  message.subject = s_subjectBuf;
   message.addRecipient(F("Recipient"), reportTo);
   message.text.content = body_text ? body_text : "SparkyCheck notification.";
   message.text.charSet = F("us-ascii");
   message.text.transfer_encoding = Content_Transfer_Encoding::enc_7bit;
-  message.html.content = bodyHtml;
+  message.html.content = s_bodyHtmlBuf;
   message.html.charSet = F("utf-8");
   message.html.transfer_encoding = Content_Transfer_Encoding::enc_7bit;
   message.priority = esp_mail_smtp_priority::esp_mail_smtp_priority_normal;

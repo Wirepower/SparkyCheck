@@ -13,6 +13,10 @@
 #include <LittleFS.h>
 #include <SD_MMC.h>
 #include <ArduinoJson.h>
+#include <Wire.h>
+#include <esp_vfs_fat.h>
+#include <sdmmc_cmd.h>
+#include <driver/spi_master.h>
 #include "boot_logo_web_embedded.h"
 
 #include <stdio.h>
@@ -26,6 +30,11 @@ static uint32_t s_sessionToken = 0;
 static unsigned long s_sessionExpiresMs = 0;
 static unsigned long s_nextPortalTickMs = 0;
 static bool s_apActive = false;
+static bool s_emailTestPending = false;
+static bool s_emailTestRunning = false;
+static uint32_t s_emailTestActiveJobId = 0;
+static unsigned long s_emailTestStartMs = 0;
+static char s_emailTestStatus[180] = "Idle";
 static char s_apSsid[32] = "";
 static char s_apPass[32] = "";
 static char s_flashMsg[120] = "";
@@ -37,13 +46,20 @@ static String s_uploadTestsJson;
 static const char* kTestsPath = "/config/tests.json";
 static const char* kTestsPrevPath = "/config/tests_prev.json";
 static bool buildTestsJsonFromActive(char* out, unsigned outSize);
+static void upsertRuleForKind(DynamicJsonDocument& doc, const char* kind, const char* op, float val, float valMax);
+static bool ensureDefaultRulesInDoc(DynamicJsonDocument& doc);
 
 static const unsigned long kSessionTtlMs = 15UL * 60UL * 1000UL;
 static const unsigned long kPortalTickMs = 5000UL;
+#if defined(SPARKYCHECK_PANEL_43B)
+static sdmmc_card_t* s_sd43bCard = nullptr;
+static sdmmc_host_t s_sd43bHost = SDSPI_HOST_DEFAULT();
+static bool s_sd43bMounted = false;
+#endif
 
 static const char* kCss =
   "body{font-family:Arial,sans-serif;background:#102030;color:#fff;margin:0;padding:16px;}"
-  ".brand{position:fixed;top:10px;right:12px;text-align:center;z-index:2;pointer-events:none;}"
+  ".brand{position:fixed;top:10px;right:12px;text-align:center;z-index:2;pointer-events:auto;}"
   ".brand canvas{width:120px;height:auto;border:1px solid #8ecae6;border-radius:8px;background:#0b162a;display:none;}"
   ".brand .fallback{width:120px;height:34px;border:1px solid #8ecae6;border-radius:8px;background:#0b162a;color:#93c5fd;display:flex;align-items:center;justify-content:center;font-size:12px;margin-top:4px;}"
   ".brand .meta{font-size:11px;color:#cbd5e1;margin-top:4px;line-height:1.25;}"
@@ -145,9 +161,9 @@ static String htmlPage(const String& title, const String& body) {
   h += title;
   h += "</title><style>";
   h += kCss;
-  h += "</style></head><body><div class='brand'><img id='brandImg' src='/admin/logo.bmp?v=10' alt='SparkyCheck logo' style='width:120px;height:auto;border:1px solid #8ecae6;border-radius:8px;background:#0b162a' onerror=\"this.style.display='none';var f=document.getElementById('brandFallback');if(f)f.style.display='flex';\"/><div class='fallback' id='brandFallback' style='display:none'>SparkyCheck</div><div class='meta' id='brandMeta'>Frank Offer · 2026<br/>SparkyCheck Creator</div></div><div class='wrap'>";
+  h += "</style></head><body><div class='brand'><canvas id='brandCanvas' width='120' height='120' style='width:120px;height:auto;border:1px solid #8ecae6;border-radius:8px;background:#0b162a;display:none'></canvas><div class='fallback' id='brandFallback'>SparkyCheck</div><div class='meta' id='brandMeta'>Frank Offer · 2026<br/>SparkyCheck Creator</div></div><div class='wrap'>";
   h += body;
-  h += "</div><script>(function(){var m=document.getElementById('brandMeta'); if(m) m.innerHTML='Frank Offer · 2026<br/>SparkyCheck Creator<br/><a href=\"/admin/logo.bmp\" style=\"color:#93c5fd\">Open BMP</a> | <a href=\"/admin/logo-info\" style=\"color:#93c5fd\">Logo info</a>';})();</script>";
+  h += "</div><script>(async function(){const cv=document.getElementById('brandCanvas');const fb=document.getElementById('brandFallback');const m=document.getElementById('brandMeta');function setMeta(t){if(m)m.innerHTML='Frank Offer · 2026<br/>SparkyCheck Creator<br/>'+t;}try{const r=await fetch('/admin/logo565',{cache:'no-store'});if(!r.ok)throw new Error('logo565 HTTP '+r.status);const w=parseInt(r.headers.get('X-Logo-W')||'120',10)||120;const h=parseInt(r.headers.get('X-Logo-H')||'120',10)||120;const buf=await r.arrayBuffer();const have=Math.floor(buf.byteLength/2);const want=w*h;if(have<want)throw new Error('logo565 bytes '+buf.byteLength+' too small');const dv=new DataView(buf);cv.width=w;cv.height=h;const ctx=cv.getContext('2d');if(!ctx)throw new Error('canvas unavailable');const id=ctx.createImageData(w,h);for(let i=0,j=0;i<w*h&&j<id.data.length;i++,j+=4){const c=dv.getUint16(i*2,true);id.data[j]=(((c>>11)&31)*255/31)|0;id.data[j+1]=(((c>>5)&63)*255/63)|0;id.data[j+2]=((c&31)*255/31)|0;id.data[j+3]=255;}ctx.putImageData(id,0,0);cv.style.display='block';if(fb)fb.style.display='none';setMeta('<span style=\"color:#86efac\">Logo OK</span> · <a href=\"/admin/logo-info\" style=\"color:#93c5fd\">Logo info</a>');}catch(e){if(fb)fb.style.display='flex';setMeta('<span style=\"color:#fca5a5\">Logo unavailable: '+String(e.message||e)+'</span> · <a href=\"/admin/logo-info\" style=\"color:#93c5fd\">Logo info</a>');}})();</script>";
   h += "</body></html>";
   return h;
 }
@@ -160,9 +176,31 @@ static void sendHtmlNoCache(AsyncWebServerRequest* req, const String& html) {
   req->send(resp);
 }
 
+static void logoEffectiveDims(int* outW, int* outH, size_t* outWords) {
+  const size_t words = sizeof(kBootLogoRgb565) / sizeof(kBootLogoRgb565[0]);
+  int w = BOOT_LOGO_W;
+  int h = BOOT_LOGO_H;
+  if ((size_t)(w * h) != words) {
+    /* Header mismatch guard: keep payload and dimensions consistent. */
+    w = 120;
+    h = (int)(words / (size_t)w);
+    if (h <= 0) {
+      w = (int)words;
+      if (w <= 0) w = 1;
+      h = 1;
+    }
+  }
+  if (outW) *outW = w;
+  if (outH) *outH = h;
+  if (outWords) *outWords = words;
+}
+
 static void streamBootLogoBmp(AsyncWebServerRequest* req) {
+  int srcW = 0, srcH = 0;
+  size_t srcWords = 0;
+  logoEffectiveDims(&srcW, &srcH, &srcWords);
   const int outW = 120;
-  const int outH = (BOOT_LOGO_H * outW) / BOOT_LOGO_W;
+  const int outH = (srcH * outW) / (srcW > 0 ? srcW : 120);
   const int rowBytes = outW * 3;
   const int pad = (4 - (rowBytes % 4)) % 4;
   const int imgBytes = (rowBytes + pad) * outH;
@@ -185,10 +223,12 @@ static void streamBootLogoBmp(AsyncWebServerRequest* req) {
 
   uint8_t pix[3];
   for (int y = outH - 1; y >= 0; y--) {
-    int sy = (y * BOOT_LOGO_H) / outH;
+    int sy = (y * srcH) / outH;
     for (int x = 0; x < outW; x++) {
-      int sx = (x * BOOT_LOGO_W) / outW;
-      uint16_t c = (uint16_t)pgm_read_word(&kBootLogoRgb565[sy * BOOT_LOGO_W + sx]);
+      int sx = (x * srcW) / outW;
+      size_t idx = (size_t)sy * (size_t)srcW + (size_t)sx;
+      if (idx >= srcWords) idx = srcWords ? (srcWords - 1) : 0;
+      uint16_t c = (uint16_t)pgm_read_word(&kBootLogoRgb565[idx]);
       uint8_t r5 = (uint8_t)((c >> 11) & 0x1F);
       uint8_t g6 = (uint8_t)((c >> 5) & 0x3F);
       uint8_t b5 = (uint8_t)(c & 0x1F);
@@ -204,24 +244,15 @@ static void streamBootLogoBmp(AsyncWebServerRequest* req) {
 }
 
 static void streamBootLogo565(AsyncWebServerRequest* req) {
-  const int outW = 120;
-  const int outH = (BOOT_LOGO_H * outW) / BOOT_LOGO_W;
-  AsyncResponseStream* rs = req->beginResponseStream("application/octet-stream");
-  rs->addHeader("Cache-Control", "no-store");
-  rs->addHeader("X-Logo-W", String(outW));
-  rs->addHeader("X-Logo-H", String(outH));
-  for (int y = 0; y < outH; y++) {
-    int sy = (y * BOOT_LOGO_H) / outH;
-    for (int x = 0; x < outW; x++) {
-      int sx = (x * BOOT_LOGO_W) / outW;
-      uint16_t c = (uint16_t)pgm_read_word(&kBootLogoRgb565[sy * BOOT_LOGO_W + sx]);
-      uint8_t lo = (uint8_t)(c & 0xFF);
-      uint8_t hi = (uint8_t)((c >> 8) & 0xFF);
-      rs->write(lo);
-      rs->write(hi);
-    }
-  }
-  req->send(rs);
+  int w = 0, h = 0;
+  size_t words = 0;
+  logoEffectiveDims(&w, &h, &words);
+  const size_t bytes = words * sizeof(uint16_t);
+  AsyncWebServerResponse* resp = req->beginResponse_P(200, "application/octet-stream", (const uint8_t*)kBootLogoRgb565, bytes);
+  resp->addHeader("Cache-Control", "no-store");
+  resp->addHeader("X-Logo-W", String(w));
+  resp->addHeader("X-Logo-H", String(h));
+  req->send(resp);
 }
 
 static String loginPage(const char* msg) {
@@ -247,6 +278,8 @@ static String settingsPage(void) {
   char cubicle[APP_STATE_TRAINING_SYNC_CUBICLE_LEN] = "", devId[APP_STATE_DEVICE_ID_LEN] = "";
   char adminApSsid[APP_STATE_ADMIN_AP_SSID_LEN] = "", adminApPass[APP_STATE_ADMIN_AP_PASS_LEN] = "";
   char ssid[WIFI_SSID_LEN] = "", ip[20] = "";
+  String wifiMac = WiFi.macAddress();
+  if (!wifiMac.length()) wifiMac = "Unavailable";
   AppState_getSmtpServer(smtpServer, sizeof(smtpServer));
   AppState_getSmtpPort(smtpPort, sizeof(smtpPort));
   AppState_getSmtpUser(smtpUser, sizeof(smtpUser));
@@ -330,15 +363,24 @@ static String settingsPage(void) {
   b += "<div><label>Password</label><input type='password' name='pass' value=''/></div></div>";
   b += "<button class='btn' type='submit'>Connect Manually</button></form></div>";
 
+  b += "<div class='card mode-both'><h2>Device Identification</h2>";
+  b += "<p class='small'>Used across reports, email subjects/body, and cloud records in both Field and Training modes.</p>";
+  b += "<form method='post' action='/admin/save'><input type='hidden' name='section' value='identity'/>";
+  b += "<div class='row'><div><label>Cubicle ID</label><input name='sync_cubicle' value='" + esc(cubicle) + "'/><p class='small'>Example: CUB-07</p></div>";
+  b += "<div><label>Device ID</label><input name='device_id' value='" + esc(devId) + "'/><p class='small'>Example: S1024</p></div></div>";
+  b += "<label>Wi-Fi MAC Address (auto)</label><input value='" + esc(wifiMac.c_str()) + "' readonly/>";
+  b += "<p class='small'>Auto-detected hardware MAC. Read-only for traceability.</p>";
+  b += "<button class='btn' type='submit'>Save Device Identification</button></form></div>";
+
   b += "<div class='card'><h2>Mode</h2>";
   b += "<p class='small'>Mode controls which settings are shown below and how report-recipient labels are interpreted.</p>";
   b += "<p class='small'>Training: teacher-oriented + training sync controls. Field: recipient-focused + essential settings only.</p>";
-  b += "<form method='post' action='/admin/save'><input type='hidden' name='section' value='mode'/>";
-  b += "<label>Current mode</label><select name='mode'><option value='0'";
+  b += "<form id='modeForm' method='post' action='/admin/save'><input type='hidden' name='section' value='mode'/>";
+  b += "<label>Current mode</label><select id='modeSelect' name='mode'><option value='0'";
   b += boolSelected(AppState_getMode() == APP_MODE_TRAINING);
   b += ">Training</option><option value='1'";
   b += boolSelected(AppState_getMode() == APP_MODE_FIELD);
-  b += ">Field</option></select><button class='btn' type='submit'>Save Mode</button></form></div>";
+  b += ">Field</option></select><p class='small' id='modeSaveHint'>Auto-saves when changed.</p></form></div>";
 
   b += "<div class='card'><h2>Email / SMTP</h2><form method='post' action='/admin/save'>";
   b += "<input type='hidden' name='section' value='email'/><label>SMTP server</label><input name='smtp_server' value='" + esc(smtpServer) + "'/><p class='small'>Example: smtp.office365.com</p>";
@@ -351,12 +393,16 @@ static String settingsPage(void) {
   b += fieldMode ? "supervisor@company.com" : "teacher@tafe.edu.au";
   b += "</p>";
   b += "<button class='btn' type='submit'>Save Email</button></form>";
-  b += "<form method='post' action='/admin/email-test'><button class='btn btn2' type='submit'>Send test email</button></form>";
+  b += "<form method='post' action='/admin/email-test'><button class='btn' type='submit'>Send test email</button></form>";
   b += "<p class='small'>Sends a generic test message using current saved SMTP settings.</p>";
+  b += "<p class='small' id='emailTestStatusLine'>Email test status: ";
+  b += esc(s_emailTestStatus);
+  b += "</p>";
+  b += "<script>(async function(){const el=document.getElementById('emailTestStatusLine');if(!el)return;async function poll(){try{const r=await fetch('/admin/email-test-status',{cache:'no-store'});if(!r.ok)return;const j=await r.json();el.textContent='Email test status: '+(j.status||'Unknown');}catch(e){}};poll();setInterval(poll,2000);})();</script>";
   b += "</div>";
 
   if (!fieldMode) {
-    b += "<div class='card'><h2>Training Sync / SharePoint</h2><form method='post' action='/admin/save'>";
+    b += "<div class='card mode-training'><h2>Training Sync / SharePoint</h2><form method='post' action='/admin/save'>";
     b += "<input type='hidden' name='section' value='sync'/>";
     b += "<div class='row'><div><label>Enable training sync</label><select name='sync_enabled'><option value='0'";
     b += boolSelected(!AppState_getTrainingSyncEnabled());
@@ -369,7 +415,7 @@ static String settingsPage(void) {
     b += boolSelected(AppState_getEmailReportEnabled());
     b += ">On</option></select></div></div>";
   } else {
-    b += "<div class='card'><h2>SharePoint / Cloud Endpoint</h2><form method='post' action='/admin/save'>";
+    b += "<div class='card mode-field'><h2>SharePoint / Cloud Endpoint</h2><form method='post' action='/admin/save'>";
     b += "<input type='hidden' name='section' value='sync'/>";
     b += "<input type='hidden' name='sync_enabled' value='1'/>";
     b += "<input type='hidden' name='email_reports' value='1'/>";
@@ -385,18 +431,16 @@ static String settingsPage(void) {
   b += "<p class='small'>Auto selects backend. SharePoint uses endpoint + token below.</p>";
   b += "<label>Endpoint URL</label><input name='sync_endpoint' value='" + esc(endpoint) + "'/><p class='small'>Example: https://graph.microsoft.com/v1.0/sites/&lt;site&gt;/lists/&lt;list&gt;/items</p>";
   b += "<label>Auth token / API key</label><input type='password' name='sync_token' value='" + esc(token) + "'/><p class='small'>Bearer token or API key for endpoint.</p>";
-  b += "<div class='row'><div><label>Cubicle ID</label><input name='sync_cubicle' value='" + esc(cubicle) + "'/><p class='small'>Example: CUB-07</p></div>";
-  b += "<div><label>Device ID override</label><input name='device_id' value='" + esc(devId) + "'/><p class='small'>Example: S1024</p></div></div>";
   b += "<button class='btn' type='submit'>Save Sync</button></form></div>";
 
-  b += "<div class='card'><h2>Admin Hotspot (fallback)</h2><form method='post' action='/admin/save'>";
+  b += "<div class='card mode-both'><h2>Admin Hotspot (fallback)</h2><form method='post' action='/admin/save'>";
   b += "<input type='hidden' name='section' value='admin_ap'/>";
   b += "<label>Hotspot SSID</label><input name='admin_ap_ssid' value='" + esc(adminApSsid) + "'/><p class='small'>Current/next AP name shown on device Wi-Fi screen.</p>";
   b += "<label>Hotspot password</label><input type='password' name='admin_ap_pass' value='" + esc(adminApPass) + "'/><p class='small'>At least 8 chars.</p>";
   b += "<p class='small'>Password must be at least 8 characters. Used only when normal Wi-Fi is offline.</p>";
   b += "<button class='btn' type='submit'>Save Hotspot</button></form></div>";
 
-  b += "<div class='card'><h2>Change Admin PIN</h2><form method='post' action='/admin/save'>";
+  b += "<div class='card mode-both'><h2>Change Admin PIN</h2><form method='post' action='/admin/save'>";
   b += "<input type='hidden' name='section' value='admin_pin'/>";
   b += "<div class='row'><div><label>Current PIN</label><input type='password' name='current_pin' maxlength='10'/></div>";
   b += "<div><label>New PIN</label><input type='password' name='new_pin' maxlength='10'/></div></div>";
@@ -404,6 +448,7 @@ static String settingsPage(void) {
   b += "<p class='small'>PIN must be numeric and at least 4 digits.</p>";
   b += "<button class='btn' type='submit'>Update PIN</button></form></div>";
 
+  b += "<script>(function(){const sel=document.getElementById('modeSelect');const hint=document.getElementById('modeSaveHint');if(!sel)return;let saving=false;function apply(){const m=sel.value||'0';document.querySelectorAll('.mode-training').forEach(el=>el.style.display=(m==='0')?'block':'none');document.querySelectorAll('.mode-field').forEach(el=>el.style.display=(m==='1')?'block':'none');document.querySelectorAll('.mode-both').forEach(el=>el.style.display='block');}async function saveMode(){if(saving)return;saving=true;sel.disabled=true;if(hint)hint.textContent='Saving mode...';try{const body='section=mode&mode='+encodeURIComponent(sel.value||'0');const r=await fetch('/admin/save',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body});if(!r.ok)throw new Error('HTTP '+r.status);if(hint)hint.textContent='Mode saved. Reloading...';window.location.reload();}catch(e){if(hint)hint.textContent='Save failed. Please retry.';sel.disabled=false;saving=false;}}sel.addEventListener('change',function(){apply();saveMode();});apply();})();</script>";
   return htmlPage("SparkyCheck Admin", b);
 }
 
@@ -469,19 +514,97 @@ static void ensureTestsJsonLoaded(void) {
     }
     s_testsJson[sizeof(s_testsJson) - 1] = '\0';
   }
+  DynamicJsonDocument doc(131072);
+  if (deserializeJson(doc, s_testsJson) == DeserializationError::Ok) {
+    if (ensureDefaultRulesInDoc(doc)) {
+      String fixed;
+      serializeJsonPretty(doc, fixed);
+      strncpy(s_testsJson, fixed.c_str(), sizeof(s_testsJson) - 1);
+      s_testsJson[sizeof(s_testsJson) - 1] = '\0';
+      if (!LittleFS.exists("/config")) LittleFS.mkdir("/config");
+      File fw = LittleFS.open(kTestsPath, "w");
+      if (fw) {
+        fw.print(fixed);
+        fw.close();
+      }
+    }
+  }
 }
 
 static bool mountSdCard(void) {
+#if defined(SPARKYCHECK_PANEL_43B)
+  if (s_sd43bMounted) return true;
+  /* Mirrors Waveshare demo: TF over SPI with CS through CH422G (EXIO4). */
+  Wire.begin(8, 9);
+  Wire.beginTransmission(0x24);
+  Wire.write((uint8_t)0x01);
+  if (Wire.endTransmission() != 0) return false;
+  Wire.beginTransmission(0x38);
+  Wire.write((uint8_t)0x0A);
+  if (Wire.endTransmission() != 0) return false;
+
+  spi_bus_config_t bus_cfg = {};
+  bus_cfg.mosi_io_num = 11;
+  bus_cfg.miso_io_num = 13;
+  bus_cfg.sclk_io_num = 12;
+  bus_cfg.quadwp_io_num = -1;
+  bus_cfg.quadhd_io_num = -1;
+  bus_cfg.max_transfer_sz = 4000;
+  esp_err_t ret = spi_bus_initialize((spi_host_device_t)s_sd43bHost.slot, &bus_cfg, SDSPI_DEFAULT_DMA);
+  if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE) return false;
+
+  sdspi_device_config_t slot_config = SDSPI_DEVICE_CONFIG_DEFAULT();
+  slot_config.gpio_cs = (gpio_num_t)-1;
+  slot_config.host_id = (spi_host_device_t)s_sd43bHost.slot;
+  esp_vfs_fat_sdmmc_mount_config_t mount_config = {};
+  mount_config.format_if_mount_failed = false;
+  mount_config.max_files = 5;
+  mount_config.allocation_unit_size = 16 * 1024;
+  ret = esp_vfs_fat_sdspi_mount("/sdcard", &s_sd43bHost, &slot_config, &mount_config, &s_sd43bCard);
+  if (ret != ESP_OK) return false;
+  s_sd43bMounted = true;
+  return true;
+#else
   if (SD_MMC.begin("/sdcard", true, false)) return true;
   SD_MMC.end();
   if (SD_MMC.begin()) return true;
   SD_MMC.end();
   return false;
+#endif
+}
+
+#if defined(SPARKYCHECK_PANEL_43B)
+static void unmountSdCard43b(void) {
+  if (!s_sd43bMounted || !s_sd43bCard) return;
+  esp_vfs_fat_sdcard_unmount("/sdcard", s_sd43bCard);
+  s_sd43bCard = nullptr;
+  s_sd43bMounted = false;
+}
+#endif
+
+static bool ensureDefaultRulesInDoc(DynamicJsonDocument& doc) {
+  JsonArray rules = doc["rules"].as<JsonArray>();
+  if (!rules.isNull() && rules.size() > 0) return false;
+  upsertRuleForKind(doc, "continuity_ohm", "<=", TestLimits_continuityMaxOhms(), 0.0f);
+  upsertRuleForKind(doc, "ir_mohm", ">=", TestLimits_insulationMinMOhms(), 0.0f);
+  upsertRuleForKind(doc, "ir_mohm_sheathed", ">=", TestLimits_insulationMinMOhmsSheathedHeating(), 0.0f);
+  upsertRuleForKind(doc, "efli_ohm", "<=", TestLimits_efliMaxOhms(), 0.0f);
+  upsertRuleForKind(doc, "rcd_required_max_ms", "<=", TestLimits_rcdTripTimeMaxMs(), 0.0f);
+  upsertRuleForKind(doc, "rcd_ms", "<=", TestLimits_rcdTripTimeMaxMs(), 0.0f);
+  return true;
 }
 
 static bool activateAndPersistTestsJson(const String& json, String* outErr) {
+  String jsonFixed = json;
+  DynamicJsonDocument doc(131072);
+  if (deserializeJson(doc, jsonFixed) == DeserializationError::Ok) {
+    if (ensureDefaultRulesInDoc(doc)) {
+      jsonFixed = "";
+      serializeJsonPretty(doc, jsonFixed);
+    }
+  }
   char err[200] = "";
-  if (!VerificationSteps_activateConfigJson(json.c_str(), err, sizeof(err))) {
+  if (!VerificationSteps_activateConfigJson(jsonFixed.c_str(), err, sizeof(err))) {
     if (outErr) *outErr = err[0] ? String(err) : String("invalid config");
     return false;
   }
@@ -491,8 +614,8 @@ static bool activateAndPersistTestsJson(const String& json, String* outErr) {
     LittleFS.rename(kTestsPath, kTestsPrevPath);
   }
   File fa = LittleFS.open(kTestsPath, "w");
-  if (fa) { fa.print(json); fa.close(); }
-  strncpy(s_testsJson, json.c_str(), sizeof(s_testsJson) - 1);
+  if (fa) { fa.print(jsonFixed); fa.close(); }
+  strncpy(s_testsJson, jsonFixed.c_str(), sizeof(s_testsJson) - 1);
   s_testsJson[sizeof(s_testsJson) - 1] = '\0';
   if (outErr) outErr->remove(0);
   return true;
@@ -968,7 +1091,12 @@ static String testsPage(AsyncWebServerRequest* req) {
        "}\n"
        "</textarea></details>";
   b += "<form method='post' action='/admin/tests/activate'><label>Live JSON config (current tests.json)</label>";
-  b += "<textarea id='liveJsonEditor' name='json' style='width:100%;min-height:380px;border-radius:8px;background:#0f172a;color:#fff;border:1px solid #8ecae6;'>Loading current tests.json...</textarea>";
+  String liveJson;
+  serializeJsonPretty(doc, liveJson);
+  if (!liveJson.length()) liveJson = s_testsJson;
+  b += "<textarea id='liveJsonEditor' name='json' style='width:100%;min-height:380px;border-radius:8px;background:#0f172a;color:#fff;border:1px solid #8ecae6;'>";
+  b += esc(liveJson.c_str());
+  b += "</textarea>";
   b += "<button class='btn' type='submit'>Validate + Activate</button></form>";
   b += "</details>";
   b += "<form method='post' action='/admin/tests/rollback'><button class='btn btn2' type='submit'>Undo to previous saved version</button></form>";
@@ -981,7 +1109,6 @@ static String testsPage(AsyncWebServerRequest* req) {
   b += "<form method='post' action='/tests-import-sd'><button class='btn btn2' type='submit'>Import tests from SD (/tests.json)</button></form>";
   b += "<form method='post' action='/admin/tests/factory'><button class='btn btn2' type='submit' onclick='return confirm(\"Restore factory tests and remove custom tests?\")'>Restore factory defaults</button></form>";
   b += "</div>";
-  b += "<script>(async function(){try{const ta=document.getElementById('liveJsonEditor');if(!ta)return;const r=await fetch('/tests-json-live',{cache:'no-store'});if(!r.ok)throw new Error('fetch '+r.status);const txt=await r.text();const start=txt.trim().charAt(0);if(start!=='{'&&start!=='[')throw new Error('non-json response');try{ta.value=JSON.stringify(JSON.parse(txt),null,2);}catch(_){ta.value=txt;}}catch(e){const ta=document.getElementById('liveJsonEditor');if(ta)ta.value='{\"tests\":[],\"rules\":[]}\\n\\nLive JSON load failed: '+String(e.message||e);}})();</script>";
   return htmlPage("SparkyCheck Tests", b);
 }
 
@@ -989,6 +1116,29 @@ static String postValue(AsyncWebServerRequest* req, const char* key) {
   if (!req || !key) return "";
   if (!req->hasParam(key, true)) return "";
   return req->getParam(key, true)->value();
+}
+
+static void adminEmailTestTask(void* arg) {
+  const uint32_t jobId = (uint32_t)(uintptr_t)arg;
+  if (jobId == s_emailTestActiveJobId) {
+    snprintf(s_emailTestStatus, sizeof(s_emailTestStatus), "Sending...");
+  }
+  char err[160] = "";
+  const bool ok = EmailTest_sendNow(err, sizeof(err));
+  if (jobId == s_emailTestActiveJobId) {
+    if (ok) {
+      snprintf(s_flashMsg, sizeof(s_flashMsg), "Test email sent.");
+      snprintf(s_emailTestStatus, sizeof(s_emailTestStatus), "Sent successfully.");
+      s_flashErr = false;
+    } else {
+      snprintf(s_flashMsg, sizeof(s_flashMsg), "Test email failed: %s", err[0] ? err : "unknown");
+      snprintf(s_emailTestStatus, sizeof(s_emailTestStatus), "Failed: %s", err[0] ? err : "unknown");
+      s_flashErr = true;
+    }
+    s_emailTestRunning = false;
+    s_emailTestPending = false;
+  }
+  vTaskDelete(nullptr);
 }
 
 void AdminPortal_init(void) {
@@ -1021,14 +1171,16 @@ void AdminPortal_init(void) {
   });
 
   s_server.on("/admin/logo-info", HTTP_GET, [](AsyncWebServerRequest* req) {
-    const int outW = 120;
-    const int outH = (BOOT_LOGO_H * outW) / BOOT_LOGO_W;
+    int w = 0, h = 0;
+    size_t words = 0;
+    logoEffectiveDims(&w, &h, &words);
     String j = "{";
     j += "\"bootW\":" + String((int)BOOT_LOGO_W) + ",";
     j += "\"bootH\":" + String((int)BOOT_LOGO_H) + ",";
-    j += "\"outW\":" + String(outW) + ",";
-    j += "\"outH\":" + String(outH) + ",";
-    j += "\"bytes565\":" + String(outW * outH * 2);
+    j += "\"effectiveW\":" + String(w) + ",";
+    j += "\"effectiveH\":" + String(h) + ",";
+    j += "\"arrayWords\":" + String((unsigned long)words) + ",";
+    j += "\"bytes565\":" + String((unsigned long)(words * 2u));
     j += "}";
     AsyncWebServerResponse* resp = req->beginResponse(200, "application/json", j);
     resp->addHeader("Cache-Control", "no-store");
@@ -1063,6 +1215,14 @@ void AdminPortal_init(void) {
   });
 
   s_server.on("/admin/files", HTTP_GET, [](AsyncWebServerRequest* req) {
+    if (!isAuthorized(req)) { req->redirect("/admin/login"); return; }
+    sendHtmlNoCache(req, filesPage());
+  });
+  s_server.on("/admin/files/", HTTP_GET, [](AsyncWebServerRequest* req) {
+    if (!isAuthorized(req)) { req->redirect("/admin/login"); return; }
+    sendHtmlNoCache(req, filesPage());
+  });
+  s_server.on("/admin/reports", HTTP_GET, [](AsyncWebServerRequest* req) {
     if (!isAuthorized(req)) { req->redirect("/admin/login"); return; }
     sendHtmlNoCache(req, filesPage());
   });
@@ -1192,6 +1352,28 @@ void AdminPortal_init(void) {
     resp->addHeader("Cache-Control", "no-store");
     req->send(resp);
   });
+  s_server.on("/admin/tests-json-live", HTTP_GET, [](AsyncWebServerRequest* req) {
+    if (!isAuthorized(req)) {
+      /* Keep response JSON for client-side parser stability. */
+      req->send(200, "application/json", "{\"tests\":[],\"rules\":[]}");
+      return;
+    }
+    String json;
+    if (LittleFS.exists(kTestsPath)) {
+      File f = LittleFS.open(kTestsPath, "r");
+      if (f) {
+        json = f.readString();
+        f.close();
+      }
+    }
+    if (!json.length()) {
+      ensureTestsJsonLoaded();
+      json = String(s_testsJson);
+    }
+    AsyncWebServerResponse* resp = req->beginResponse(200, "application/json", json);
+    resp->addHeader("Cache-Control", "no-store");
+    req->send(resp);
+  });
   s_server.on("/admin/tests-download", HTTP_GET, [](AsyncWebServerRequest* req) {
     req->redirect("/tests-download-live");
   });
@@ -1205,6 +1387,22 @@ void AdminPortal_init(void) {
       req->redirect("/admin/tests-page");
       return;
     }
+#if defined(SPARKYCHECK_PANEL_43B)
+    FILE* fsd = fopen("/sdcard/tests.json", "r");
+    if (!fsd) {
+      strncpy(s_flashMsg, "SD import failed: /tests.json not found.", sizeof(s_flashMsg) - 1);
+      s_flashMsg[sizeof(s_flashMsg) - 1] = '\0';
+      s_flashErr = true;
+      req->redirect("/admin/tests-page");
+      return;
+    }
+    String json;
+    char buf[512];
+    size_t n = 0;
+    while ((n = fread(buf, 1, sizeof(buf), fsd)) > 0) json.concat(buf, (unsigned)n);
+    fclose(fsd);
+    unmountSdCard43b();
+#else
     File fsd = SD_MMC.open("/tests.json", "r");
     if (!fsd) {
       strncpy(s_flashMsg, "SD import failed: /tests.json not found.", sizeof(s_flashMsg) - 1);
@@ -1216,6 +1414,7 @@ void AdminPortal_init(void) {
     String json = fsd.readString();
     fsd.close();
     SD_MMC.end();
+#endif
     String err;
     if (!activateAndPersistTestsJson(json, &err)) {
       snprintf(s_flashMsg, sizeof(s_flashMsg), "SD import failed: %s", err.c_str());
@@ -1245,6 +1444,19 @@ void AdminPortal_init(void) {
       return;
     }
     ensureTestsJsonLoaded();
+#if defined(SPARKYCHECK_PANEL_43B)
+    FILE* fsd = fopen("/sdcard/tests.json", "w");
+    if (!fsd) {
+      strncpy(s_flashMsg, "SD export failed: cannot write /tests.json.", sizeof(s_flashMsg) - 1);
+      s_flashMsg[sizeof(s_flashMsg) - 1] = '\0';
+      s_flashErr = true;
+      req->redirect("/admin/tests-page");
+      return;
+    }
+    fputs(s_testsJson, fsd);
+    fclose(fsd);
+    unmountSdCard43b();
+#else
     File fsd = SD_MMC.open("/tests.json", "w");
     if (!fsd) {
       strncpy(s_flashMsg, "SD export failed: cannot write /tests.json.", sizeof(s_flashMsg) - 1);
@@ -1256,6 +1468,7 @@ void AdminPortal_init(void) {
     fsd.print(s_testsJson);
     fsd.close();
     SD_MMC.end();
+#endif
     strncpy(s_flashMsg, "Exported tests to SD: /tests.json", sizeof(s_flashMsg) - 1);
     s_flashMsg[sizeof(s_flashMsg) - 1] = '\0';
     s_flashErr = false;
@@ -1752,10 +1965,11 @@ void AdminPortal_init(void) {
       AppState_setTrainingSyncTarget((TrainingSyncTarget)target);
       String endpoint = postValue(req, "sync_endpoint");
       String token = postValue(req, "sync_token");
-      String cubicle = postValue(req, "sync_cubicle");
-      String deviceId = postValue(req, "device_id");
       AppState_setTrainingSyncEndpoint(endpoint.c_str());
       AppState_setTrainingSyncToken(token.c_str());
+    } else if (section == "identity") {
+      String cubicle = postValue(req, "sync_cubicle");
+      String deviceId = postValue(req, "device_id");
       AppState_setTrainingSyncCubicleId(cubicle.c_str());
       AppState_setDeviceIdOverride(deviceId.c_str());
     } else if (section == "admin_ap") {
@@ -1809,16 +2023,40 @@ void AdminPortal_init(void) {
       req->send(403, "text/plain", "Forbidden");
       return;
     }
-    char err[160] = "";
-    if (EmailTest_sendNow(err, sizeof(err))) {
-      snprintf(s_flashMsg, sizeof(s_flashMsg), "Test email sent.");
+    if (s_emailTestPending || s_emailTestRunning) {
+      snprintf(s_flashMsg, sizeof(s_flashMsg), "Test email already queued...");
+      snprintf(s_emailTestStatus, sizeof(s_emailTestStatus), "Queued...");
       s_flashErr = false;
     } else {
-      snprintf(s_flashMsg, sizeof(s_flashMsg), "Test email failed: %s", err[0] ? err : "unknown");
-      s_flashErr = true;
+      s_emailTestPending = true;
+      s_emailTestRunning = true;
+      s_emailTestStartMs = millis();
+      s_emailTestActiveJobId++;
+      snprintf(s_flashMsg, sizeof(s_flashMsg), "Test email queued.");
+      snprintf(s_emailTestStatus, sizeof(s_emailTestStatus), "Queued...");
+      s_flashErr = false;
+      if (xTaskCreate(adminEmailTestTask, "email_test_task", 12288, (void*)(uintptr_t)s_emailTestActiveJobId, 1, nullptr) != pdPASS) {
+        s_emailTestRunning = false;
+        s_emailTestPending = false;
+        snprintf(s_flashMsg, sizeof(s_flashMsg), "Failed to start email task.");
+        snprintf(s_emailTestStatus, sizeof(s_emailTestStatus), "Failed: could not start task.");
+        s_flashErr = true;
+      }
     }
     AsyncWebServerResponse* resp = req->beginResponse(302);
     resp->addHeader("Location", "/admin");
+    req->send(resp);
+  });
+
+  s_server.on("/admin/email-test-status", HTTP_GET, [](AsyncWebServerRequest* req) {
+    if (!isAuthorized(req)) { req->send(403, "text/plain", "Forbidden"); return; }
+    String j = "{\"pending\":";
+    j += s_emailTestPending ? "true" : "false";
+    j += ",\"status\":\"";
+    j += jsonEsc(s_emailTestStatus);
+    j += "\"}";
+    AsyncWebServerResponse* resp = req->beginResponse(200, "application/json", j);
+    resp->addHeader("Cache-Control", "no-store");
     req->send(resp);
   });
 
@@ -1836,6 +2074,13 @@ void AdminPortal_init(void) {
     if (fa) {
       String json = fa.readString();
       fa.close();
+      DynamicJsonDocument d(131072);
+      if (deserializeJson(d, json) == DeserializationError::Ok && ensureDefaultRulesInDoc(d)) {
+        json = "";
+        serializeJsonPretty(d, json);
+        File fw = LittleFS.open(kTestsPath, "w");
+        if (fw) { fw.print(json); fw.close(); }
+      }
       char err[120] = "";
       if (!VerificationSteps_activateConfigJson(json.c_str(), err, sizeof(err))) {
         VerificationSteps_activateConfigJson(factoryJson.c_str(), err, sizeof(err));
@@ -1863,6 +2108,20 @@ void AdminPortal_init(void) {
 }
 
 void AdminPortal_tick(void) {
+  if (s_emailTestRunning) {
+    const unsigned long nowMs = millis();
+    const unsigned long elapsed = nowMs - s_emailTestStartMs;
+    const unsigned long kEmailTimeoutMs = 45000UL;
+    if (elapsed > kEmailTimeoutMs) {
+      /* Mark this job as timed out and allow user retries immediately. */
+      s_emailTestActiveJobId++;
+      s_emailTestRunning = false;
+      s_emailTestPending = false;
+      snprintf(s_flashMsg, sizeof(s_flashMsg), "Test email timed out (>45s). Check SMTP credentials/App Password.");
+      snprintf(s_emailTestStatus, sizeof(s_emailTestStatus), "Failed: timeout (>45s).");
+      s_flashErr = true;
+    }
+  }
   unsigned long now = millis();
   if ((long)(now - s_nextPortalTickMs) < 0) return;
   s_nextPortalTickMs = now + kPortalTickMs;
