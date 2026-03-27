@@ -43,6 +43,12 @@ bool WifiManager_getConnectedSsid(char* buf, unsigned buf_size);
 /** Try reconnect using saved credentials (call from setup). */
 void WifiManager_reconnectSaved(void);
 
+/** Probe internet check endpoint; true means captive portal is likely intercepting traffic. */
+bool WifiManager_isCaptivePortalLikely(void);
+
+/** Most recent portal redirect URL (or fallback helper URL). */
+bool WifiManager_getPortalUrl(char* buf, unsigned buf_size);
+
 #ifdef __cplusplus
 }
 #endif

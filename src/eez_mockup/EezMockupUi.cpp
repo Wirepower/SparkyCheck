@@ -49,8 +49,42 @@ static void settingsLayoutDims(int W, int H, bool field, int* y0, int* btnH, int
   *gap = 6;
   *btnH = r ? 38 : 32;
   *y0 = 56;
-  *nRows = field ? 7 : 8;
+  *nRows = field ? 8 : 10;
   *backY = *y0 + *nRows * (*btnH + *gap) + 8;
+  if (!field && *nRows >= 10 && H <= 500) {
+    *gap = 4;
+    if (r && *btnH > 32) *btnH = 34;
+    *backY = *y0 + *nRows * (*btnH + *gap) + 8;
+  }
+}
+
+/** Row index for Settings screen — matches Screens.cpp sparkySettingsLayout order. */
+static int settingsRowFromLabelField(const char* lbl) {
+  if (!lbl) return -1;
+  if (strcmp(lbl, "Screen rotation") == 0) return 0;
+  if (strcmp(lbl, "WiFi connection") == 0) return 1;
+  if (strcmp(lbl, "Buzzer (sound)") == 0) return 2;
+  if (strcmp(lbl, "About") == 0) return 3;
+  if (strcmp(lbl, "Firmware updates") == 0) return 4;
+  if (strcmp(lbl, "Email settings") == 0) return 5;
+  if (strcmp(lbl, "Mode change (boot hold)") == 0) return 6;
+  if (strcmp(lbl, "Restart device") == 0) return 7;
+  return -1;
+}
+
+static int settingsRowFromLabelTraining(const char* lbl) {
+  if (!lbl) return -1;
+  if (strcmp(lbl, "Screen rotation") == 0) return 0;
+  if (strcmp(lbl, "WiFi connection") == 0) return 1;
+  if (strcmp(lbl, "Buzzer (sound)") == 0) return 2;
+  if (strcmp(lbl, "About") == 0) return 3;
+  if (strcmp(lbl, "Firmware updates") == 0) return 4;
+  if (strcmp(lbl, "Training sync (PIN)") == 0) return 5;
+  if (strcmp(lbl, "Email settings") == 0) return 6;
+  if (strcmp(lbl, "Mode change (boot hold)") == 0) return 7;
+  if (strcmp(lbl, "Restart device") == 0) return 8;
+  if (strcmp(lbl, "Change PIN") == 0) return 9;
+  return -1;
 }
 
 /** Vertical distribution for test list (shared by draw rects and Screens_handleTouch delegates). */
@@ -91,7 +125,7 @@ static const uint16_t kBg = 0x18E3;
 static const uint16_t kBtn = 0x2D6A;
 static const uint16_t kAccent = 0xFD20;
 static const uint16_t kWhite = 0xFFFF;
-static const uint16_t kGreen = 0x07E0;
+static const uint16_t kGreen = kBtn;
 static const uint16_t kBlack = 0x0000;
 
 static bool s_handledButton = false;
@@ -123,6 +157,8 @@ static bool isLegacyOnlyScreen(ScreenId id) {
   switch (id) {
     case SCREEN_STUDENT_ID:
     case SCREEN_TEST_FLOW:
+    /* Real Wi-Fi list + scan lives in Screens.cpp; EEZ mockup would overwrite scan results. */
+    case SCREEN_WIFI_LIST:
     case SCREEN_WIFI_PASSWORD:
     case SCREEN_TRAINING_SYNC_EDIT:
     case SCREEN_EMAIL_FIELD_EDIT:
@@ -274,43 +310,28 @@ static void getButtonRect(SparkyTft* tft, const EezMockupScreen* screen, size_t 
     const bool field = AppState_isFieldMode();
     int y0 = 0, btnH = 0, gap = 0, nRows = 0, backY = 0;
     settingsLayoutDims(w, h, field, &y0, &btnH, &gap, &nRows, &backY);
-    if (field && lbl && strcmp(lbl, "Change PIN") == 0) {
+    if (field && lbl &&
+        (strcmp(lbl, "Change PIN") == 0 || strcmp(lbl, "Training sync (PIN)") == 0)) {
       *outX = 0;
       *outY = -100;
       *outW = 0;
       *outH = 0;
       return;
     }
-    if (field) {
-      if (index < 7) {
-        *outX = 20;
-        *outY = y0 + (int)index * (btnH + gap);
-        *outW = w - 40;
-        *outH = btnH;
-        return;
-      }
-      if (index == 8 && lbl && strcmp(lbl, "Back") == 0) {
-        *outX = 20;
-        *outY = backY;
-        *outW = w - 40;
-        *outH = 40;
-        return;
-      }
-    } else {
-      if (index < 8) {
-        *outX = 20;
-        *outY = y0 + (int)index * (btnH + gap);
-        *outW = w - 40;
-        *outH = btnH;
-        return;
-      }
-      if (index == 8) {
-        *outX = 20;
-        *outY = backY;
-        *outW = w - 40;
-        *outH = 40;
-        return;
-      }
+    int row = field ? settingsRowFromLabelField(lbl) : settingsRowFromLabelTraining(lbl);
+    if (row >= 0) {
+      *outX = 20;
+      *outY = y0 + row * (btnH + gap);
+      *outW = w - 40;
+      *outH = btnH;
+      return;
+    }
+    if (lbl && strcmp(lbl, "Back") == 0) {
+      *outX = 20;
+      *outY = backY;
+      *outW = w - 40;
+      *outH = 40;
+      return;
     }
   }
 
@@ -579,12 +600,13 @@ static bool screenButtonCenterLegacy(ScreenId screen, const char* label, int w, 
     else if (strcmp(label, "Buzzer (sound)") == 0) row = 2;
     else if (strcmp(label, "About") == 0) row = 3;
     else if (strcmp(label, "Firmware updates") == 0) row = 4;
-    else if (strcmp(label, "Email settings") == 0) row = 5;
-    else if (strcmp(label, "Mode change (boot hold)") == 0) row = 6;
-    else if (strcmp(label, "Change PIN") == 0) row = 7;
+    else if (!field && strcmp(label, "Training sync (PIN)") == 0) row = 5;
+    else if (strcmp(label, "Email settings") == 0) row = field ? 5 : 6;
+    else if (strcmp(label, "Mode change (boot hold)") == 0) row = field ? 6 : 7;
+    else if (strcmp(label, "Restart device") == 0) row = field ? 7 : 8;
+    else if (!field && strcmp(label, "Change PIN") == 0) row = 9;
 
     if (row >= 0) {
-      if (field && row >= 7) return false;
       *outX = w / 2;
       *outY = y0 + row * (btnH + gap) + btnH / 2;
       return true;
@@ -672,12 +694,6 @@ static bool screenButtonCenterLegacy(ScreenId screen, const char* label, int w, 
       return true;
     }
     btnY += btnH + gap;
-    if (strcmp(label, "Training sync setup (PIN)") == 0) {
-      *outX = w / 2;
-      *outY = btnY + btnH / 2;
-      return true;
-    }
-    if (!AppState_isFieldMode()) btnY += btnH + gap;
     if (strcmp(label, "Back") == 0) {
       *outX = 60;
       *outY = btnY + 13;
@@ -925,7 +941,8 @@ void EezMockupUi_draw(SparkyTft* tft, ScreenId id) {
 
   for (size_t i = 0; i < screen->buttonCount; i++) {
     if (screen->id == SCREEN_SETTINGS && AppState_isFieldMode() && screen->buttons[i].text &&
-        strcmp(screen->buttons[i].text, "Change PIN") == 0)
+        (strcmp(screen->buttons[i].text, "Change PIN") == 0 ||
+         strcmp(screen->buttons[i].text, "Training sync (PIN)") == 0))
       continue;
     int x = 0;
     int y = 0;

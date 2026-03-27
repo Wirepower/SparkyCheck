@@ -10,6 +10,7 @@
 #include "OtaUpdate.h"
 #include "GoogleSync.h"
 #include "SdConfig.h"
+#include "AdminPortal.h"
 
 #if defined(SPARKYCHECK_EEZ_MOCKUP_UI)
 #include "EezMockupUi.h"
@@ -60,6 +61,7 @@ void setup() {
   WifiManager_reconnectSaved();
   OtaUpdate_init();
   GoogleSync_init();
+  AdminPortal_init();
   OtaUpdate_runAutoFlow();
   if (adminGesture) {
     Screens_setModeSelectChoice(AppState_getMode() == APP_MODE_FIELD ? 1 : 0);
@@ -86,6 +88,7 @@ void loop() {
   if (!s_appReady) return;
 
   GoogleSync_tick();
+  AdminPortal_tick();
 
   static bool s_touchWasDown = false;
   uint16_t x = 0, y = 0;

@@ -10,7 +10,48 @@
 
 #include "VerificationSteps.h"
 #include "TestLimits.h"
+#include <ArduinoJson.h>
 #include <string.h>
+#include <stdio.h>
+#include <memory>
+
+#define VERIFY_MAX_STEPS_PER_TEST 24
+#define VERIFY_MAX_NAME_LEN 48
+#define VERIFY_MAX_TITLE_LEN 64
+#define VERIFY_MAX_INSTR_LEN 256
+#define VERIFY_MAX_CLAUSE_LEN 96
+#define VERIFY_MAX_LABEL_LEN 40
+#define VERIFY_MAX_UNIT_LEN 16
+
+typedef struct {
+  VerifyStepType type;
+  char title[VERIFY_MAX_TITLE_LEN];
+  char instruction[VERIFY_MAX_INSTR_LEN];
+  char clause[VERIFY_MAX_CLAUSE_LEN];
+  VerifyResultKind resultKind;
+  char resultLabel[VERIFY_MAX_LABEL_LEN];
+  char unit[VERIFY_MAX_UNIT_LEN];
+} CustomVerifyStep;
+
+typedef enum {
+  CMP_DEFAULT = 0,
+  CMP_LT,
+  CMP_GT,
+  CMP_LE,
+  CMP_GE,
+  CMP_EQ
+} CmpOp;
+
+static bool s_customActive = false;
+typedef char TestNameBuf[VERIFY_MAX_NAME_LEN];
+typedef CustomVerifyStep TestStepsBuf[VERIFY_MAX_STEPS_PER_TEST];
+static std::unique_ptr<TestNameBuf[]> s_customTestNames;
+static std::unique_ptr<TestStepsBuf[]> s_customSteps;
+static std::unique_ptr<int[]> s_customStepCounts;
+static int s_customActiveTestCount = 0;
+static const int kDefaultTestCount = VERIFY_TEST_COUNT;
+static CmpOp s_customOps[RESULT_NONE];
+static float s_customVals[RESULT_NONE];
 
 static const char* s_testNames[] = {
   "Earth continuity (conductors)",
@@ -160,22 +201,129 @@ static const int s_stepCounts[VERIFY_TEST_COUNT] = {
   sizeof(s_swp_heater_sheathed) / sizeof(s_swp_heater_sheathed[0]),
 };
 
+int VerificationSteps_getActiveTestCount(void) {
+  if (s_customActive && s_customActiveTestCount > 0) return s_customActiveTestCount;
+  return kDefaultTestCount;
+}
+
+static const char* stepTypeToStr(VerifyStepType t) {
+  switch (t) {
+    case STEP_SAFETY: return "safety";
+    case STEP_VERIFY_YESNO: return "verify_yesno";
+    case STEP_RESULT_ENTRY: return "result_entry";
+    case STEP_INFO: return "info";
+    default: return "info";
+  }
+}
+
+static bool parseStepType(const char* s, VerifyStepType* out) {
+  if (!s || !out) return false;
+  if (strcmp(s, "safety") == 0) *out = STEP_SAFETY;
+  else if (strcmp(s, "verify_yesno") == 0) *out = STEP_VERIFY_YESNO;
+  else if (strcmp(s, "result_entry") == 0) *out = STEP_RESULT_ENTRY;
+  else if (strcmp(s, "info") == 0) *out = STEP_INFO;
+  else return false;
+  return true;
+}
+
+static const char* resultKindToStr(VerifyResultKind k) {
+  switch (k) {
+    case RESULT_CONTINUITY_OHM: return "continuity_ohm";
+    case RESULT_IR_MOHM: return "ir_mohm";
+    case RESULT_IR_MOHM_SHEATHED: return "ir_mohm_sheathed";
+    case RESULT_RCD_REQUIRED_MAX_MS: return "rcd_required_max_ms";
+    case RESULT_RCD_MS: return "rcd_ms";
+    case RESULT_EFLI_OHM: return "efli_ohm";
+    case RESULT_NONE: return "none";
+    default: return "none";
+  }
+}
+
+static bool parseResultKind(const char* s, VerifyResultKind* out) {
+  if (!s || !out) return false;
+  if (strcmp(s, "continuity_ohm") == 0) *out = RESULT_CONTINUITY_OHM;
+  else if (strcmp(s, "ir_mohm") == 0) *out = RESULT_IR_MOHM;
+  else if (strcmp(s, "ir_mohm_sheathed") == 0) *out = RESULT_IR_MOHM_SHEATHED;
+  else if (strcmp(s, "rcd_required_max_ms") == 0) *out = RESULT_RCD_REQUIRED_MAX_MS;
+  else if (strcmp(s, "rcd_ms") == 0) *out = RESULT_RCD_MS;
+  else if (strcmp(s, "efli_ohm") == 0) *out = RESULT_EFLI_OHM;
+  else if (strcmp(s, "none") == 0) *out = RESULT_NONE;
+  else return false;
+  return true;
+}
+
+static CmpOp parseCmpOp(const char* s) {
+  if (!s) return CMP_DEFAULT;
+  if (strcmp(s, "<") == 0) return CMP_LT;
+  if (strcmp(s, ">") == 0) return CMP_GT;
+  if (strcmp(s, "<=") == 0) return CMP_LE;
+  if (strcmp(s, ">=") == 0) return CMP_GE;
+  if (strcmp(s, "==") == 0) return CMP_EQ;
+  return CMP_DEFAULT;
+}
+
+static const char* cmpOpToStr(CmpOp op) {
+  switch (op) {
+    case CMP_LT: return "<";
+    case CMP_GT: return ">";
+    case CMP_LE: return "<=";
+    case CMP_GE: return ">=";
+    case CMP_EQ: return "==";
+    default: return "";
+  }
+}
+
 const char* VerificationSteps_getTestName(VerifyTestId id) {
-  if (id < 0 || id >= VERIFY_TEST_COUNT) return "";
+  if (id < 0 || id >= VERIFY_TEST_CAPACITY) return "";
+  if (s_customActive) {
+    if (!s_customTestNames || id >= s_customActiveTestCount) return "";
+    return s_customTestNames[id];
+  }
+  if (id >= kDefaultTestCount) return "";
   return s_testNames[id];
 }
 
 int VerificationSteps_getStepCount(VerifyTestId id) {
-  if (id < 0 || id >= VERIFY_TEST_COUNT) return 0;
+  if (id < 0 || id >= VERIFY_TEST_CAPACITY) return 0;
+  if (s_customActive) {
+    if (!s_customStepCounts || id >= s_customActiveTestCount) return 0;
+    return s_customStepCounts[id];
+  }
+  if (id >= kDefaultTestCount) return 0;
   return s_stepCounts[id];
 }
 
 void VerificationSteps_getStep(VerifyTestId id, int stepIndex, VerifyStep* out) {
-  if (!out || id < 0 || id >= VERIFY_TEST_COUNT || stepIndex < 0 || stepIndex >= s_stepCounts[id]) return;
+  if (!out || id < 0 || id >= VERIFY_TEST_CAPACITY) return;
+  if (s_customActive) {
+    if (!s_customSteps || !s_customStepCounts || id >= s_customActiveTestCount) return;
+    if (stepIndex < 0 || stepIndex >= s_customStepCounts[id]) return;
+    CustomVerifyStep* cs = &s_customSteps[id][stepIndex];
+    out->type = cs->type;
+    out->title = cs->title;
+    out->instruction = cs->instruction;
+    out->clause = cs->clause;
+    out->resultKind = cs->resultKind;
+    out->resultLabel = cs->resultLabel;
+    out->unit = cs->unit;
+    return;
+  }
+  if (stepIndex < 0 || stepIndex >= s_stepCounts[id]) return;
   memcpy(out, &s_steps[id][stepIndex], sizeof(VerifyStep));
 }
 
 bool VerificationSteps_validateResult(VerifyResultKind kind, float value, bool isSheathedHeating) {
+  if (kind >= 0 && kind < RESULT_NONE && s_customOps[kind] != CMP_DEFAULT) {
+    float lim = s_customVals[kind];
+    switch (s_customOps[kind]) {
+      case CMP_LT: return value < lim;
+      case CMP_GT: return value > lim;
+      case CMP_LE: return value <= lim;
+      case CMP_GE: return value >= lim;
+      case CMP_EQ: return value == lim;
+      default: break;
+    }
+  }
   switch (kind) {
     case RESULT_CONTINUITY_OHM: return TestLimits_continuityPass(value);
     case RESULT_IR_MOHM: return TestLimits_insulationPass(value, false);
@@ -184,6 +332,162 @@ bool VerificationSteps_validateResult(VerifyResultKind kind, float value, bool i
     case RESULT_RCD_MS: return TestLimits_rcdTripTimePass(value);
     case RESULT_EFLI_OHM: return TestLimits_efliPass(value);
     default: return false;
+  }
+}
+
+bool VerificationSteps_getConfigJson(char* buf, unsigned buf_size) {
+  if (!buf || buf_size < 64) return false;
+  DynamicJsonDocument doc(131072);
+  JsonArray tests = doc.createNestedArray("tests");
+  for (int i = 0; i < VerificationSteps_getActiveTestCount(); i++) {
+    JsonObject t = tests.createNestedObject();
+    t["id"] = i;
+    t["name"] = VerificationSteps_getTestName((VerifyTestId)i);
+    JsonArray steps = t.createNestedArray("steps");
+    int count = VerificationSteps_getStepCount((VerifyTestId)i);
+    for (int s = 0; s < count; s++) {
+      VerifyStep st{};
+      VerificationSteps_getStep((VerifyTestId)i, s, &st);
+      JsonObject so = steps.createNestedObject();
+      so["type"] = stepTypeToStr(st.type);
+      so["title"] = st.title ? st.title : "";
+      so["instruction"] = st.instruction ? st.instruction : "";
+      so["clause"] = st.clause ? st.clause : "";
+      so["resultKind"] = resultKindToStr(st.resultKind);
+      so["resultLabel"] = st.resultLabel ? st.resultLabel : "";
+      so["unit"] = st.unit ? st.unit : "";
+    }
+  }
+  JsonArray rules = doc.createNestedArray("rules");
+  for (int k = 0; k < RESULT_NONE; k++) {
+    if (s_customOps[k] == CMP_DEFAULT) continue;
+    JsonObject r = rules.createNestedObject();
+    r["kind"] = resultKindToStr((VerifyResultKind)k);
+    r["op"] = cmpOpToStr(s_customOps[k]);
+    r["value"] = s_customVals[k];
+  }
+  size_t n = serializeJsonPretty(doc, buf, buf_size);
+  return n > 0 && n < buf_size;
+}
+
+bool VerificationSteps_activateConfigJson(const char* json, char* err, unsigned err_size) {
+  if (err && err_size) err[0] = '\0';
+  if (!json || !json[0]) {
+    if (err && err_size) snprintf(err, err_size, "JSON is empty");
+    return false;
+  }
+  DynamicJsonDocument doc(196608);
+  auto de = deserializeJson(doc, json);
+  if (de) {
+    if (err && err_size) snprintf(err, err_size, "JSON parse error: %s", de.c_str());
+    return false;
+  }
+  JsonArray tests = doc["tests"].as<JsonArray>();
+  if (tests.isNull()) {
+    if (err && err_size) snprintf(err, err_size, "Missing tests[]");
+    return false;
+  }
+  std::unique_ptr<TestNameBuf[]> nextNames(new TestNameBuf[VERIFY_TEST_CAPACITY]());
+  std::unique_ptr<TestStepsBuf[]> nextSteps(new TestStepsBuf[VERIFY_TEST_CAPACITY]());
+  std::unique_ptr<int[]> nextCounts(new int[VERIFY_TEST_CAPACITY]());
+  if (!nextNames || !nextSteps || !nextCounts) {
+    if (err && err_size) snprintf(err, err_size, "Out of memory");
+    return false;
+  }
+  CmpOp nextOps[RESULT_NONE] = {};
+  float nextVals[RESULT_NONE] = {};
+  for (int i = 0; i < RESULT_NONE; i++) { nextOps[i] = CMP_DEFAULT; nextVals[i] = 0.0f; }
+
+  int autoId = 0;
+  int maxId = -1;
+  for (JsonObject t : tests) {
+    int id = t["id"] | autoId;
+    autoId++;
+    if (id < 0 || id >= VERIFY_TEST_CAPACITY) continue;
+    const char* nm = t["name"] | "";
+    strncpy(nextNames[id], nm, VERIFY_MAX_NAME_LEN - 1);
+    JsonArray steps = t["steps"].as<JsonArray>();
+    if (steps.isNull()) {
+      if (err && err_size) snprintf(err, err_size, "Test %d missing steps", id);
+      return false;
+    }
+    int idx = 0;
+    for (JsonObject so : steps) {
+      if (idx >= VERIFY_MAX_STEPS_PER_TEST) break;
+      VerifyStepType stype;
+      VerifyResultKind rkind;
+      if (!parseStepType(so["type"] | "", &stype)) {
+        if (err && err_size) snprintf(err, err_size, "Invalid step type in test %d", id);
+        return false;
+      }
+      if (!parseResultKind(so["resultKind"] | "none", &rkind)) {
+        if (err && err_size) snprintf(err, err_size, "Invalid resultKind in test %d", id);
+        return false;
+      }
+      CustomVerifyStep* cs = &nextSteps[id][idx++];
+      cs->type = stype;
+      cs->resultKind = rkind;
+      strncpy(cs->title, so["title"] | "", VERIFY_MAX_TITLE_LEN - 1);
+      strncpy(cs->instruction, so["instruction"] | "", VERIFY_MAX_INSTR_LEN - 1);
+      strncpy(cs->clause, so["clause"] | "", VERIFY_MAX_CLAUSE_LEN - 1);
+      strncpy(cs->resultLabel, so["resultLabel"] | "", VERIFY_MAX_LABEL_LEN - 1);
+      strncpy(cs->unit, so["unit"] | "", VERIFY_MAX_UNIT_LEN - 1);
+    }
+    if (idx <= 0) {
+      if (err && err_size) snprintf(err, err_size, "Test %d has no steps", id);
+      return false;
+    }
+    nextCounts[id] = idx;
+    if (id > maxId) maxId = id;
+  }
+  if (maxId < 0) {
+    if (err && err_size) snprintf(err, err_size, "No tests provided");
+    return false;
+  }
+  for (int i = 0; i <= maxId; i++) {
+    if (nextCounts[i] <= 0) {
+      if (err && err_size) snprintf(err, err_size, "Missing test id %d", i);
+      return false;
+    }
+    if (!nextNames[i][0]) {
+      if (i < kDefaultTestCount) strncpy(nextNames[i], s_testNames[i], VERIFY_MAX_NAME_LEN - 1);
+      else snprintf(nextNames[i], VERIFY_MAX_NAME_LEN, "Custom test %d", i + 1);
+    }
+  }
+  JsonArray rules = doc["rules"].as<JsonArray>();
+  if (!rules.isNull()) {
+    for (JsonObject r : rules) {
+      VerifyResultKind kind;
+      if (!parseResultKind(r["kind"] | "", &kind) || kind == RESULT_NONE) continue;
+      CmpOp op = parseCmpOp(r["op"] | "");
+      if (op == CMP_DEFAULT) {
+        if (err && err_size) snprintf(err, err_size, "Invalid comparator op");
+        return false;
+      }
+      nextOps[kind] = op;
+      nextVals[kind] = r["value"] | 0.0f;
+    }
+  }
+
+  s_customTestNames = std::move(nextNames);
+  s_customSteps = std::move(nextSteps);
+  s_customStepCounts = std::move(nextCounts);
+  s_customActiveTestCount = maxId + 1;
+  memcpy(s_customOps, nextOps, sizeof(s_customOps));
+  memcpy(s_customVals, nextVals, sizeof(s_customVals));
+  s_customActive = true;
+  return true;
+}
+
+void VerificationSteps_useFactoryDefaults(void) {
+  s_customActive = false;
+  s_customActiveTestCount = 0;
+  s_customTestNames.reset();
+  s_customSteps.reset();
+  s_customStepCounts.reset();
+  for (int i = 0; i < RESULT_NONE; i++) {
+    s_customOps[i] = CMP_DEFAULT;
+    s_customVals[i] = 0.0f;
   }
 }
 

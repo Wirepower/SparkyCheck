@@ -16,7 +16,7 @@ namespace BootScreen {
 static const char* kCreatorCredit = "Frank Offer · 2026";
 
 /** Vertical centre of boot logo (matches `drawBootLogoRaster`). */
-static int bootGraphicCenterY(int screenH) { return screenH >= 600 ? 200 : 140; }
+static int bootGraphicCenterY(int screenH) { return screenH / 2; }
 
 // Colours (TFT_eSPI 16-bit RGB565)
 static const uint16_t kBootNearBlack = 0x0841;  // ~#0D1117 behind logo
@@ -173,21 +173,12 @@ void showFirst(SparkyTft& tft) {
     tft.fillRect(0, y0, w, y1 - y0 + 1, c);
   }
 
-  const char* title = "SparkyCheck";
   tft.setTextWrap(false);
-  tft.setTextColor(kWhite, kBgDark);
-  tft.setTextSize(3);
-  {
-    int tw = (int)strlen(title) * 6 * 3;
-    int tx = (w - tw) / 2;
-    if (tx < 8) tx = 8;
-    tft.setCursor(tx, 32);
-    tft.print(title);
-  }
 
   drawBootLogoRaster(tft, w, h);
 
-  tft.setTextColor(kAccentDim, kBgMid);
+  /* White on dark bg — readable on the blue gradient (avoids dim gold on mid-blue). */
+  tft.setTextColor(kWhite, kBgDark);
   tft.setTextSize(1);
   {
     int tw = (int)strlen(kCreatorCredit) * 6;
@@ -197,9 +188,7 @@ void showFirst(SparkyTft& tft) {
     tft.print(kCreatorCredit);
   }
 
-  tft.setTextColor(kAccentDim, kBgMid);
-  tft.setCursor(w / 2 - 52, h - 36);
-  tft.print("Tap to continue");
+  /* No "Tap to continue" caption on boot logo screen. */
 }
 
 bool isBootLogoTouchRegion(SparkyTft& tft, int x, int y) {
@@ -216,57 +205,51 @@ bool isBootLogoTouchRegion(SparkyTft& tft, int x, int y) {
 void showDisclaimer(SparkyTft& tft) {
   const int w = tft.width();
   const int h = tft.height();
+  const bool largeUi = (w >= 700);
+  const int margin = largeUi ? 20 : 12;
+  const int bodyTs = largeUi ? 2 : 1;
+  const int bodyLineH = largeUi ? 24 : 16;
 
   tft.fillScreen(kBgDark);
-
   tft.setTextColor(kWhite, kBgDark);
-  tft.setTextSize(2);
-  tft.setCursor(20, 8);
-  tft.print("Disclaimer");
+  tft.setTextSize(3);
+  const char* title = "DISCLAIMER";
+  int tw = (int)strlen(title) * 6 * 3;
+  int tx = (w - tw) / 2;
+  if (tx < margin) tx = margin;
+  tft.setCursor(tx, 10);
+  tft.print(title);
+  tft.drawFastHLine(tx, 36, tw, kWhite);
 
-  tft.setTextColor(kAccentDim, kBgDark);
-  tft.setTextSize(1);
-  tft.setCursor(20, 36);
-  tft.print("SparkyCheck is a guidance tool only. It is NOT a");
-  tft.setCursor(20, 50);
-  tft.print("verification or testing device. It does not perform");
-  tft.setCursor(20, 64);
-  tft.print("or substitute for mandatory testing under");
   char d1[80], d2[80];
   Standards_getDisclaimerStandardLines(d1, sizeof(d1), d2, sizeof(d2));
-  tft.setCursor(20, 78);
-  tft.print(d1);
-  tft.setCursor(20, 92);
-  tft.print(d2);
-  tft.setCursor(20, 110);
-  tft.print("Responsibility for correct and compliant");
-  tft.setCursor(20, 124);
-  tft.print("inspection and verification remains with the user.");
-  tft.setCursor(20, 142);
-  tft.print("Use approved test equipment; zero leads before use.");
-  tft.setCursor(20, 160);
-  tft.print("By accepting, you acknowledge these terms.");
-
-  // Accept button (bottom centre) – must tap to continue
-  const int btnW = 160, btnH = 44, btnY = h - 52;
-  const int btnX = (w - btnW) / 2;
-  tft.fillRoundRect(btnX, btnY, btnW, btnH, 6, kSafetyGreen);
-  tft.drawRoundRect(btnX, btnY, btnW, btnH, 6, kWhite);
-  tft.setTextColor(TFT_BLACK, kSafetyGreen);
-  tft.setTextSize(2);
-  tft.setCursor(btnX + 28, btnY + 12);
-  tft.print("I Accept");
+  const char* lines[] = {
+    "SparkyCheck is guidance only.",
+    "Not a verification/testing device.",
+    "Does not replace mandatory testing.",
+    d1,
+    d2,
+    "Responsibility remains with the user."
+  };
+  const int lineCount = (int)(sizeof(lines) / sizeof(lines[0]));
+  tft.setTextColor(kAccentDim, kBgDark);
+  tft.setTextSize(bodyTs);
+  int y = 52;
+  for (int i = 0; i < lineCount; i++) {
+    int lineW = (int)strlen(lines[i]) * 6 * bodyTs;
+    int lx = (w - lineW) / 2;
+    if (lx < margin) lx = margin;
+    tft.setCursor(lx, y);
+    tft.print(lines[i]);
+    y += bodyLineH;
+  }
 
   sparkyDisplayFlush(&tft);
 
-  uint16_t tx = 0, ty = 0;
-  while (true) {
-    if (tft.getTouch(&tx, &ty)) {
-      if ((int)tx >= btnX && (int)tx < btnX + btnW && (int)ty >= btnY && (int)ty < btnY + btnH)
-        break;
-    }
-    delay(50);
-  }
+  // Timeout-only transition to main screen.
+  const unsigned long startMs = millis();
+  const unsigned long kTimeoutMs = 8000;
+  while ((millis() - startMs) <= kTimeoutMs) delay(30);
 }
 
 }  // namespace BootScreen

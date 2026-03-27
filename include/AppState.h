@@ -56,6 +56,12 @@ void AppState_setBuzzerEnabled(bool on);
 void AppState_getWifiCredentials(char* ssid, unsigned ssid_size, char* pass, unsigned pass_size);
 void AppState_setWifiCredentials(const char* ssid, const char* pass);
 
+/** Admin fallback hotspot credentials for web portal access. */
+#define APP_STATE_ADMIN_AP_SSID_LEN 32
+#define APP_STATE_ADMIN_AP_PASS_LEN 32
+void AppState_getAdminApCredentials(char* ssid, unsigned ssid_size, char* pass, unsigned pass_size);
+void AppState_setAdminApCredentials(const char* ssid, const char* pass);
+
 /** OTA settings (manifest URL + automation toggles). */
 #define APP_STATE_OTA_URL_LEN 192
 void AppState_getOtaManifestUrl(char* buf, unsigned size);

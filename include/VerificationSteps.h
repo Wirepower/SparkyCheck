@@ -28,6 +28,9 @@ typedef enum {
   VERIFY_TEST_COUNT
 } VerifyTestId;
 
+/** Maximum custom test slots supported by runtime config. */
+#define VERIFY_TEST_CAPACITY 24
+
 /** Step type – determines UI (safety ack, Yes/No, result entry, or OK). */
 typedef enum {
   STEP_SAFETY,       /* Must acknowledge (e.g. "I have zeroed") */
@@ -63,6 +66,9 @@ const char* VerificationSteps_getTestName(VerifyTestId id);
 /** Get number of steps for this test. */
 int VerificationSteps_getStepCount(VerifyTestId id);
 
+/** Number of active tests currently exposed to UI flow. */
+int VerificationSteps_getActiveTestCount(void);
+
 /** Get step at index (0 .. count-1). */
 void VerificationSteps_getStep(VerifyTestId id, int stepIndex, VerifyStep* out);
 
@@ -71,6 +77,15 @@ bool VerificationSteps_validateResult(VerifyResultKind kind, float value, bool i
 
 /** Get pass/fail clause ref for report. */
 const char* VerificationSteps_getClauseForResult(VerifyResultKind kind);
+
+/** Export current test config as JSON for admin editing. */
+bool VerificationSteps_getConfigJson(char* buf, unsigned buf_size);
+
+/** Validate + activate test config JSON at runtime. */
+bool VerificationSteps_activateConfigJson(const char* json, char* err, unsigned err_size);
+
+/** Disable custom override and use compiled-in factory defaults. */
+void VerificationSteps_useFactoryDefaults(void);
 
 #ifdef __cplusplus
 }
