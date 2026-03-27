@@ -6,6 +6,7 @@
 #include <ArduinoJson.h>
 #include <HTTPClient.h>
 #include <HTTPUpdate.h>
+#include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <ctype.h>
 #include <stdio.h>
@@ -115,11 +116,50 @@ void OtaUpdate_getLastStatus(char* buf, unsigned size) {
   strCopy(buf, size, s_lastStatus);
 }
 
+/** Host part only of http(s)://host[:port]/path — for DNS preflight so we skip TLS when DNS is down (less log noise). */
+static bool manifestHostFromUrl(const char* url, char* host, unsigned hostLen) {
+  if (!url || !host || hostLen < 2) return false;
+  host[0] = '\0';
+  const char* p = strstr(url, "://");
+  if (p)
+    p += 3;
+  else
+    p = url;
+  while (*p == '/') p++;
+  unsigned i = 0;
+  while (*p && *p != '/' && *p != '?' && *p != '#' && i + 1 < hostLen) {
+    if (*p == ':') break; /* port */
+    host[i++] = (char)*p++;
+  }
+  host[i] = '\0';
+  return host[0] != '\0';
+}
+
+static bool dnsResolveManifest(const char* host) {
+  IPAddress ip(0u, 0u, 0u, 0u);
+#if ESP_ARDUINO_VERSION >= ESP_ARDUINO_VERSION_VAL(3, 0, 0)
+  if (!WiFi.hostByName(host, ip)) return false;
+#else
+  if (WiFi.hostByName(host, ip) != 1) return false;
+#endif
+  return ip != IPAddress(0u, 0u, 0u, 0u);
+}
+
 static bool fetchManifestJson(char* jsonOut, unsigned jsonSize) {
   char url[OTA_URL_LEN];
   OtaUpdate_getManifestUrl(url, sizeof(url));
   if (!url[0]) {
     setStatus("OTA manifest URL is empty.");
+    return false;
+  }
+
+  char host[96];
+  if (!manifestHostFromUrl(url, host, sizeof(host))) {
+    setStatus("OTA manifest URL has no host.");
+    return false;
+  }
+  if (!dnsResolveManifest(host)) {
+    setStatus("OTA skipped: cannot reach manifest host (check Wi‑Fi / DNS / internet).");
     return false;
   }
 
@@ -280,6 +320,7 @@ bool OtaUpdate_installPending(void) {
 
 void OtaUpdate_runAutoFlow(void) {
   if (!AppState_getOtaAutoCheckEnabled()) return;
+  if (!WifiManager_isConnected()) return;
   OtaCheckStatus st = OtaUpdate_checkNow();
   if (st != OTA_CHECK_UPDATE_AVAILABLE) return;
 
