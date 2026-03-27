@@ -72,6 +72,9 @@ int VerificationSteps_getActiveTestCount(void);
 /** Get step at index (0 .. count-1). */
 void VerificationSteps_getStep(VerifyTestId id, int stepIndex, VerifyStep* out);
 
+/** Expected answer for yes/no steps (true=Yes, false=No). Defaults to Yes. */
+bool VerificationSteps_expectedYesForStep(VerifyTestId id, int stepIndex);
+
 /** Validate entered value for a result step. Returns true if pass. */
 bool VerificationSteps_validateResult(VerifyResultKind kind, float value, bool isSheathedHeating);
 

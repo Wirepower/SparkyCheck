@@ -2,6 +2,8 @@
 #include "AppState.h"
 #include "WifiManager.h"
 #include "VerificationSteps.h"
+#include "BatteryStatus.h"
+#include "TestLimits.h"
 
 #include <Arduino.h>
 #include <WiFi.h>
@@ -10,7 +12,7 @@
 #include <LittleFS.h>
 #include <SD_MMC.h>
 #include <ArduinoJson.h>
-#include "boot_logo_embedded.h"
+#include "boot_logo_web_embedded.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -30,6 +32,7 @@ static bool s_flashErr = false;
 static WifiNetwork s_scanResults[WIFI_MAX_SSIDS];
 static int s_scanCount = 0;
 static char s_testsJson[131072] = "";
+static String s_uploadTestsJson;
 static const char* kTestsPath = "/config/tests.json";
 static const char* kTestsPrevPath = "/config/tests_prev.json";
 static bool buildTestsJsonFromActive(char* out, unsigned outSize);
@@ -127,6 +130,12 @@ static String esc(const char* s) {
   return out;
 }
 
+static String webFriendlyTestName(const char* name) {
+  String n = name ? String(name) : String("");
+  n.replace("SWP D/R", "SWP Disconnect/Reconnect");
+  return n;
+}
+
 static String htmlPage(const String& title, const String& body) {
   String h;
   h.reserve(6000);
@@ -135,9 +144,9 @@ static String htmlPage(const String& title, const String& body) {
   h += title;
   h += "</title><style>";
   h += kCss;
-  h += "</style></head><body><div class='brand'><img id='brandImg' src='/admin/logo.bmp?v=6' alt='SparkyCheck logo' style='width:120px;height:auto;border:1px solid #8ecae6;border-radius:8px;background:#0b162a;display:block'/><canvas id='brandCanvas' width='120' height='120'></canvas><div class='fallback' id='brandFallback'>SparkyCheck</div><div class='meta'>Frank Offer · 2026<br/>SparkyCheck Creator</div></div><div class='wrap'>";
+  h += "</style></head><body><div class='brand'><canvas id='brandCanvas' width='120' height='120'></canvas><div class='fallback' id='brandFallback'>SparkyCheck</div><div class='meta'>Frank Offer · 2026<br/>SparkyCheck Creator</div></div><div class='wrap'>";
   h += body;
-  h += "</div><script>(async function(){const img=document.getElementById('brandImg');const cv=document.getElementById('brandCanvas');const fb=document.getElementById('brandFallback');if(img){img.onload=function(){if(fb)fb.style.display='none';};img.onerror=async function(){try{img.style.display='none';if(!cv)return;const r=await fetch('/admin/logo565?v=6',{cache:'no-store'});if(!r.ok)throw new Error('fetch');const w=parseInt(r.headers.get('X-Logo-W')||'120',10)||120;const h=parseInt(r.headers.get('X-Logo-H')||'120',10)||120;const b=await r.arrayBuffer();const u16=new Uint16Array(b);cv.width=w;cv.height=h;const ctx=cv.getContext('2d');const id=ctx.createImageData(w,h);for(let i=0,j=0;i<u16.length&&j<id.data.length;i++,j+=4){const c=u16[i];id.data[j]=(((c>>11)&31)*255/31)|0;id.data[j+1]=(((c>>5)&63)*255/63)|0;id.data[j+2]=((c&31)*255/31)|0;id.data[j+3]=255;}ctx.putImageData(id,0,0);cv.style.display='block';if(fb)fb.style.display='none';}catch(e){if(fb)fb.style.display='flex';}};} })();</script>";
+  h += "</div><script>(async function(){const cv=document.getElementById('brandCanvas');const fb=document.getElementById('brandFallback');try{const r=await fetch('/admin/logo565?v=8',{cache:'no-store'});if(!r.ok)throw new Error('fetch');const w=parseInt(r.headers.get('X-Logo-W')||'120',10)||120;const h=parseInt(r.headers.get('X-Logo-H')||'120',10)||120;const buf=await r.arrayBuffer();const dv=new DataView(buf);cv.width=w;cv.height=h;const ctx=cv.getContext('2d');const id=ctx.createImageData(w,h);for(let i=0,j=0;i<w*h&&j<id.data.length;i++,j+=4){const c=dv.getUint16(i*2,true);id.data[j]=(((c>>11)&31)*255/31)|0;id.data[j+1]=(((c>>5)&63)*255/63)|0;id.data[j+2]=((c&31)*255/31)|0;id.data[j+3]=255;}ctx.putImageData(id,0,0);cv.style.display='block';if(fb)fb.style.display='none';}catch(e){if(fb)fb.style.display='flex';}})();</script>";
   h += "</body></html>";
   return h;
 }
@@ -159,7 +168,7 @@ static void streamBootLogoBmp(AsyncWebServerRequest* req) {
   const int fileSize = 54 + imgBytes;
 
   AsyncResponseStream* rs = req->beginResponseStream("image/bmp");
-  rs->addHeader("Cache-Control", "public, max-age=3600");
+  rs->addHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
   uint8_t h[54] = {0};
   h[0] = 'B'; h[1] = 'M';
   h[2] = (uint8_t)(fileSize & 0xFF); h[3] = (uint8_t)((fileSize >> 8) & 0xFF);
@@ -276,6 +285,14 @@ static String settingsPage(void) {
   b += esc(ssid[0] ? ssid : "(not connected)");
   b += " | IP: ";
   b += esc(ip[0] ? ip : "(n/a)");
+  int batteryPct = 0;
+  if (BatteryStatus_getPercent(&batteryPct)) {
+    b += " | Battery: ";
+    b += String(batteryPct);
+    b += "%";
+  } else {
+    b += " | Battery: (not configured)";
+  }
   if (s_apActive) {
     b += " | Hotspot: ";
     b += esc(s_apSsid);
@@ -584,41 +601,123 @@ static const char* stepTypeFriendly(const char* type) {
 static const char* ruleOpOrDefault(const char* op) {
   if (!op || !op[0]) return "<=";
   if (strcmp(op, "<") == 0 || strcmp(op, ">") == 0 || strcmp(op, "<=") == 0 ||
-      strcmp(op, ">=") == 0 || strcmp(op, "==") == 0) return op;
+      strcmp(op, ">=") == 0 || strcmp(op, "==") == 0 || strcmp(op, "between") == 0) return op;
   return "<=";
 }
 
-static bool getRuleForKind(DynamicJsonDocument& doc, const char* kind, String* outOp, float* outVal) {
+static bool getRuleForKind(DynamicJsonDocument& doc, const char* kind, String* outOp, float* outVal, float* outValMax) {
   if (!kind || !kind[0] || strcmp(kind, "none") == 0) return false;
   JsonArray rules = doc["rules"].as<JsonArray>();
   if (rules.isNull()) return false;
   for (JsonObject r : rules) {
     const char* k = r["kind"] | "";
     if (strcmp(k, kind) == 0) {
-      if (outOp) *outOp = String(ruleOpOrDefault(r["op"] | "<="));
-      if (outVal) *outVal = r["value"] | 0.0f;
+      const char* op = ruleOpOrDefault(r["op"] | "<=");
+      if (outOp) *outOp = String(op);
+      if (strcmp(op, "between") == 0) {
+        if (outVal) *outVal = r["min"] | 0.0f;
+        if (outValMax) *outValMax = r["max"] | 0.0f;
+      } else {
+        if (outVal) *outVal = r["value"] | 0.0f;
+        if (outValMax) *outValMax = 0.0f;
+      }
       return true;
     }
   }
   return false;
 }
 
-static void upsertRuleForKind(DynamicJsonDocument& doc, const char* kind, const char* op, float val) {
+static void upsertRuleForKind(DynamicJsonDocument& doc, const char* kind, const char* op, float val, float valMax) {
   if (!kind || !kind[0] || strcmp(kind, "none") == 0) return;
   JsonArray rules = doc["rules"].as<JsonArray>();
   if (rules.isNull()) rules = doc.createNestedArray("rules");
+  const char* safeOp = ruleOpOrDefault(op);
   for (JsonObject r : rules) {
     const char* k = r["kind"] | "";
     if (strcmp(k, kind) == 0) {
-      r["op"] = ruleOpOrDefault(op);
-      r["value"] = val;
+      r["op"] = safeOp;
+      if (strcmp(safeOp, "between") == 0) {
+        r["min"] = val;
+        r["max"] = valMax;
+        r.remove("value");
+      } else {
+        r["value"] = val;
+        r.remove("min");
+        r.remove("max");
+      }
       return;
     }
   }
   JsonObject nr = rules.createNestedObject();
   nr["kind"] = kind;
-  nr["op"] = ruleOpOrDefault(op);
-  nr["value"] = val;
+  nr["op"] = safeOp;
+  if (strcmp(safeOp, "between") == 0) {
+    nr["min"] = val;
+    nr["max"] = valMax;
+  } else {
+    nr["value"] = val;
+  }
+}
+
+static const char* defaultRuleUnitForKind(const char* kind) {
+  if (!kind) return "";
+  if (strcmp(kind, "ir_mohm") == 0 || strcmp(kind, "ir_mohm_sheathed") == 0) return "MOhm";
+  if (strcmp(kind, "rcd_required_max_ms") == 0 || strcmp(kind, "rcd_ms") == 0) return "ms";
+  if (strcmp(kind, "continuity_ohm") == 0 || strcmp(kind, "efli_ohm") == 0) return "ohm";
+  return "";
+}
+
+static float ruleUnitFactorToCanonical(const char* kind, const char* unit) {
+  if (!kind || !unit) return 1.0f;
+  if (strcmp(kind, "ir_mohm") == 0 || strcmp(kind, "ir_mohm_sheathed") == 0) {
+    if (strcmp(unit, "ohm") == 0) return 0.000001f;
+    if (strcmp(unit, "kOhm") == 0) return 0.001f;
+    if (strcmp(unit, "MOhm") == 0) return 1.0f;
+    if (strcmp(unit, "GOhm") == 0) return 1000.0f;
+    return 1.0f;
+  }
+  if (strcmp(kind, "rcd_required_max_ms") == 0 || strcmp(kind, "rcd_ms") == 0) {
+    if (strcmp(unit, "ms") == 0) return 1.0f;
+    if (strcmp(unit, "s") == 0) return 1000.0f;
+    return 1.0f;
+  }
+  if (strcmp(kind, "continuity_ohm") == 0 || strcmp(kind, "efli_ohm") == 0) {
+    if (strcmp(unit, "ohm") == 0) return 1.0f;
+    if (strcmp(unit, "kOhm") == 0) return 1000.0f;
+    if (strcmp(unit, "MOhm") == 0) return 1000000.0f;
+    return 1.0f;
+  }
+  return 1.0f;
+}
+
+static bool defaultRuleForKind(const char* kind, String* outOp, float* outVal) {
+  if (!kind) return false;
+  if (strcmp(kind, "continuity_ohm") == 0) {
+    if (outOp) *outOp = "<=";
+    if (outVal) *outVal = TestLimits_continuityMaxOhms();
+    return true;
+  }
+  if (strcmp(kind, "ir_mohm") == 0) {
+    if (outOp) *outOp = ">=";
+    if (outVal) *outVal = TestLimits_insulationMinMOhms();
+    return true;
+  }
+  if (strcmp(kind, "ir_mohm_sheathed") == 0) {
+    if (outOp) *outOp = ">=";
+    if (outVal) *outVal = TestLimits_insulationMinMOhmsSheathedHeating();
+    return true;
+  }
+  if (strcmp(kind, "rcd_ms") == 0) {
+    if (outOp) *outOp = "<=";
+    if (outVal) *outVal = TestLimits_rcdTripTimeMaxMs();
+    return true;
+  }
+  if (strcmp(kind, "efli_ohm") == 0) {
+    if (outOp) *outOp = "<=";
+    if (outVal) *outVal = TestLimits_efliMaxOhms();
+    return true;
+  }
+  return false;
 }
 
 static String trimmedValue(AsyncWebServerRequest* req, const char* key) {
@@ -628,6 +727,18 @@ static String trimmedValue(AsyncWebServerRequest* req, const char* key) {
 }
 
 static String testsPage(AsyncWebServerRequest* req) {
+  // Refresh from persisted single-file config so editor reflects live current content.
+  if (LittleFS.exists(kTestsPath)) {
+    File f = LittleFS.open(kTestsPath, "r");
+    if (f) {
+      String fromFs = f.readString();
+      f.close();
+      if (fromFs.length() > 0 && fromFs.length() < sizeof(s_testsJson)) {
+        strncpy(s_testsJson, fromFs.c_str(), sizeof(s_testsJson) - 1);
+        s_testsJson[sizeof(s_testsJson) - 1] = '\0';
+      }
+    }
+  }
   ensureTestsJsonLoaded();
   DynamicJsonDocument doc(131072);
   auto de = deserializeJson(doc, s_testsJson);
@@ -666,16 +777,19 @@ static String testsPage(AsyncWebServerRequest* req) {
       b += "'";
       if (optIdx == selectedTest) b += " selected";
       b += ">";
-      b += esc((t["name"] | ""));
+      b += esc(webFriendlyTestName((t["name"] | "")).c_str());
       b += "</option>";
       optIdx++;
     }
     b += "</select>";
   }
-  b += "<ol class='small'><li>Create a test name.</li><li>Add one or more steps.</li><li>Reorder tests if needed.</li><li>Delete only when sure.</li></ol>";
-  b += "<form method='post' action='/admin/tests/create'><label>New test name (required)</label><input name='name' value='' placeholder='Example: PAT and polarity check'/><button class='btn' type='submit'>Create test</button></form>";
+  b += "<ol class='small'><li>Create a new test (top form).</li><li>Select a test and add one or more steps inside that test.</li><li>Reorder tests if needed.</li><li>Delete only when sure.</li></ol>";
+  b += "<form method='post' action='/admin/tests/create' style='display:grid;grid-template-columns:1fr auto;gap:8px;align-items:end'>";
+  b += "<div><label>New test name (required)</label><input name='name' value='' placeholder='Example: PAT and polarity check'/></div>";
+  b += "<button class='btn' style='margin-top:0' type='submit'>Create new test</button></form>";
+  b += "<p class='small'>Create new test = adds a brand-new test. Add step to this test = adds a step inside the selected test below.</p>";
   if (!tests.isNull() && tests.size() > 0) {
-    b += "<table style='width:100%;border-collapse:collapse;'><tr><th style='text-align:left'>Test name</th><th>Steps</th><th>Actions</th></tr>";
+    b += "<table style='width:100%;border-collapse:collapse;'><tr><th style='text-align:left'></th><th>Steps</th><th>Actions</th></tr>";
     int idx = 0;
     for (JsonObject t : tests) {
       if (idx != selectedTest) { idx++; continue; }
@@ -684,7 +798,7 @@ static String testsPage(AsyncWebServerRequest* req) {
       b += "<tr class='test-card' data-test-id='";
       b += String(idx);
       b += "'><td>";
-      b += esc(nm);
+      b += esc(webFriendlyTestName(nm).c_str());
       b += "</td><td style='text-align:right'>";
       b += String(sc);
       b += "</td><td>";
@@ -697,7 +811,7 @@ static String testsPage(AsyncWebServerRequest* req) {
       b += "<select name='type'><option value='info'>Info message</option><option value='safety'>Safety check</option><option value='verify_yesno'>Question (Yes/No)</option><option value='result_entry'>Enter reading/value</option></select>";
       b += "<input name='title' placeholder='Step title (required)'/>";
       b += "<input name='instruction' placeholder='Instruction shown to user (required)'/>";
-      b += "<button class='btn' style='margin-top:0' type='submit'>+ Question</button></form>";
+      b += "<button class='btn' style='margin-top:0' type='submit'>Add step to this test</button></form>";
       b += "<div class='small' style='margin-top:4px'>Tip: Add at least one step per test.</div>";
       JsonArray steps = t["steps"].as<JsonArray>();
       if (!steps.isNull() && steps.size() > 0) {
@@ -708,6 +822,7 @@ static String testsPage(AsyncWebServerRequest* req) {
           const char* stType = st["type"] | "info";
           const char* stTitle = st["title"] | "";
           const char* stInst = st["instruction"] | "";
+          const char* stExpectedYesNo = st["expectedYesNo"] | "yes";
           b += "<div style='padding:8px;border:1px solid #1f2937;border-radius:8px;margin-bottom:6px'>";
           b += "<div class='small' style='margin-bottom:4px'>Step ";
           b += String(stepIdx + 1);
@@ -723,12 +838,22 @@ static String testsPage(AsyncWebServerRequest* req) {
           b += "<option value='verify_yesno'"; if (strcmp(stType, "verify_yesno") == 0) b += " selected"; b += ">Question (Yes/No)</option>";
           b += "<option value='result_entry'"; if (strcmp(stType, "result_entry") == 0) b += " selected"; b += ">Enter reading/value</option>";
           b += "</select>";
+          b += "<select name='expected_yesno'>";
+          b += "<option value='yes'"; if (strcmp(stExpectedYesNo, "yes") == 0) b += " selected"; b += ">Expected answer: Yes</option>";
+          b += "<option value='no'"; if (strcmp(stExpectedYesNo, "no") == 0) b += " selected"; b += ">Expected answer: No</option>";
+          b += "</select>";
           b += "<input name='title' value='"; b += esc(stTitle); b += "' placeholder='Step title'/>";
           b += "<input name='instruction' value='"; b += esc(stInst); b += "' placeholder='Instruction'/>";
           const char* stRk = st["resultKind"] | "none";
           String ruleOp = "<=";
           float ruleVal = 0.0f;
-          bool hasRule = getRuleForKind(doc, stRk, &ruleOp, &ruleVal);
+          float ruleValMax = 0.0f;
+          bool hasRule = getRuleForKind(doc, stRk, &ruleOp, &ruleVal, &ruleValMax);
+          if (!hasRule) {
+            hasRule = defaultRuleForKind(stRk, &ruleOp, &ruleVal);
+            ruleValMax = 0.0f;
+          }
+          const char* defaultUnit = defaultRuleUnitForKind(stRk);
           b += "<select name='result_kind'>";
           b += "<option value='none'"; if (strcmp(stRk, "none") == 0) b += " selected"; b += ">No expected pass value</option>";
           b += "<option value='continuity_ohm'"; if (strcmp(stRk, "continuity_ohm") == 0) b += " selected"; b += ">Continuity (ohm)</option>";
@@ -744,10 +869,23 @@ static String testsPage(AsyncWebServerRequest* req) {
           b += "<option value='>'"; if (ruleOp == ">") b += " selected"; b += ">&gt;</option>";
           b += "<option value='>='"; if (ruleOp == ">=") b += " selected"; b += ">&gt;=</option>";
           b += "<option value='=='"; if (ruleOp == "==") b += " selected"; b += ">==</option>";
+          b += "<option value='between'"; if (ruleOp == "between") b += " selected"; b += ">between</option>";
           b += "</select>";
           b += "<input name='rule_value' value='";
           b += hasRule ? String(ruleVal, 3) : String("");
-          b += "' placeholder='Expected pass value'/>";
+          b += "' placeholder='Expected value or min'/>";
+          b += "<input name='rule_value_max' value='";
+          b += (hasRule && ruleOp == "between") ? String(ruleValMax, 3) : String("");
+          b += "' placeholder='Max value (for between)'/>";
+          b += "<select name='rule_unit'>";
+          b += "<option value=''>canonical</option>";
+          b += "<option value='ohm'"; if (strcmp(defaultUnit, "ohm") == 0) b += " selected"; b += ">ohm</option>";
+          b += "<option value='kOhm'"; if (strcmp(defaultUnit, "kOhm") == 0) b += " selected"; b += ">kOhm</option>";
+          b += "<option value='MOhm'"; if (strcmp(defaultUnit, "MOhm") == 0) b += " selected"; b += ">MOhm</option>";
+          b += "<option value='GOhm'"; if (strcmp(defaultUnit, "GOhm") == 0) b += " selected"; b += ">GOhm</option>";
+          b += "<option value='ms'"; if (strcmp(defaultUnit, "ms") == 0) b += " selected"; b += ">ms</option>";
+          b += "<option value='s'"; if (strcmp(defaultUnit, "s") == 0) b += " selected"; b += ">s</option>";
+          b += "</select>";
           b += "<button class='btn' style='margin-top:0' type='submit'>Save step</button></form>";
           b += "<div class='small' style='margin-top:4px'>Type: ";
           b += esc(stepTypeFriendly(stType));
@@ -758,28 +896,30 @@ static String testsPage(AsyncWebServerRequest* req) {
           b += "<input type='hidden' name='test_id' value='"; b += String(idx); b += "'/><input type='hidden' name='step_id' value='"; b += String(stepIdx); b += "'/>";
           b += "<input name='to' type='number' min='1' max='"; b += String((int)steps.size()); b += "' value='"; b += String(stepIdx + 1); b += "' style='width:68px;padding:4px'/>";
           b += "<button class='btn btn2' style='margin-top:0' type='submit'>Move</button></form> ";
-          b += "<form method='post' action='/admin/tests/step_delete' style='display:inline'><input type='hidden' name='test_id' value='"; b += String(idx); b += "'/><input type='hidden' name='step_id' value='"; b += String(stepIdx); b += "'/><button class='btn btn2' style='margin-top:6px;background:#7f1d1d' type='submit' onclick='return confirm(\"Delete this step?\")'>- Question</button></form>";
+          b += "<form method='post' action='/admin/tests/step_delete' style='display:inline'><input type='hidden' name='test_id' value='"; b += String(idx); b += "'/><input type='hidden' name='step_id' value='"; b += String(stepIdx); b += "'/><button class='btn btn2' style='margin-top:6px;background:#7f1d1d' type='submit' onclick='return confirm(\"Delete this step?\")'>Delete Step</button></form>";
+          b += "<div class='small' style='margin-top:4px'>Step up/down = move this step one place. Move = jump to the number entered. Delete Step = delete this step only.</div>";
           b += "</div>";
           stepIdx++;
         }
         b += "</div>";
       }
-      b += "<form method='post' action='/admin/tests/reorder' style='display:inline'><input type='hidden' name='id' value='"; b += String(idx); b += "'/><input type='hidden' name='dir' value='up'/><button class='btn btn2' style='margin-top:6px' type='submit'>Up</button></form> ";
-      b += "<form method='post' action='/admin/tests/reorder' style='display:inline'><input type='hidden' name='id' value='"; b += String(idx); b += "'/><input type='hidden' name='dir' value='down'/><button class='btn btn2' style='margin-top:6px' type='submit'>Down</button></form> ";
-      b += "<form method='post' action='/admin/tests/delete' style='display:inline'><input type='hidden' name='id' value='"; b += String(idx); b += "'/><button class='btn btn2' style='margin-top:6px;background:#7f1d1d' type='submit' onclick='return confirm(\"Delete this test?\")'>Delete test</button></form>";
+      b += "<form method='post' action='/admin/tests/reorder' style='display:inline'><input type='hidden' name='id' value='"; b += String(idx); b += "'/><input type='hidden' name='dir' value='up'/><button class='btn btn2' style='margin-top:6px' type='submit'>Move Test Up</button></form> ";
+      b += "<form method='post' action='/admin/tests/reorder' style='display:inline'><input type='hidden' name='id' value='"; b += String(idx); b += "'/><input type='hidden' name='dir' value='down'/><button class='btn btn2' style='margin-top:6px' type='submit'>Move Test Down</button></form> ";
+      b += "<form method='post' action='/admin/tests/delete' style='display:inline'><input type='hidden' name='id' value='"; b += String(idx); b += "'/><button class='btn btn2' style='margin-top:6px;background:#7f1d1d' type='submit' onclick='return confirm(\"Delete this test?\")'>Delete Entire Test</button></form>";
+      b += "<div class='small' style='margin-top:4px'>Move Test Up/Down = reorder this whole test in the main test list. Delete Entire Test = remove this test and all its steps.</div>";
       b += "</td></tr>";
       break;
     }
     b += "</table>";
   }
   b += "</div>";
-  b += "<div class='card'><h2>Advanced editor</h2><p class='small'>Optional raw JSON editor for advanced users only.</p>";
+  b += "<div class='card'><h2>Advanced editor (live tests.json)</h2><p class='small'>This is the full JSON currently loaded on the device. Edit directly, then click Validate + Activate.</p>";
   b += "<details><summary style='cursor:pointer;color:#93c5fd'>Show JSON editor</summary>";
   b += "<p class='small'>Edit JSON for test names, step order, questions, clauses, result kinds, and comparator rules.</p>";
   b += "<p class='small'>Supports up to ";
   b += String((int)VERIFY_TEST_CAPACITY);
   b += " tests.</p>";
-  b += "<p class='small'>Comparator rules support: &lt;, &gt;, &lt;=, &gt;=, ==</p>";
+  b += "<p class='small'>Comparator rules support: &lt;, &gt;, &lt;=, &gt;=, ==, between (min/max)</p>";
   b += "<details style='margin:8px 0'><summary style='cursor:pointer;color:#93c5fd'>Show example JSON template</summary>";
   b += "<p class='small'>Tip: Keep test IDs sequential (0,1,2...). Each test must have at least one step.</p>";
   b += "<textarea readonly style='width:100%;min-height:260px;border-radius:8px;background:#0f172a;color:#cfe8ff;border:1px solid #8ecae6;'>"
@@ -815,17 +955,21 @@ static String testsPage(AsyncWebServerRequest* req) {
        "  ]\n"
        "}\n"
        "</textarea></details>";
-  b += "<form method='post' action='/admin/tests/activate'><label>JSON config</label>";
-  b += "<textarea name='json' style='width:100%;min-height:380px;border-radius:8px;background:#0f172a;color:#fff;border:1px solid #8ecae6;'>";
-  b += esc(s_testsJson);
-  b += "</textarea><button class='btn' type='submit'>Validate + Activate</button></form>";
+  b += "<form method='post' action='/admin/tests/activate'><label>Live JSON config (current tests.json)</label>";
+  b += "<textarea id='liveJsonEditor' name='json' style='width:100%;min-height:380px;border-radius:8px;background:#0f172a;color:#fff;border:1px solid #8ecae6;'>Loading current tests.json...</textarea>";
+  b += "<button class='btn' type='submit'>Validate + Activate</button></form>";
   b += "</details>";
   b += "<form method='post' action='/admin/tests/rollback'><button class='btn btn2' type='submit'>Undo to previous saved version</button></form>";
-  b += "<form method='get' action='/admin/tests/download'><button class='btn btn2' type='submit'>Download tests.json</button></form>";
-  b += "<form method='post' action='/admin/tests/export/sd'><button class='btn btn2' type='submit'>Export tests to SD (/tests.json)</button></form>";
-  b += "<form method='post' action='/admin/tests/import/sd'><button class='btn btn2' type='submit'>Import tests from SD (/tests.json)</button></form>";
+  b += "<form method='get' action='/tests-download-live'><button class='btn btn2' type='submit'>Download tests.json</button></form>";
+  b += "<form method='post' action='/tests-export-sd'><button class='btn btn2' type='submit'>Export tests to SD (/tests.json)</button></form>";
+  b += "<form method='post' action='/tests-import-upload' enctype='multipart/form-data'>";
+  b += "<label>Import tests.json from this computer</label>";
+  b += "<input type='file' name='tests_file' accept='.json,application/json' required/>";
+  b += "<button class='btn btn2' type='submit'>Import tests from file</button></form>";
+  b += "<form method='post' action='/tests-import-sd'><button class='btn btn2' type='submit'>Import tests from SD (/tests.json)</button></form>";
   b += "<form method='post' action='/admin/tests/factory'><button class='btn btn2' type='submit' onclick='return confirm(\"Restore factory tests and remove custom tests?\")'>Restore factory defaults</button></form>";
   b += "</div>";
+  b += "<script>(async function(){try{const ta=document.getElementById('liveJsonEditor');if(!ta)return;const r=await fetch('/tests-json-live',{cache:'no-store'});if(!r.ok)throw new Error('fetch');ta.value=await r.text();}catch(e){const ta=document.getElementById('liveJsonEditor');if(ta)ta.value='{\"tests\":[],\"rules\":[]}';}})();</script>";
   return htmlPage("SparkyCheck Tests", b);
 }
 
@@ -994,16 +1138,27 @@ void AdminPortal_init(void) {
     req->redirect("/admin/tests-page");
   });
 
-  s_server.on("/admin/tests/download", HTTP_GET, [](AsyncWebServerRequest* req) {
+  s_server.on("/tests-download-live", HTTP_GET, [](AsyncWebServerRequest* req) {
     if (!isAuthorized(req)) { req->send(403, "text/plain", "Forbidden"); return; }
-    if (!LittleFS.exists(kTestsPath)) {
-      req->send(404, "text/plain", "tests.json not found");
-      return;
-    }
-    req->send(LittleFS, kTestsPath, "application/json", true);
+    ensureTestsJsonLoaded();
+    AsyncWebServerResponse* resp = req->beginResponse(200, "application/json", s_testsJson);
+    resp->addHeader("Content-Disposition", "attachment; filename=\"tests.json\"");
+    resp->addHeader("Cache-Control", "no-store");
+    req->send(resp);
   });
 
-  s_server.on("/admin/tests/import/sd", HTTP_POST, [](AsyncWebServerRequest* req) {
+  s_server.on("/tests-json-live", HTTP_GET, [](AsyncWebServerRequest* req) {
+    if (!isAuthorized(req)) { req->send(403, "text/plain", "Forbidden"); return; }
+    ensureTestsJsonLoaded();
+    AsyncWebServerResponse* resp = req->beginResponse(200, "application/json", s_testsJson);
+    resp->addHeader("Cache-Control", "no-store");
+    req->send(resp);
+  });
+  s_server.on("/admin/tests-download", HTTP_GET, [](AsyncWebServerRequest* req) {
+    req->redirect("/tests-download-live");
+  });
+
+  s_server.on("/tests-import-sd", HTTP_POST, [](AsyncWebServerRequest* req) {
     if (!isAuthorized(req)) { req->send(403, "text/plain", "Forbidden"); return; }
     if (!SD_MMC.begin("/sdcard", true, false)) {
       strncpy(s_flashMsg, "SD import failed: SD not mounted.", sizeof(s_flashMsg) - 1);
@@ -1034,8 +1189,14 @@ void AdminPortal_init(void) {
     s_flashErr = false;
     req->redirect("/admin/tests-page");
   });
+  s_server.on("/admin/tests-import-sd", HTTP_POST, [](AsyncWebServerRequest* req) {
+    req->redirect("/tests-import-sd");
+  });
+  s_server.on("/admin/tests/import/sd", HTTP_POST, [](AsyncWebServerRequest* req) {
+    req->redirect("/admin/tests-page");
+  });
 
-  s_server.on("/admin/tests/export/sd", HTTP_POST, [](AsyncWebServerRequest* req) {
+  s_server.on("/tests-export-sd", HTTP_POST, [](AsyncWebServerRequest* req) {
     if (!isAuthorized(req)) { req->send(403, "text/plain", "Forbidden"); return; }
     if (!SD_MMC.begin("/sdcard", true, false)) {
       strncpy(s_flashMsg, "SD export failed: SD not mounted.", sizeof(s_flashMsg) - 1);
@@ -1058,6 +1219,59 @@ void AdminPortal_init(void) {
     strncpy(s_flashMsg, "Exported tests to SD: /tests.json", sizeof(s_flashMsg) - 1);
     s_flashMsg[sizeof(s_flashMsg) - 1] = '\0';
     s_flashErr = false;
+    req->redirect("/admin/tests-page");
+  });
+  s_server.on("/admin/tests-export-sd", HTTP_POST, [](AsyncWebServerRequest* req) {
+    req->redirect("/tests-export-sd");
+  });
+  s_server.on("/admin/tests/export/sd", HTTP_POST, [](AsyncWebServerRequest* req) {
+    req->redirect("/admin/tests-page");
+  });
+
+  s_server.on("/tests-import-upload", HTTP_POST,
+    [](AsyncWebServerRequest* req) {
+      if (!isAuthorized(req)) { req->send(403, "text/plain", "Forbidden"); return; }
+      if (s_uploadTestsJson.length() == 0) {
+        strncpy(s_flashMsg, "Import failed: no file uploaded.", sizeof(s_flashMsg) - 1);
+        s_flashMsg[sizeof(s_flashMsg) - 1] = '\0';
+        s_flashErr = true;
+        req->redirect("/admin/tests-page");
+        return;
+      }
+      String err;
+      if (!activateAndPersistTestsJson(s_uploadTestsJson, &err)) {
+        snprintf(s_flashMsg, sizeof(s_flashMsg), "Import failed: %s", err.length() ? err.c_str() : "invalid JSON");
+        s_flashErr = true;
+        s_uploadTestsJson = "";
+        req->redirect("/admin/tests-page");
+        return;
+      }
+      strncpy(s_flashMsg, "Imported tests.json from uploaded file.", sizeof(s_flashMsg) - 1);
+      s_flashMsg[sizeof(s_flashMsg) - 1] = '\0';
+      s_flashErr = false;
+      s_uploadTestsJson = "";
+      req->redirect("/admin/tests-page");
+    },
+    [](AsyncWebServerRequest* req, const String& filename, size_t index, uint8_t* data, size_t len, bool final) {
+      (void)filename;
+      if (!isAuthorized(req)) return;
+      if (index == 0) {
+        s_uploadTestsJson = "";
+      }
+      if (s_uploadTestsJson.length() + len > 131072) {
+        s_uploadTestsJson = "";
+        return;
+      }
+      for (size_t i = 0; i < len; i++) s_uploadTestsJson += (char)data[i];
+      if (final) {
+        // handled in POST completion lambda
+      }
+    }
+  );
+  s_server.on("/admin/tests-import-upload", HTTP_POST, [](AsyncWebServerRequest* req) {
+    req->redirect("/admin/tests-page");
+  });
+  s_server.on("/admin/tests/import/upload", HTTP_POST, [](AsyncWebServerRequest* req) {
     req->redirect("/admin/tests-page");
   });
 
@@ -1160,6 +1374,7 @@ void AdminPortal_init(void) {
       return;
     }
     String type = trimmedValue(req, "type");
+    String expectedYesNo = trimmedValue(req, "expected_yesno");
     String title = trimmedValue(req, "title");
     String instruction = trimmedValue(req, "instruction");
     if (!title.length() || !instruction.length()) {
@@ -1269,11 +1484,14 @@ void AdminPortal_init(void) {
       return;
     }
     String type = trimmedValue(req, "type");
+    String expectedYesNo = trimmedValue(req, "expected_yesno");
     String title = trimmedValue(req, "title");
     String instruction = trimmedValue(req, "instruction");
     String resultKind = trimmedValue(req, "result_kind");
     String ruleOp = trimmedValue(req, "rule_op");
     String ruleValue = trimmedValue(req, "rule_value");
+    String ruleValueMax = trimmedValue(req, "rule_value_max");
+    String ruleUnit = trimmedValue(req, "rule_unit");
     if (!title.length() || !instruction.length()) {
       strncpy(s_flashMsg, "Step title and instruction are required.", sizeof(s_flashMsg) - 1);
       s_flashMsg[sizeof(s_flashMsg) - 1] = '\0';
@@ -1282,8 +1500,11 @@ void AdminPortal_init(void) {
       return;
     }
     if (type != "info" && type != "safety" && type != "verify_yesno" && type != "result_entry") type = "info";
+    if (expectedYesNo != "yes" && expectedYesNo != "no") expectedYesNo = "yes";
     JsonObject st = steps[stepId];
     st["type"] = type;
+    if (type == "verify_yesno") st["expectedYesNo"] = expectedYesNo;
+    else st.remove("expectedYesNo");
     st["title"] = title;
     st["instruction"] = instruction;
     if (resultKind != "continuity_ohm" && resultKind != "ir_mohm" && resultKind != "ir_mohm_sheathed" &&
@@ -1293,7 +1514,10 @@ void AdminPortal_init(void) {
     }
     st["resultKind"] = resultKind;
     if (resultKind != "none" && ruleValue.length()) {
-      upsertRuleForKind(doc, resultKind.c_str(), ruleOp.c_str(), ruleValue.toFloat());
+      float factor = ruleUnitFactorToCanonical(resultKind.c_str(), ruleUnit.length() ? ruleUnit.c_str() : defaultRuleUnitForKind(resultKind.c_str()));
+      float v1 = ruleValue.toFloat() * factor;
+      float v2 = (ruleValueMax.length() ? ruleValueMax.toFloat() : ruleValue.toFloat()) * factor;
+      upsertRuleForKind(doc, resultKind.c_str(), ruleOp.c_str(), v1, v2);
     }
     String json; serializeJsonPretty(doc, json);
     String err;

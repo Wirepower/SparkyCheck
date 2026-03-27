@@ -39,19 +39,23 @@ typedef enum {
   CMP_GT,
   CMP_LE,
   CMP_GE,
-  CMP_EQ
+  CMP_EQ,
+  CMP_BETWEEN
 } CmpOp;
 
 static bool s_customActive = false;
 typedef char TestNameBuf[VERIFY_MAX_NAME_LEN];
 typedef CustomVerifyStep TestStepsBuf[VERIFY_MAX_STEPS_PER_TEST];
+typedef bool TestExpectedBuf[VERIFY_MAX_STEPS_PER_TEST];
 static std::unique_ptr<TestNameBuf[]> s_customTestNames;
 static std::unique_ptr<TestStepsBuf[]> s_customSteps;
+static std::unique_ptr<TestExpectedBuf[]> s_customExpectedYes;
 static std::unique_ptr<int[]> s_customStepCounts;
 static int s_customActiveTestCount = 0;
 static const int kDefaultTestCount = VERIFY_TEST_COUNT;
 static CmpOp s_customOps[RESULT_NONE];
 static float s_customVals[RESULT_NONE];
+static float s_customValsMax[RESULT_NONE];
 
 static const char* s_testNames[] = {
   "Earth continuity (conductors)",
@@ -259,6 +263,7 @@ static CmpOp parseCmpOp(const char* s) {
   if (strcmp(s, "<=") == 0) return CMP_LE;
   if (strcmp(s, ">=") == 0) return CMP_GE;
   if (strcmp(s, "==") == 0) return CMP_EQ;
+  if (strcmp(s, "between") == 0) return CMP_BETWEEN;
   return CMP_DEFAULT;
 }
 
@@ -269,6 +274,7 @@ static const char* cmpOpToStr(CmpOp op) {
     case CMP_LE: return "<=";
     case CMP_GE: return ">=";
     case CMP_EQ: return "==";
+    case CMP_BETWEEN: return "between";
     default: return "";
   }
 }
@@ -312,15 +318,30 @@ void VerificationSteps_getStep(VerifyTestId id, int stepIndex, VerifyStep* out) 
   memcpy(out, &s_steps[id][stepIndex], sizeof(VerifyStep));
 }
 
+bool VerificationSteps_expectedYesForStep(VerifyTestId id, int stepIndex) {
+  if (id < 0 || id >= VERIFY_TEST_CAPACITY || stepIndex < 0) return true;
+  if (s_customActive) {
+    if (!s_customExpectedYes || !s_customStepCounts || id >= s_customActiveTestCount) return true;
+    if (stepIndex >= s_customStepCounts[id]) return true;
+    return s_customExpectedYes[id][stepIndex];
+  }
+  return true;  // factory defaults: yes/no checks expect "Yes" unless overridden by custom JSON
+}
+
 bool VerificationSteps_validateResult(VerifyResultKind kind, float value, bool isSheathedHeating) {
   if (kind >= 0 && kind < RESULT_NONE && s_customOps[kind] != CMP_DEFAULT) {
-    float lim = s_customVals[kind];
     switch (s_customOps[kind]) {
-      case CMP_LT: return value < lim;
-      case CMP_GT: return value > lim;
-      case CMP_LE: return value <= lim;
-      case CMP_GE: return value >= lim;
-      case CMP_EQ: return value == lim;
+      case CMP_LT: return value < s_customVals[kind];
+      case CMP_GT: return value > s_customVals[kind];
+      case CMP_LE: return value <= s_customVals[kind];
+      case CMP_GE: return value >= s_customVals[kind];
+      case CMP_EQ: return value == s_customVals[kind];
+      case CMP_BETWEEN: {
+        float lo = s_customVals[kind];
+        float hi = s_customValsMax[kind];
+        if (hi < lo) { float t = lo; lo = hi; hi = t; }
+        return value >= lo && value <= hi;
+      }
       default: break;
     }
   }
@@ -356,6 +377,9 @@ bool VerificationSteps_getConfigJson(char* buf, unsigned buf_size) {
       so["resultKind"] = resultKindToStr(st.resultKind);
       so["resultLabel"] = st.resultLabel ? st.resultLabel : "";
       so["unit"] = st.unit ? st.unit : "";
+      if (st.type == STEP_VERIFY_YESNO) {
+        so["expectedYesNo"] = VerificationSteps_expectedYesForStep((VerifyTestId)i, s) ? "yes" : "no";
+      }
     }
   }
   JsonArray rules = doc.createNestedArray("rules");
@@ -364,7 +388,12 @@ bool VerificationSteps_getConfigJson(char* buf, unsigned buf_size) {
     JsonObject r = rules.createNestedObject();
     r["kind"] = resultKindToStr((VerifyResultKind)k);
     r["op"] = cmpOpToStr(s_customOps[k]);
-    r["value"] = s_customVals[k];
+    if (s_customOps[k] == CMP_BETWEEN) {
+      r["min"] = s_customVals[k];
+      r["max"] = s_customValsMax[k];
+    } else {
+      r["value"] = s_customVals[k];
+    }
   }
   size_t n = serializeJsonPretty(doc, buf, buf_size);
   return n > 0 && n < buf_size;
@@ -389,14 +418,20 @@ bool VerificationSteps_activateConfigJson(const char* json, char* err, unsigned 
   }
   std::unique_ptr<TestNameBuf[]> nextNames(new TestNameBuf[VERIFY_TEST_CAPACITY]());
   std::unique_ptr<TestStepsBuf[]> nextSteps(new TestStepsBuf[VERIFY_TEST_CAPACITY]());
+  std::unique_ptr<TestExpectedBuf[]> nextExpectedYes(new TestExpectedBuf[VERIFY_TEST_CAPACITY]());
   std::unique_ptr<int[]> nextCounts(new int[VERIFY_TEST_CAPACITY]());
-  if (!nextNames || !nextSteps || !nextCounts) {
+  if (!nextNames || !nextSteps || !nextExpectedYes || !nextCounts) {
     if (err && err_size) snprintf(err, err_size, "Out of memory");
     return false;
   }
   CmpOp nextOps[RESULT_NONE] = {};
   float nextVals[RESULT_NONE] = {};
-  for (int i = 0; i < RESULT_NONE; i++) { nextOps[i] = CMP_DEFAULT; nextVals[i] = 0.0f; }
+  float nextValsMax[RESULT_NONE] = {};
+  for (int i = 0; i < RESULT_NONE; i++) {
+    nextOps[i] = CMP_DEFAULT;
+    nextVals[i] = 0.0f;
+    nextValsMax[i] = 0.0f;
+  }
 
   int autoId = 0;
   int maxId = -1;
@@ -426,6 +461,12 @@ bool VerificationSteps_activateConfigJson(const char* json, char* err, unsigned 
       }
       CustomVerifyStep* cs = &nextSteps[id][idx++];
       cs->type = stype;
+      bool expectedYes = true;
+      if (stype == STEP_VERIFY_YESNO) {
+        const char* exp = so["expectedYesNo"] | "yes";
+        if (strcmp(exp, "no") == 0 || strcmp(exp, "false") == 0 || strcmp(exp, "0") == 0) expectedYes = false;
+      }
+      nextExpectedYes[id][idx - 1] = expectedYes;
       cs->resultKind = rkind;
       strncpy(cs->title, so["title"] | "", VERIFY_MAX_TITLE_LEN - 1);
       strncpy(cs->instruction, so["instruction"] | "", VERIFY_MAX_INSTR_LEN - 1);
@@ -465,16 +506,28 @@ bool VerificationSteps_activateConfigJson(const char* json, char* err, unsigned 
         return false;
       }
       nextOps[kind] = op;
-      nextVals[kind] = r["value"] | 0.0f;
+      if (op == CMP_BETWEEN) {
+        if (!r.containsKey("min") || !r.containsKey("max")) {
+          if (err && err_size) snprintf(err, err_size, "between comparator requires min and max");
+          return false;
+        }
+        nextVals[kind] = r["min"] | 0.0f;
+        nextValsMax[kind] = r["max"] | 0.0f;
+      } else {
+        nextVals[kind] = r["value"] | 0.0f;
+        nextValsMax[kind] = 0.0f;
+      }
     }
   }
 
   s_customTestNames = std::move(nextNames);
   s_customSteps = std::move(nextSteps);
+  s_customExpectedYes = std::move(nextExpectedYes);
   s_customStepCounts = std::move(nextCounts);
   s_customActiveTestCount = maxId + 1;
   memcpy(s_customOps, nextOps, sizeof(s_customOps));
   memcpy(s_customVals, nextVals, sizeof(s_customVals));
+  memcpy(s_customValsMax, nextValsMax, sizeof(s_customValsMax));
   s_customActive = true;
   return true;
 }
@@ -484,10 +537,12 @@ void VerificationSteps_useFactoryDefaults(void) {
   s_customActiveTestCount = 0;
   s_customTestNames.reset();
   s_customSteps.reset();
+  s_customExpectedYes.reset();
   s_customStepCounts.reset();
   for (int i = 0; i < RESULT_NONE; i++) {
     s_customOps[i] = CMP_DEFAULT;
     s_customVals[i] = 0.0f;
+    s_customValsMax[i] = 0.0f;
   }
 }
 

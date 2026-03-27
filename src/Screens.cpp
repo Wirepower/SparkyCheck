@@ -5,6 +5,7 @@
 #include "Buzzer.h"
 #include "WifiManager.h"
 #include "AdminPortal.h"
+#include "BatteryStatus.h"
 #include "OtaUpdate.h"
 #include "GoogleSync.h"
 #include "Standards.h"
@@ -65,6 +66,39 @@ static void sparkyTestSelectRowMetrics(int w, int h, int row, int* outY, int* ou
   if (rowH > 54) rowH = 54;
   *outY = top + row * (rowH + g);
   *outRowH = rowH;
+}
+
+static int sparkyTestSelectHitIndex(int w, int h, int yScreen, int scrollPx) {
+  const int testCount = VerificationSteps_getActiveTestCount();
+  for (int i = 0; i < testCount; i++) {
+    int y0 = 0, rh = 0;
+    sparkyTestSelectRowMetrics(w, h, i, &y0, &rh);
+    y0 += scrollPx;
+    if (yScreen >= y0 && yScreen < (y0 + rh - 2)) return i;
+  }
+  return -1;
+}
+
+static void sparkyClampTestSelectScroll(int w, int h, int* ioScrollPx) {
+  if (!ioScrollPx) return;
+  const int testCount = VerificationSteps_getActiveTestCount();
+  if (testCount <= 0) {
+    *ioScrollPx = 0;
+    return;
+  }
+  int firstY = 0, firstH = 0;
+  int lastY = 0, lastH = 0;
+  sparkyTestSelectRowMetrics(w, h, 0, &firstY, &firstH);
+  sparkyTestSelectRowMetrics(w, h, testCount - 1, &lastY, &lastH);
+  const int contentTop = firstY;
+  const int contentBottom = lastY + (lastH - 2);
+  const int contentH = contentBottom - contentTop;
+  const int viewTop = contentTop;
+  const int viewBottom = h - 28;
+  const int viewH = viewBottom - viewTop;
+  const int maxScroll = (contentH > viewH) ? (contentH - viewH) : 0;
+  if (*ioScrollPx > 0) *ioScrollPx = 0;
+  if (*ioScrollPx < -maxScroll) *ioScrollPx = -maxScroll;
 }
 
 /** Word-wrap with each line centered (Adafruit fixed width font). Returns Y after last line. */
@@ -175,6 +209,8 @@ static void sparkyDrawVerificationScope(SparkyTft* tft, int w, int y0, uint8_t t
 static void sparkyDrawBtnLabel(SparkyTft* tft, int x, int y, int bw, int bh, const char* text, uint8_t ts) {
   if (!text || !text[0]) return;
   tft->setTextWrap(false);
+  /* Keep all device button labels consistent and readable. */
+  tft->setTextColor(kWhite);
   uint8_t t = ts < 1 ? 1 : ts;
   while (t > 1 && (int)strlen(text) * 6 * (int)t > bw - 12) t--;
   int tw = (int)strlen(text) * 6 * (int)t;
@@ -186,6 +222,19 @@ static void sparkyDrawBtnLabel(SparkyTft* tft, int x, int y, int bw, int bh, con
   if (ty < y + 2) ty = y + 2;
   tft->setCursor(tx, ty);
   tft->print(text);
+}
+
+/* Device-only friendly expansion for abbreviated test names. */
+static const char* sparkyDeviceTestLabel(const char* name) {
+  static char buf[96];
+  if (!name) return "";
+  const char* needle = "SWP D/R";
+  const char* hit = strstr(name, needle);
+  if (!hit) return name;
+  size_t pre = (size_t)(hit - name);
+  const char* repl = "SWP Disconnect/Reconnect";
+  snprintf(buf, sizeof(buf), "%.*s%s%s", (int)pre, name, repl, hit + strlen(needle));
+  return buf;
 }
 
 static void sparkyBackLabelCoords(int backW, int backH, int backX, int backY, int* outTx, int* outTy) {
@@ -375,6 +424,13 @@ static int s_resultEntryYAfterInstr = 0;
 /* Verification coach state */
 static int s_selectedTestType = 0;
 static int s_stepIndex = 0;
+static int s_testSelectScrollPx = 0;
+static bool s_testSelectTouchActive = false;
+static int s_testSelectLastY = 0;
+static int s_testSelectAccumDy = 0;
+static unsigned long s_testSelectLastTouchMs = 0;
+static int s_testSelectTapCandidate = -1;
+static unsigned long s_testSelectTapCandidateMs = 0;
 static float s_resultValue = 0.0f;
 static bool s_resultIsSheathedHeating = false;
 static int s_flowPhase = 0;   /* 0 = steps, 1 = result screen (pass/fail) */
@@ -666,10 +722,10 @@ static void drawOskRowSyncLetters(SparkyTft* tft, const QwertyKeyboardLayout* qk
   }
 }
 
-/* Tiny "connected Wi‑Fi" glyph in the top-left corner. */
+/* Small "connected Wi‑Fi" glyph in the top-right status area. */
 static void drawWifiConnectedIcon(SparkyTft* tft) {
   if (!WifiManager_isConnected()) return;
-  const int cx = 12;
+  const int cx = getW(tft) - 50;
   const int cy = 16;
   const int radii[3] = { 4, 7, 10 };
   for (int i = 0; i < 3; i++) {
@@ -679,6 +735,21 @@ static void drawWifiConnectedIcon(SparkyTft* tft) {
     tft->fillRect(cx - r - 1, cy, 2 * r + 2, r + 2, kBg);
   }
   tft->fillCircle(cx, cy + 4, 2, kGreen);
+}
+
+static void drawBatteryStatusIcon(SparkyTft* tft) {
+  int pct = 0;
+  if (!BatteryStatus_getPercent(&pct)) return;
+  int w = getW(tft);
+  const int x = w - 26;
+  const int y = 7;
+  const int bw = 18;
+  const int bh = 10;
+  tft->drawRect(x, y, bw, bh, kWhite);
+  tft->fillRect(x + bw, y + 3, 2, 4, kWhite);
+  int fillW = (pct * (bw - 4)) / 100;
+  uint16_t fill = pct > 50 ? kGreen : (pct > 20 ? kAccent : kRed);
+  tft->fillRect(x + 2, y + 2, fillW, bh - 4, fill);
 }
 
 static void drawQrCodeBox(SparkyTft* tft, int x, int y, int size, const char* text) {
@@ -955,7 +1026,7 @@ static void screens_draw_impl(SparkyTft* tft, ScreenId id, bool fullClear) {
       y += 70;
       tft->fillRoundRect(w/2 - 60, y, 120, 44, 8, kAccent);
       tft->drawRoundRect(w/2 - 60, y, 120, 44, 8, kWhite);
-      tft->setTextColor(TFT_BLACK, kAccent);
+      tft->setTextColor(kWhite, kAccent);
       tft->setCursor(w/2 - 35, y + 12);
       tft->print("Continue");
       break;
@@ -1029,16 +1100,22 @@ static void screens_draw_impl(SparkyTft* tft, ScreenId id, bool fullClear) {
         sparkyDrawVerificationScope(tft, w, scopeY, 2);
       }
       const int testCount = VerificationSteps_getActiveTestCount();
+      sparkyClampTestSelectScroll(w, h, &s_testSelectScrollPx);
+      int listTopY = 0, listRowH = 0;
+      sparkyTestSelectRowMetrics(w, h, 0, &listTopY, &listRowH);
+      const int listBottomY = h - 28;
       for (int i = 0; i < testCount; i++) {
         int y = 0, rh = 0;
         sparkyTestSelectRowMetrics(w, h, i, &y, &rh);
+        y += s_testSelectScrollPx;
         const int bh = rh - 2;
+        if (y + bh < listTopY || y > listBottomY) continue;
         tft->fillRoundRect(20, y, w - 40, bh, 6, kBtn);
         tft->drawRoundRect(20, y, w - 40, bh, 6, kWhite);
         tft->setTextColor(kWhite, kBtn);
         {
           uint8_t ts = panelWide ? (uint8_t)2 : (readable ? (uint8_t)2 : (uint8_t)1);
-          sparkyDrawBtnLabel(tft, 20, y, w - 40, bh, VerificationSteps_getTestName((VerifyTestId)i), ts);
+          sparkyDrawBtnLabel(tft, 20, y, w - 40, bh, sparkyDeviceTestLabel(VerificationSteps_getTestName((VerifyTestId)i)), ts);
         }
       }
       tft->setTextWrap(true);
@@ -1074,7 +1151,7 @@ static void screens_draw_impl(SparkyTft* tft, ScreenId id, bool fullClear) {
           else if (keys[idx] == 'E') cellBg = kGreen;
           tft->fillRoundRect(kx, ky, pk.cellW, pk.cellH, 8, cellBg);
           tft->drawRoundRect(kx, ky, pk.cellW, pk.cellH, 8, kWhite);
-          tft->setTextColor(keys[idx] == 'D' ? TFT_BLACK : kWhite, cellBg);
+          tft->setTextColor(kWhite, cellBg);
           if (keys[idx] == 'D') {
             sparkyDrawBtnLabel(tft, kx, ky, pk.cellW, pk.cellH, "Del", pk.keypadTs);
           } else if (keys[idx] == 'E') {
@@ -1153,7 +1230,7 @@ static void screens_draw_impl(SparkyTft* tft, ScreenId id, bool fullClear) {
         int btnY = h - 56;
         tft->fillRoundRect(20, btnY, w - 40, 48, 8, kAccent);
         tft->drawRoundRect(20, btnY, w - 40, 48, 8, kWhite);
-        tft->setTextColor(TFT_BLACK, kAccent);
+        tft->setTextColor(kWhite, kAccent);
         sparkyDrawBtnLabel(tft, 20, btnY, w - 40, 48, "End session", 2);
         break;
       }
@@ -1263,7 +1340,7 @@ static void screens_draw_impl(SparkyTft* tft, ScreenId id, bool fullClear) {
 
         tft->fillRoundRect(rel.delX, rel.delY, rel.delW, rel.delH, 8, kAccent);
         tft->drawRoundRect(rel.delX, rel.delY, rel.delW, rel.delH, 8, kWhite);
-        tft->setTextColor(TFT_BLACK, kAccent);
+        tft->setTextColor(kWhite, kAccent);
         sparkyDrawBtnLabel(tft, rel.delX, rel.delY, rel.delW, rel.delH, "Del", 2);
 
         for (int i = 0; i < unitCount; i++) {
@@ -1486,7 +1563,7 @@ static void screens_draw_impl(SparkyTft* tft, ScreenId id, bool fullClear) {
           int saveW = w - saveX - qk.marginX;
           tft->fillRoundRect(qk.marginX, qk.ctrlY, delW, qk.ctrlRowH, 8, kAccent);
           tft->drawRoundRect(qk.marginX, qk.ctrlY, delW, qk.ctrlRowH, 8, kWhite);
-          tft->setTextColor(TFT_BLACK, kAccent);
+          tft->setTextColor(kWhite, kAccent);
           sparkyDrawBtnLabel(tft, qk.marginX, qk.ctrlY, delW, qk.ctrlRowH, "Del", qk.keyTs);
           tft->fillRoundRect(aaX, qk.ctrlY, aaW, qk.ctrlRowH, 8, kBtn);
           tft->drawRoundRect(aaX, qk.ctrlY, aaW, qk.ctrlRowH, 8, kWhite);
@@ -1522,7 +1599,7 @@ static void screens_draw_impl(SparkyTft* tft, ScreenId id, bool fullClear) {
             else if (keys[idx] == 'E') cellBg = kGreen;
             tft->fillRoundRect(kx, ky, pk.cellW, pk.cellH, 8, cellBg);
             tft->drawRoundRect(kx, ky, pk.cellW, pk.cellH, 8, kWhite);
-            tft->setTextColor(keys[idx] == 'D' ? TFT_BLACK : kWhite, cellBg);
+            tft->setTextColor(kWhite, cellBg);
             if (keys[idx] == 'D') {
               sparkyDrawBtnLabel(tft, kx, ky, pk.cellW, pk.cellH, "Del", pk.keypadTs);
             } else if (keys[idx] == 'E') {
@@ -1733,7 +1810,7 @@ static void screens_draw_impl(SparkyTft* tft, ScreenId id, bool fullClear) {
         int connW = w - connX - qk.marginX;
         tft->fillRoundRect(qk.marginX, qk.ctrlY, delW, qk.ctrlRowH, 8, kAccent);
         tft->drawRoundRect(qk.marginX, qk.ctrlY, delW, qk.ctrlRowH, 8, kWhite);
-        tft->setTextColor(TFT_BLACK, kAccent);
+        tft->setTextColor(kWhite, kAccent);
         sparkyDrawBtnLabel(tft, qk.marginX, qk.ctrlY, delW, qk.ctrlRowH, "Del", qk.keyTs);
         tft->fillRoundRect(aaX, qk.ctrlY, aaW, qk.ctrlRowH, 8, kBtn);
         tft->drawRoundRect(aaX, qk.ctrlY, aaW, qk.ctrlRowH, 8, kWhite);
@@ -2067,7 +2144,7 @@ static void screens_draw_impl(SparkyTft* tft, ScreenId id, bool fullClear) {
         int saveW = w - saveX - qk.marginX;
         tft->fillRoundRect(qk.marginX, qk.ctrlY, delW, qk.ctrlRowH, 8, kAccent);
         tft->drawRoundRect(qk.marginX, qk.ctrlY, delW, qk.ctrlRowH, 8, kWhite);
-        tft->setTextColor(TFT_BLACK, kAccent);
+        tft->setTextColor(kWhite, kAccent);
         sparkyDrawBtnLabel(tft, qk.marginX, qk.ctrlY, delW, qk.ctrlRowH, "Del", qk.keyTs);
         tft->fillRoundRect(aaX, qk.ctrlY, aaW, qk.ctrlRowH, 8, kBtn);
         tft->drawRoundRect(aaX, qk.ctrlY, aaW, qk.ctrlRowH, 8, kWhite);
@@ -2120,7 +2197,7 @@ static void screens_draw_impl(SparkyTft* tft, ScreenId id, bool fullClear) {
           else if (keys[idx] == 'E') cellBg = kGreen;
           tft->fillRoundRect(kx, ky, pk.cellW, pk.cellH, 8, cellBg);
           tft->drawRoundRect(kx, ky, pk.cellW, pk.cellH, 8, kWhite);
-          tft->setTextColor(keys[idx] == 'C' ? TFT_BLACK : kWhite, cellBg);
+          tft->setTextColor(kWhite, cellBg);
           if (keys[idx] == 'C') {
             sparkyDrawBtnLabel(tft, kx, ky, pk.cellW, pk.cellH, "Clear", pk.keypadTs);
           } else if (keys[idx] == 'E') {
@@ -2167,7 +2244,7 @@ static void screens_draw_impl(SparkyTft* tft, ScreenId id, bool fullClear) {
           else if (keys[idx] == 'E') cellBg = kGreen;
           tft->fillRoundRect(kx, ky, pk.cellW, pk.cellH, 8, cellBg);
           tft->drawRoundRect(kx, ky, pk.cellW, pk.cellH, 8, kWhite);
-          tft->setTextColor(keys[idx] == 'C' ? TFT_BLACK : kWhite, cellBg);
+          tft->setTextColor(kWhite, cellBg);
           if (keys[idx] == 'C') {
             sparkyDrawBtnLabel(tft, kx, ky, pk.cellW, pk.cellH, "Clear", pk.keypadTs);
           } else if (keys[idx] == 'E') {
@@ -2188,6 +2265,7 @@ static void screens_draw_impl(SparkyTft* tft, ScreenId id, bool fullClear) {
       break;
   }
   drawWifiConnectedIcon(tft);
+  drawBatteryStatusIcon(tft);
   sparkyDisplayFlush(tft);
 }
 
@@ -2241,11 +2319,46 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
       int backX = w - backW - 12;
       int backY = panelWide ? 10 : 8;
       if (inRect(ix, iy, backX, backY, backW, backH)) return handled(SCREEN_MAIN_MENU);
+      unsigned long now = millis();
+      if (s_testSelectTouchActive && (long)(now - s_testSelectLastTouchMs) > 300) {
+        s_testSelectTouchActive = false;
+        s_testSelectAccumDy = 0;
+        s_testSelectTapCandidate = -1;
+      }
       const int testCount = VerificationSteps_getActiveTestCount();
-      for (int i = 0; i < testCount; i++) {
-        int y0 = 0, rh = 0;
-        sparkyTestSelectRowMetrics(w, h, i, &y0, &rh);
-        if (inRect(ix, iy, 20, y0, w - 40, rh - 2)) {
+      if (testCount <= 0) break;
+      int listTopY = 0, listRowH = 0;
+      sparkyTestSelectRowMetrics(w, h, 0, &listTopY, &listRowH);
+      int listBottomY = h - 28;
+      if (inRect(ix, iy, 20, listTopY, w - 40, listBottomY - listTopY)) {
+        if (!s_testSelectTouchActive) {
+          s_testSelectTouchActive = true;
+          s_testSelectLastY = iy;
+          s_testSelectAccumDy = 0;
+          s_testSelectLastTouchMs = now;
+          s_testSelectTapCandidate = sparkyTestSelectHitIndex(w, h, iy, s_testSelectScrollPx);
+          s_testSelectTapCandidateMs = now;
+          return handled(current);
+        }
+        int dy = iy - s_testSelectLastY;
+        s_testSelectLastY = iy;
+        s_testSelectAccumDy += dy;
+        s_testSelectLastTouchMs = now;
+        if (abs(s_testSelectAccumDy) >= 10 || abs(dy) >= 6) {
+          s_testSelectScrollPx += dy;
+          sparkyClampTestSelectScroll(w, h, &s_testSelectScrollPx);
+          s_testSelectTapCandidate = -1;
+          Screens_draw(tft, current, false);
+          return handled(current);
+        }
+        int hit = sparkyTestSelectHitIndex(w, h, iy, s_testSelectScrollPx);
+        if (s_testSelectTapCandidate >= 0 &&
+            hit == s_testSelectTapCandidate &&
+            (long)(now - s_testSelectTapCandidateMs) <= 500) {
+          int i = hit;
+          s_testSelectTouchActive = false;
+          s_testSelectAccumDy = 0;
+          s_testSelectTapCandidate = -1;
           s_selectedTestType = i;
           s_stepIndex = 0;
           s_flowPhase = 0;
@@ -2264,6 +2377,7 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
           }
           return handled(SCREEN_TEST_FLOW);
         }
+        return handled(current);
       }
       break;
     }
@@ -2377,35 +2491,65 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
         }
       } else if (step.type == STEP_VERIFY_YESNO) {
         int half = (w - 50) / 2, btnY = h - 56;
+        const bool expectedYes = VerificationSteps_expectedYesForStep((VerifyTestId)s_selectedTestType, s_stepIndex);
         if (inRect(ix, iy, 20, btnY, half, 52)) {
+          const bool answerYes = true;
           if (s_stepIndex == 2 && s_selectedTestType == (int)VERIFY_INSULATION) s_resultIsSheathedHeating = true;
-          s_stepIndex++;
-          if (s_stepIndex >= count) {
+          if (answerYes == expectedYes) {
+            s_stepIndex++;
+            if (s_stepIndex >= count) {
+              s_flowPhase = 1;
+              s_resultPass = true;
+              s_resultLabel = VerificationSteps_getTestName((VerifyTestId)s_selectedTestType);
+              s_resultUnit = "";
+              VerificationSteps_getStep((VerifyTestId)s_selectedTestType, count - 1, &step);
+              s_resultClause = step.clause;
+              s_testCompletedMs = millis();
+              syncTrainingFlowEvent("result_confirmed", true, nullptr);
+            } else {
+              syncTrainingFlowEvent("step_next", false, nullptr);
+            }
+          } else {
             s_flowPhase = 1;
-            s_resultPass = true;
+            s_resultPass = false;
             s_resultLabel = VerificationSteps_getTestName((VerifyTestId)s_selectedTestType);
             s_resultUnit = "";
-            VerificationSteps_getStep((VerifyTestId)s_selectedTestType, count - 1, &step);
+            VerificationSteps_getStep((VerifyTestId)s_selectedTestType, s_stepIndex, &step);
             s_resultClause = step.clause;
+            s_resultValue = 0.0f;
             s_testCompletedMs = millis();
-            syncTrainingFlowEvent("result_confirmed", true, nullptr);
-          } else {
-            syncTrainingFlowEvent("step_next", false, nullptr);
+            syncTrainingFlowEvent("result_confirmed", false, nullptr);
           }
           Screens_draw(tft, current);
           return handled(current);
         }
         if (inRect(ix, iy, 30 + half, btnY, half, 52)) {
-          /* No — fail at this step; go to result screen */
-          s_flowPhase = 1;
-          s_resultPass = false;
-          s_resultLabel = VerificationSteps_getTestName((VerifyTestId)s_selectedTestType);
-          s_resultUnit = "";
-          VerificationSteps_getStep((VerifyTestId)s_selectedTestType, s_stepIndex, &step);
-          s_resultClause = step.clause;
-          s_resultValue = 0.0f;
-          s_testCompletedMs = millis();
-          syncTrainingFlowEvent("result_confirmed", false, nullptr);
+          const bool answerYes = false;
+          if (answerYes == expectedYes) {
+            s_stepIndex++;
+            if (s_stepIndex >= count) {
+              s_flowPhase = 1;
+              s_resultPass = true;
+              s_resultLabel = VerificationSteps_getTestName((VerifyTestId)s_selectedTestType);
+              s_resultUnit = "";
+              VerificationSteps_getStep((VerifyTestId)s_selectedTestType, count - 1, &step);
+              s_resultClause = step.clause;
+              s_testCompletedMs = millis();
+              syncTrainingFlowEvent("result_confirmed", true, nullptr);
+            } else {
+              syncTrainingFlowEvent("step_next", false, nullptr);
+            }
+          } else {
+            s_flowPhase = 1;
+            s_resultPass = false;
+            s_resultLabel = VerificationSteps_getTestName((VerifyTestId)s_selectedTestType);
+            s_resultUnit = "";
+            VerificationSteps_getStep((VerifyTestId)s_selectedTestType, s_stepIndex, &step);
+            s_resultClause = step.clause;
+            s_resultValue = 0.0f;
+            s_testCompletedMs = millis();
+            syncTrainingFlowEvent("result_confirmed", false, nullptr);
+          }
           Screens_draw(tft, current);
           return handled(current);
         }
