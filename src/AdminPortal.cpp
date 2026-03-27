@@ -889,6 +889,16 @@ static String testsPage(AsyncWebServerRequest* req) {
   DynamicJsonDocument doc(131072);
   auto de = deserializeJson(doc, s_testsJson);
   if (de) {
+    /* Repair rules inside the currently loaded JSON (even if the JSON came in large/truncated). */
+    if (ensureDefaultRulesInDoc(doc)) {
+      String fixed;
+      serializeJsonPretty(doc, fixed);
+      strncpy(s_testsJson, fixed.c_str(), sizeof(s_testsJson) - 1);
+      s_testsJson[sizeof(s_testsJson) - 1] = '\0';
+      if (!LittleFS.exists("/config")) LittleFS.mkdir("/config");
+      File fw = LittleFS.open(kTestsPath, "w");
+      if (fw) { fw.print(fixed); fw.close(); }
+    }
     VerificationSteps_useFactoryDefaults();
     if (!VerificationSteps_getConfigJson(s_testsJson, sizeof(s_testsJson)))
       buildTestsJsonFromActive(s_testsJson, sizeof(s_testsJson));
