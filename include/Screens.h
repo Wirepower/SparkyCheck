@@ -34,7 +34,7 @@ typedef enum {
   SCREEN_COUNT
 } ScreenId;
 
-/** Draw the given screen. */
+/** Draw the given screen (full clear + redraw). */
 void Screens_draw(SparkyTft* tft, ScreenId id);
 
 /** Handle touch; returns next screen or same if no action. */
@@ -61,4 +61,7 @@ void Screens_showSavedPrompt(SparkyTft* tft, const char* detail);
 
 #ifdef __cplusplus
 }
+
+/** Same as two-arg draw when fullClear is true. When false, repaints only the edited value line on keypad/OSK screens to reduce flicker. */
+void Screens_draw(SparkyTft* tft, ScreenId id, bool fullClear);
 #endif

@@ -107,10 +107,12 @@ static const EezMockupButton kButtons_screen_settings[] = {
   { 18, 180, 350, 44, "Buzzer (sound)", SCREEN_SETTINGS },
   { 18, 232, 350, 44, "About", SCREEN_ABOUT },
   { 18, 284, 350, 44, "Firmware updates", SCREEN_UPDATES },
-  { 18, 336, 350, 44, "Email settings", SCREEN_EMAIL_SETTINGS },
-  { 18, 388, 350, 44, "Mode change (boot hold)", SCREEN_SETTINGS },
-  { 18, 440, 350, 44, "Change PIN", SCREEN_CHANGE_PIN },
-  { 18, 492, 350, 44, "Back", SCREEN_MAIN_MENU },
+  { 18, 336, 350, 44, "Training sync (PIN)", SCREEN_PIN_ENTER },
+  { 18, 388, 350, 44, "Email settings", SCREEN_EMAIL_SETTINGS },
+  { 18, 440, 350, 44, "Mode change (boot hold)", SCREEN_SETTINGS },
+  { 18, 492, 350, 44, "Restart device", SCREEN_SETTINGS },
+  { 18, 544, 350, 44, "Change PIN", SCREEN_CHANGE_PIN },
+  { 18, 596, 350, 44, "Back", SCREEN_MAIN_MENU },
 };
 
 static const EezMockupLabel kLabels_screen_rotation[] = {
@@ -169,8 +171,7 @@ static const EezMockupButton kButtons_screen_updates[] = {
   { 18, 128, 350, 44, "Install now", SCREEN_UPDATES },
   { 18, 180, 350, 44, "Toggle auto-check", SCREEN_UPDATES },
   { 18, 232, 350, 44, "Toggle auto-install", SCREEN_UPDATES },
-  { 18, 284, 350, 44, "Training sync setup (PIN)", SCREEN_PIN_ENTER },
-  { 18, 336, 350, 44, "Back", SCREEN_SETTINGS },
+  { 18, 284, 350, 44, "Back", SCREEN_SETTINGS },
 };
 
 static const EezMockupLabel kLabels_screen_training_sync[] = {
@@ -188,7 +189,7 @@ static const EezMockupButton kButtons_screen_training_sync[] = {
   { 18, 336, 350, 44, "Edit cubicle", SCREEN_TRAINING_SYNC_EDIT },
   { 18, 388, 350, 44, "Edit device label", SCREEN_TRAINING_SYNC_EDIT },
   { 18, 440, 350, 44, "Send test ping", SCREEN_TRAINING_SYNC },
-  { 18, 492, 350, 44, "Back", SCREEN_UPDATES },
+  { 18, 492, 350, 44, "Back", SCREEN_SETTINGS },
 };
 
 static const EezMockupLabel kLabels_screen_training_sync_edit[] = {

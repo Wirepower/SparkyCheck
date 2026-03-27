@@ -1,7 +1,10 @@
 #include "WifiManager.h"
 #include "AppState.h"
 #include <WiFi.h>
+#include <HTTPClient.h>
 #include <string.h>
+
+static char s_lastPortalUrl[160] = "http://neverssl.com/";
 
 int WifiManager_scan(WifiNetwork* networks, int max_count) {
   if (!networks || max_count <= 0) return 0;
@@ -66,4 +69,38 @@ void WifiManager_reconnectSaved(void) {
   AppState_getWifiCredentials(ssid, sizeof(ssid), pass, sizeof(pass));
   if (ssid[0] && WiFi.status() != WL_CONNECTED)
     WifiManager_connect(ssid, pass[0] ? pass : nullptr);
+}
+
+bool WifiManager_isCaptivePortalLikely(void) {
+  if (WiFi.status() != WL_CONNECTED) return false;
+  HTTPClient http;
+  static const char* kProbeUrl = "http://connectivitycheck.gstatic.com/generate_204";
+  static const char* hdrs[] = { "Location" };
+  s_lastPortalUrl[0] = '\0';
+  http.setConnectTimeout(3000);
+  http.setTimeout(4000);
+  if (!http.begin(kProbeUrl)) return false;
+  http.setFollowRedirects(HTTPC_DISABLE_FOLLOW_REDIRECTS);
+  http.collectHeaders(hdrs, 1);
+  int code = http.GET();
+  String loc = http.header("Location");
+  http.end();
+  if (loc.length() > 0) {
+    strncpy(s_lastPortalUrl, loc.c_str(), sizeof(s_lastPortalUrl) - 1);
+    s_lastPortalUrl[sizeof(s_lastPortalUrl) - 1] = '\0';
+  } else {
+    strncpy(s_lastPortalUrl, "http://neverssl.com/", sizeof(s_lastPortalUrl) - 1);
+    s_lastPortalUrl[sizeof(s_lastPortalUrl) - 1] = '\0';
+  }
+  if (code == 204) return false;
+  if (code >= 300 && code < 400) return true;
+  return code == 200;
+}
+
+bool WifiManager_getPortalUrl(char* buf, unsigned buf_size) {
+  if (!buf || buf_size == 0) return false;
+  const char* src = s_lastPortalUrl[0] ? s_lastPortalUrl : "http://neverssl.com/";
+  strncpy(buf, src, buf_size - 1);
+  buf[buf_size - 1] = '\0';
+  return true;
 }

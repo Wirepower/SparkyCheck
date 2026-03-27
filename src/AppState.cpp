@@ -9,6 +9,8 @@ static const char* NVS_KEY_ROT    = "rot";
 static const char* NVS_KEY_BUZZ   = "buzz";
 static const char* NVS_KEY_WIFI_SSID   = "wifi_ssid";
 static const char* NVS_KEY_WIFI_PASS   = "wifi_pass";
+static const char* NVS_KEY_ADMIN_AP_SSID = "adm_ap_ssid";
+static const char* NVS_KEY_ADMIN_AP_PASS = "adm_ap_pass";
 static const char* NVS_KEY_OTA_URL     = "ota_url";
 static const char* NVS_KEY_OTA_AUTO    = "ota_auto";
 static const char* NVS_KEY_OTA_INSTALL = "ota_inst";
@@ -124,8 +126,8 @@ void AppState_getWifiCredentials(char* ssid, unsigned ssid_size, char* pass, uns
   if (!s_loaded) AppState_load();
   Preferences prefs;
   if (prefs.begin(NVS_NAMESPACE, true)) {
-    prefs.getString(NVS_KEY_WIFI_SSID, ssid, ssid_size);
-    if (pass && pass_size) prefs.getString(NVS_KEY_WIFI_PASS, pass, pass_size);
+    if (prefs.isKey(NVS_KEY_WIFI_SSID)) prefs.getString(NVS_KEY_WIFI_SSID, ssid, ssid_size);
+    if (pass && pass_size && prefs.isKey(NVS_KEY_WIFI_PASS)) prefs.getString(NVS_KEY_WIFI_PASS, pass, pass_size);
     prefs.end();
   }
 }
@@ -139,12 +141,32 @@ void AppState_setWifiCredentials(const char* ssid, const char* pass) {
   }
 }
 
+void AppState_getAdminApCredentials(char* ssid, unsigned ssid_size, char* pass, unsigned pass_size) {
+  if (ssid && ssid_size) ssid[0] = '\0';
+  if (pass && pass_size) pass[0] = '\0';
+  Preferences prefs;
+  if (prefs.begin(NVS_NAMESPACE, true)) {
+    if (ssid && ssid_size && prefs.isKey(NVS_KEY_ADMIN_AP_SSID)) prefs.getString(NVS_KEY_ADMIN_AP_SSID, ssid, ssid_size);
+    if (pass && pass_size && prefs.isKey(NVS_KEY_ADMIN_AP_PASS)) prefs.getString(NVS_KEY_ADMIN_AP_PASS, pass, pass_size);
+    prefs.end();
+  }
+}
+
+void AppState_setAdminApCredentials(const char* ssid, const char* pass) {
+  Preferences prefs;
+  if (prefs.begin(NVS_NAMESPACE, false)) {
+    prefs.putString(NVS_KEY_ADMIN_AP_SSID, ssid ? ssid : "");
+    prefs.putString(NVS_KEY_ADMIN_AP_PASS, pass ? pass : "");
+    prefs.end();
+  }
+}
+
 void AppState_getOtaManifestUrl(char* buf, unsigned size) {
   if (!buf || size == 0) return;
   buf[0] = '\0';
   Preferences prefs;
   if (prefs.begin(NVS_NAMESPACE, true)) {
-    prefs.getString(NVS_KEY_OTA_URL, buf, size);
+    if (prefs.isKey(NVS_KEY_OTA_URL)) prefs.getString(NVS_KEY_OTA_URL, buf, size);
     prefs.end();
   }
 }
@@ -194,6 +216,11 @@ void AppState_setOtaAutoInstallEnabled(bool on) {
 }
 
 static void getStr(Preferences& prefs, const char* key, char* buf, unsigned size) {
+  if (!buf || size == 0 || !key) return;
+  if (!prefs.isKey(key)) {
+    buf[0] = '\0';
+    return;
+  }
   prefs.getString(key, buf, size);
   buf[size - 1] = '\0';
 }

@@ -118,8 +118,8 @@ C) Device setup (repeat for each physical device)
    - Auto-install ON (if desired)
    - Check now (optional test)
 
-4) Training reporting setup (PIN-gated)
-   - Settings -> Firmware updates -> Training sync setup (PIN)
+4) Training reporting setup (PIN-gated, Training mode only)
+   - Settings -> Training sync (PIN)
 
    Buttons/options:
    - Email: On/Off
@@ -172,7 +172,7 @@ D) Google Sheets backend setup (Apps Script)
    Who has access: Anyone
 6) Copy Web App URL
 7) Put URL into device setting:
-   Training sync setup -> Edit sync endpoint URL
+   Settings -> Training sync (PIN) -> Edit sync endpoint URL
 
 How row updates work:
 - Script creates sheet + headers if missing.

@@ -4,11 +4,14 @@
 #include "TestLimits.h"
 #include "Buzzer.h"
 #include "WifiManager.h"
+#include "AdminPortal.h"
 #include "OtaUpdate.h"
 #include "GoogleSync.h"
 #include "Standards.h"
 #include "VerificationSteps.h"
 #include "SparkyDisplay.h"
+#include <qrcode.h>
+#include <Arduino.h>
 #include <WiFi.h>
 #include <ctype.h>
 #include <stdlib.h>
@@ -16,10 +19,12 @@
 #include <string.h>
 
 static const uint16_t kBg = 0x18E3;
-static const uint16_t kBtn = 0x2D6A;
+/* Unified neutral button color for all UI buttons. */
+static const uint16_t kBtn = 0x2108;
 static const uint16_t kAccent = 0xFD20;
 static const uint16_t kWhite = 0xFFFF;
-static const uint16_t kGreen = 0x07E0;
+/* Use one consistent button color across UI actions. */
+static const uint16_t kGreen = kBtn;
 static const uint16_t kRed = 0xF800;
 
 /** Readable text on 4.3" landscape or tall portrait (matches EEZ layout helpers). */
@@ -50,7 +55,7 @@ static void sparkyMainMenuLayout(int w, int h, int* y0, int* btnH, int* gap) {
 
 /** Test list row Y and height (must match EezMockupUi testSelectRowGeometryDims). */
 static void sparkyTestSelectRowMetrics(int w, int h, int row, int* outY, int* outRowH) {
-  const int n = VERIFY_TEST_COUNT;
+  const int n = VerificationSteps_getActiveTestCount();
   const int g = 10;
   const int top = (w >= 700) ? 114 : ((h >= 700) ? 106 : 90);
   int usable = h - top - 28;
@@ -199,8 +204,15 @@ static void sparkySettingsLayout(int w, int h, bool field, int* y0, int* btnH, i
   *gap = 6;
   *btnH = r ? 38 : 32;
   *y0 = 56;
-  *nRows = field ? 7 : 8;
+  /* Field: 8 rows (incl. Restart). Training: 10 rows (+ Training sync + Change PIN). */
+  *nRows = field ? 8 : 10;
   *backY = *y0 + *nRows * (*btnH + *gap) + 8;
+  /* Training has extra rows; tighten vertical rhythm on short panels so Back stays on-screen. */
+  if (!field && *nRows >= 10 && h <= 500) {
+    *gap = 4;
+    if (r && *btnH > 32) *btnH = 34;
+    *backY = *y0 + *nRows * (*btnH + *gap) + 8;
+  }
 }
 
 /** Layout for test-flow numeric entry: shared by draw + touch (STEP_RESULT_ENTRY). */
@@ -262,6 +274,97 @@ static void layoutResultEntry(int w, int h, int yAfterInstr, bool showRcdReq, in
   while (4 * L->cellH + 3 * L->gap > availH && L->cellH > 24) L->cellH--;
   /* Tall portrait: use large keypad digits like landscape (w may be only 480). */
   L->keypadTs = (w >= 700 || h >= 700) ? (uint8_t)3 : (uint8_t)2;
+}
+
+/** PIN / Change-PIN / Student ID — 3×4 keypad (same geometry as test-flow result entry). */
+typedef struct {
+  int kx, ky, cellW, cellH, gap;
+  uint8_t keypadTs;
+  int backX, backY, backW, backH;
+} PinKeypadLayout;
+
+/** First row Y for 3×4 keypad; cell size matches layoutResultEntry keypad block. */
+static void layoutNumericKeypad3x4(int w, int h, int kyTop, PinKeypadLayout* L) {
+  const int marginX = 20;
+  const int bottomPad = 12;
+  L->gap = 10;
+  L->ky = kyTop;
+  L->kx = marginX;
+  L->cellW = (w - 2 * marginX - 2 * L->gap) / 3;
+  int availH = h - bottomPad - L->ky;
+  if (availH < 0) availH = 0;
+  if (availH > 3 * L->gap) {
+    L->cellH = (availH - 3 * L->gap) / 4;
+  } else {
+    L->cellH = availH > 0 ? availH / 4 : 28;
+  }
+  if (L->cellH < 28) L->cellH = 28;
+  while (4 * L->cellH + 3 * L->gap > availH && L->cellH > 24) L->cellH--;
+  L->keypadTs = (w >= 700 || h >= 700) ? (uint8_t)3 : (uint8_t)2;
+}
+
+static void layoutPinKeypadGeometry(int w, int h, bool isChangePin, PinKeypadLayout* L) {
+  /* Start below title + hint + masked entry (matches draw). */
+  layoutNumericKeypad3x4(w, h, isChangePin ? 82 : 84, L);
+  if (isChangePin) {
+    L->backX = w - 62;
+    L->backY = 8;
+    L->backW = 48;
+    L->backH = 26;
+  } else {
+    L->backX = w - 70;
+    L->backY = 8;
+    L->backW = 50;
+    L->backH = 28;
+  }
+}
+
+/** QWERTY-style email / WiFi password / sync URL keyboards — large keys like test-flow entry. */
+typedef struct {
+  int marginX;
+  int keyStartY;
+  int cellW, cellH, gap;
+  int ctrlY;
+  int ctrlRowH;
+  uint8_t keyTs;
+} QwertyKeyboardLayout;
+
+static void layoutQwertyKeyboard(int w, int h, int keyStartY, int nKeyRows, int ctrlRowH, QwertyKeyboardLayout* L) {
+  /* Match result-entry keypad: margin 20, gap 10, bottom pad 12; narrow panels may tighten gap. */
+  const int bottomPad = 12;
+  L->marginX = 20;
+  L->keyStartY = keyStartY;
+  L->gap = 10;
+  L->ctrlRowH = ctrlRowH;
+  int availH = h - keyStartY - ctrlRowH - 10 - bottomPad;
+  if (availH < 30) availH = 30;
+  const int rowGaps = nKeyRows > 1 ? nKeyRows - 1 : 0;
+  L->cellH = (availH - rowGaps * L->gap) / (nKeyRows > 0 ? nKeyRows : 1);
+  if (L->cellH < 28) L->cellH = 28;
+  if (L->cellH > 54) L->cellH = 54;
+  L->cellW = (w - 2 * L->marginX - 9 * L->gap) / 10;
+  if (L->cellW < 26) {
+    L->gap = 6;
+    L->cellW = (w - 2 * L->marginX - 9 * L->gap) / 10;
+    L->cellH = (availH - rowGaps * L->gap) / (nKeyRows > 0 ? nKeyRows : 1);
+    if (L->cellH < 26) L->cellH = 26;
+    if (L->cellW < 24) {
+      L->gap = 4;
+      L->cellW = (w - 2 * L->marginX - 9 * L->gap) / 10;
+      L->cellH = (availH - rowGaps * L->gap) / (nKeyRows > 0 ? nKeyRows : 1);
+      if (L->cellH < 24) L->cellH = 24;
+    }
+  }
+  L->ctrlY = keyStartY + nKeyRows * (L->cellH + L->gap) + 6;
+  L->keyTs = (w >= 700 || h >= 700) ? (uint8_t)3 : (uint8_t)2;
+}
+
+static void drawQwertyCharKey(SparkyTft* tft, int kx, int ky, int cw, int cellH, char keyChar, uint8_t ts) {
+  tft->fillRoundRect(kx, ky, cw, cellH, 8, kBtn);
+  tft->drawRoundRect(kx, ky, cw, cellH, 8, kWhite);
+  char s[2] = { keyChar, '\0' };
+  tft->setTextColor(kWhite, kBtn);
+  sparkyDrawBtnLabel(tft, kx, ky, cw, cellH, s, ts);
 }
 
 static char s_reportSavedBasename[48] = "";
@@ -340,7 +443,14 @@ static int s_editLen = 0;
 static int s_syncEditField = 0;
 static char s_syncEditBuffer[APP_STATE_TRAINING_SYNC_URL_LEN] = "";
 static int s_syncEditLen = 0;
-static bool s_syncEditUpper = false;
+/** Uppercase for QWERTY letter rows (shared: email, Wi‑Fi, training sync). */
+static bool s_oskLetterUpper = false;
+/** Text keyboards (email / Wi‑Fi / sync edit): true = QWERTY page, false = numbers & symbols. */
+static bool s_oskLettersMode = true;
+
+/** SMTP port (email field index 1) is digits-only — 3×4 keypad, no ABC/123 toggle. */
+enum { kEmailFieldSmtpPort = 1, kSmtpPortMaxDigits = 5 };
+static bool emailFieldNeedsQwertyOsk(int field) { return field != kEmailFieldSmtpPort; }
 
 /* WiFi list / password state */
 static WifiNetwork s_networks[WIFI_MAX_SSIDS];
@@ -348,6 +458,8 @@ static int s_networkCount = 0;
 static char s_selectedSsid[WIFI_SSID_LEN] = "";
 static char s_wifiPass[WIFI_PASS_LEN] = "";
 static int s_wifiPassLen = 0;
+static bool s_wifiPortalAssist = false;
+static char s_wifiPortalUrl[160] = "";
 static bool s_trainingSettingsUnlocked = false;
 
 static int getW(SparkyTft* tft) { return tft->width(); }
@@ -494,7 +606,8 @@ static int syncEditMaxLen(void) {
 
 static void loadSyncEditField(int field) {
   s_syncEditField = field;
-  s_syncEditUpper = false;
+  s_oskLetterUpper = false;
+  s_oskLettersMode = true;
   s_syncEditLen = 0;
   s_syncEditBuffer[0] = '\0';
   if (field == 0) AppState_getTrainingSyncEndpoint(s_syncEditBuffer, sizeof(s_syncEditBuffer));
@@ -506,10 +619,86 @@ static void loadSyncEditField(int field) {
   s_syncEditBuffer[s_syncEditLen] = '\0';
 }
 
+static void applyEmailFieldSave(SparkyTft* tft) {
+  const char* detail = "Email setting saved";
+  if (s_editingEmailField == 0) AppState_setSmtpServer(s_editBuffer);
+  else if (s_editingEmailField == 1) AppState_setSmtpPort(s_editBuffer);
+  else if (s_editingEmailField == 2) AppState_setSmtpUser(s_editBuffer);
+  else if (s_editingEmailField == 3) AppState_setSmtpPass(s_editBuffer);
+  else AppState_setReportToEmail(s_editBuffer);
+  if (s_editingEmailField == 0) detail = "SMTP server saved";
+  else if (s_editingEmailField == 1) detail = "SMTP port saved";
+  else if (s_editingEmailField == 2) detail = "SMTP user saved";
+  else if (s_editingEmailField == 3) detail = "SMTP pass saved";
+  else detail = "Report email saved";
+  showSavedPrompt(tft, detail);
+}
+
 static char applyLetterCase(char c, bool upper) {
   if (!upper) return c;
   if (c >= 'a' && c <= 'z') return (char)(c - 'a' + 'A');
   return c;
+}
+
+/* Shared OSK rows: letters (4 rows) vs numbers/symbols (4 rows) — fewer rows ⇒ larger keys. */
+static const char kOskLettersRow0[] = "qwertyuiop";
+static const char kOskLettersRow1[] = "asdfghjkl";
+static const char kOskLettersRow2[] = "zxcvbnm";
+static const char kOskLettersRow3Email[] = "@.-_";
+static const char kOskLettersRow3Sync[] = "@.-_/:?&";
+static const char kOskNumsRow0[] = "1234567890";
+static const char kOskNumsRow1[] = "@.-_/:?&";
+static const char kOskNumsRow2[] = "!#$%&*+=^|";
+static const char kOskNumsRow3[] = "()[]{};,~";
+
+static void drawOskRow(SparkyTft* tft, const QwertyKeyboardLayout* qk, int startY, const char* rowChars, int nCols) {
+  for (int col = 0; col < nCols; col++) {
+    int kx = qk->marginX + col * (qk->cellW + qk->gap);
+    drawQwertyCharKey(tft, kx, startY, qk->cellW, qk->cellH, rowChars[col], qk->keyTs);
+  }
+}
+
+static void drawOskRowSyncLetters(SparkyTft* tft, const QwertyKeyboardLayout* qk, int startY, const char* rowChars, int nCols) {
+  for (int col = 0; col < nCols; col++) {
+    int kx = qk->marginX + col * (qk->cellW + qk->gap);
+    char c = applyLetterCase(rowChars[col], s_oskLetterUpper);
+    drawQwertyCharKey(tft, kx, startY, qk->cellW, qk->cellH, c, qk->keyTs);
+  }
+}
+
+/* Tiny "connected Wi‑Fi" glyph in the top-left corner. */
+static void drawWifiConnectedIcon(SparkyTft* tft) {
+  if (!WifiManager_isConnected()) return;
+  const int cx = 12;
+  const int cy = 16;
+  const int radii[3] = { 4, 7, 10 };
+  for (int i = 0; i < 3; i++) {
+    int r = radii[i];
+    tft->drawCircle(cx, cy, r, kGreen);
+    /* Keep only the upper arc to resemble Wi‑Fi waves. */
+    tft->fillRect(cx - r - 1, cy, 2 * r + 2, r + 2, kBg);
+  }
+  tft->fillCircle(cx, cy + 4, 2, kGreen);
+}
+
+static void drawQrCodeBox(SparkyTft* tft, int x, int y, int size, const char* text) {
+  if (!text || !text[0]) return;
+  uint8_t qData[qrcode_getBufferSize(5)];
+  QRCode q;
+  qrcode_initText(&q, qData, 5, ECC_LOW, text);
+  int cell = size / q.size;
+  if (cell < 1) cell = 1;
+  int drawW = q.size * cell;
+  int ox = x + (size - drawW) / 2;
+  int oy = y + (size - drawW) / 2;
+  tft->fillRect(x, y, size, size, kWhite);
+  for (int my = 0; my < q.size; my++) {
+    for (int mx = 0; mx < q.size; mx++) {
+      if (qrcode_getModule(&q, mx, my))
+        tft->fillRect(ox + mx * cell, oy + my * cell, cell, cell, TFT_BLACK);
+    }
+  }
+  tft->drawRect(x, y, size, size, kWhite);
 }
 
 static bool normalizeStudentId(const char* raw, char* out, unsigned out_size) {
@@ -557,7 +746,7 @@ static const char* syncTargetLabel(TrainingSyncTarget t) {
 
 static void syncTrainingFlowEvent(const char* event, bool include_result, const char* report_id_or_null) {
   if (AppState_getMode() != APP_MODE_TRAINING) return;
-  if (s_selectedTestType < 0 || s_selectedTestType >= VERIFY_TEST_COUNT) return;
+  if (s_selectedTestType < 0 || s_selectedTestType >= VerificationSteps_getActiveTestCount()) return;
 
   VerifyTestId tid = (VerifyTestId)s_selectedTestType;
   int count = VerificationSteps_getStepCount(tid);
@@ -628,9 +817,121 @@ void Screens_resetPinEntry(void) {
   s_pinFailAttempts = 0;
 }
 
-void Screens_draw(SparkyTft* tft, ScreenId id) {
+static void partialRedrawPinMasked(SparkyTft* tft, int w, int cursorY) {
+  tft->fillRect(18, cursorY - 4, w - 36, 26, kBg);
+  tft->setTextColor(kWhite, kBg);
+  tft->setTextSize(2);
+  char disp[kPinMaxLen + 1];
+  int dlen = s_pinLen;
+  if (dlen > kPinMaxLen) dlen = kPinMaxLen;
+  for (int i = 0; i < dlen; i++) disp[i] = '*';
+  disp[dlen] = '\0';
+  if (dlen == 0) strcpy(disp, "(none)");
+  tft->setCursor(20, cursorY);
+  tft->print(disp);
+}
+
+/** Repaint only the value/preview line(s) for keypad/OSK screens (avoids full fillScreen flicker). */
+static bool screens_try_partial_redraw(SparkyTft* tft, ScreenId id, int w, int h) {
+  switch (id) {
+    case SCREEN_PIN_ENTER:
+      partialRedrawPinMasked(tft, w, 62);
+      sparkyDisplayFlush(tft);
+      return true;
+    case SCREEN_CHANGE_PIN:
+      partialRedrawPinMasked(tft, w, 58);
+      sparkyDisplayFlush(tft);
+      return true;
+    case SCREEN_STUDENT_ID: {
+      tft->fillRect(18, 46, w - 36, 28, kBg);
+      tft->setTextColor(kWhite, kBg);
+      tft->setTextSize(2);
+      tft->setCursor(20, 52);
+      char norm[APP_STATE_DEVICE_ID_LEN] = "";
+      if (normalizeStudentId(s_studentInput, norm, sizeof(norm)))
+        tft->print(norm);
+      else
+        tft->print("S");
+      sparkyDisplayFlush(tft);
+      return true;
+    }
+    case SCREEN_EMAIL_FIELD_EDIT: {
+      if (!emailFieldNeedsQwertyOsk(s_editingEmailField)) {
+        tft->fillRect(18, 34, w - 36, 18, kBg);
+        tft->setTextColor(kWhite, kBg);
+        tft->setTextSize(1);
+        tft->setCursor(20, 38);
+        tft->print(s_editLen > 0 ? s_editBuffer : "(tap keys)");
+      } else {
+        tft->fillRect(18, 24, w - 36, 18, kBg);
+        tft->setTextColor(kWhite, kBg);
+        tft->setTextSize(1);
+        tft->setCursor(20, 28);
+        tft->print(s_editingEmailField == 3 ? (s_editLen > 0 ? "********" : "(not set)") : (s_editLen > 0 ? s_editBuffer : "(tap keys)"));
+      }
+      sparkyDisplayFlush(tft);
+      return true;
+    }
+    case SCREEN_WIFI_PASSWORD: {
+      tft->fillRect(18, 42, w - 36, 16, kBg);
+      tft->setTextColor(kWhite, kBg);
+      tft->setTextSize(1);
+      tft->setCursor(20, 46);
+      tft->print(s_wifiPassLen > 0 ? "********" : "(tap keys below)");
+      sparkyDisplayFlush(tft);
+      return true;
+    }
+    case SCREEN_TRAINING_SYNC_EDIT: {
+      tft->fillRect(18, 24, w - 36, 18, kBg);
+      tft->setTextColor(kWhite, kBg);
+      tft->setTextSize(1);
+      tft->setCursor(20, 28);
+      if (s_syncEditField == 1)
+        tft->print(s_syncEditLen > 0 ? "********" : "(not set)");
+      else
+        tft->print(s_syncEditLen > 0 ? s_syncEditBuffer : "(tap keys)");
+      sparkyDisplayFlush(tft);
+      return true;
+    }
+    case SCREEN_TEST_FLOW: {
+      if (s_flowPhase != 0) return false;
+      VerifyStep step;
+      int count = VerificationSteps_getStepCount((VerifyTestId)s_selectedTestType);
+      if (s_stepIndex < 0 || s_stepIndex >= count) return false;
+      VerificationSteps_getStep((VerifyTestId)s_selectedTestType, s_stepIndex, &step);
+      if (step.type != STEP_RESULT_ENTRY) return false;
+      ensureResultEntryInputState(step.resultKind);
+      const ResultUnitOption* units = nullptr;
+      int unitCount = 0;
+      int defaultIdx = 0;
+      getResultUnitOptions(step.resultKind, &units, &unitCount, &defaultIdx);
+      if (s_resultInputUnitIdx < 0 || s_resultInputUnitIdx >= unitCount) s_resultInputUnitIdx = defaultIdx;
+      const bool showRcdReq = (step.resultKind == RESULT_RCD_MS && s_rcdRequiredMaxMs > 0.0f);
+      ResultEntryLayout rel;
+      layoutResultEntry(w, h, s_resultEntryYAfterInstr, showRcdReq, unitCount, &rel);
+      tft->fillRect(18, rel.valueRowY - 2, w - 36, 48, kBg);
+      tft->setTextColor(kWhite, kBg);
+      tft->setTextSize(2);
+      tft->setCursor(20, rel.valueRowY);
+      tft->print("Value:");
+      tft->setCursor(20, rel.valueRowY + 22);
+      tft->print(s_resultInputLen > 0 ? s_resultInput : "(none)");
+      tft->print(" ");
+      tft->print(units[s_resultInputUnitIdx].label);
+      sparkyDisplayFlush(tft);
+      return true;
+    }
+    default:
+      return false;
+  }
+}
+
+static void screens_draw_impl(SparkyTft* tft, ScreenId id, bool fullClear) {
   int w = getW(tft);
   int h = getH(tft);
+  if (!fullClear && screens_try_partial_redraw(tft, id, w, h))
+    return;
+
   tft->fillScreen(kBg);
 
   switch (id) {
@@ -642,13 +943,13 @@ void Screens_draw(SparkyTft* tft, ScreenId id) {
       int btnW = w - 40, btnH = 56, y = 80;
       tft->fillRoundRect(20, y, btnW, btnH, 8, s_modeSelectChoice == 0 ? kGreen : kBtn);
       tft->drawRoundRect(20, y, btnW, btnH, 8, kWhite);
-      tft->setTextColor(TFT_BLACK, s_modeSelectChoice == 0 ? kGreen : kBtn);
+      tft->setTextColor(kWhite, s_modeSelectChoice == 0 ? kGreen : kBtn);
       tft->setCursor(40, y + 18);
       tft->print("Training (apprentice / supervised)");
       y += 70;
       tft->fillRoundRect(20, y, btnW, btnH, 8, s_modeSelectChoice == 1 ? kGreen : kBtn);
       tft->drawRoundRect(20, y, btnW, btnH, 8, kWhite);
-      tft->setTextColor(TFT_BLACK, s_modeSelectChoice == 1 ? kGreen : kBtn);
+      tft->setTextColor(kWhite, s_modeSelectChoice == 1 ? kGreen : kBtn);
       tft->setCursor(40, y + 18);
       tft->print("Field (qualified electrician)");
       y += 70;
@@ -727,7 +1028,8 @@ void Screens_draw(SparkyTft* tft, ScreenId id) {
         const int scopeY = panelWide ? 48 : (h >= 700 ? 50 : 42);
         sparkyDrawVerificationScope(tft, w, scopeY, 2);
       }
-      for (int i = 0; i < VERIFY_TEST_COUNT; i++) {
+      const int testCount = VerificationSteps_getActiveTestCount();
+      for (int i = 0; i < testCount; i++) {
         int y = 0, rh = 0;
         sparkyTestSelectRowMetrics(w, h, i, &y, &rh);
         const int bh = rh - 2;
@@ -759,21 +1061,28 @@ void Screens_draw(SparkyTft* tft, ScreenId id) {
       else
         tft->print("S");
 
-      int cellW = (w - 50) / 3, cellH = 34, startY = 82, gap = 6;
+      PinKeypadLayout pk;
+      layoutNumericKeypad3x4(w, h, 84, &pk);
       const char* keys = "123456789D0E";  /* D=delete, E=start */
       for (int row = 0; row < 4; row++) {
         for (int col = 0; col < 3; col++) {
           int idx = row * 3 + col;
-          int kx = 20 + col * (cellW + gap), ky = startY + row * (cellH + gap);
+          int kx = pk.kx + col * (pk.cellW + pk.gap);
+          int ky = pk.ky + row * (pk.cellH + pk.gap);
           uint16_t cellBg = kBtn;
           if (keys[idx] == 'D') cellBg = kAccent;
           else if (keys[idx] == 'E') cellBg = kGreen;
-          tft->fillRoundRect(kx, ky, cellW, cellH, 6, cellBg);
-          tft->drawRoundRect(kx, ky, cellW, cellH, 6, kWhite);
-          tft->setTextColor(keys[idx] == 'E' ? TFT_BLACK : kWhite, cellBg);
-          if (keys[idx] == 'D') { tft->setCursor(kx + cellW/2 - 12, ky + 11); tft->print("Del"); }
-          else if (keys[idx] == 'E') { tft->setCursor(kx + cellW/2 - 14, ky + 11); tft->print("Start"); }
-          else { tft->setCursor(kx + cellW/2 - 4, ky + 11); tft->print(keys[idx]); }
+          tft->fillRoundRect(kx, ky, pk.cellW, pk.cellH, 8, cellBg);
+          tft->drawRoundRect(kx, ky, pk.cellW, pk.cellH, 8, kWhite);
+          tft->setTextColor(keys[idx] == 'D' ? TFT_BLACK : kWhite, cellBg);
+          if (keys[idx] == 'D') {
+            sparkyDrawBtnLabel(tft, kx, ky, pk.cellW, pk.cellH, "Del", pk.keypadTs);
+          } else if (keys[idx] == 'E') {
+            sparkyDrawBtnLabel(tft, kx, ky, pk.cellW, pk.cellH, "Start", pk.keypadTs);
+          } else {
+            char ds[2] = { keys[idx], '\0' };
+            sparkyDrawBtnLabel(tft, kx, ky, pk.cellW, pk.cellH, ds, pk.keypadTs);
+          }
         }
       }
       tft->fillRoundRect(w - 62, 8, 48, 24, 6, kBtn);
@@ -808,7 +1117,7 @@ void Screens_draw(SparkyTft* tft, ScreenId id) {
         tft->print(rt);
         const int passBoxY = narrowResult ? (yResultTitle + 7 * 2 + 12) : 52;
         tft->fillRect(20, passBoxY, w - 40, 72, s_resultPass ? kGreen : kRed);
-        tft->setTextColor(TFT_BLACK, s_resultPass ? kGreen : kRed);
+        tft->setTextColor(s_resultPass ? kWhite : TFT_BLACK, s_resultPass ? kGreen : kRed);
         tft->setTextSize(3);
         {
           const int passTextY = passBoxY + (72 - 7 * 3) / 2;
@@ -905,14 +1214,14 @@ void Screens_draw(SparkyTft* tft, ScreenId id) {
         int btnY = h - 56;
         tft->fillRoundRect(20, btnY, w - 40, 52, 8, kGreen);
         tft->drawRoundRect(20, btnY, w - 40, 52, 8, kWhite);
-        tft->setTextColor(TFT_BLACK, kGreen);
+        tft->setTextColor(kWhite, kGreen);
         sparkyDrawBtnLabel(tft, 20, btnY, w - 40, 52, "OK / I have done this", 2);
       } else if (step.type == STEP_VERIFY_YESNO) {
         int btnY = h - 56, half = (w - 50) / 2;
         bool wide = (w >= 700) || (h >= 700);
         tft->fillRoundRect(20, btnY, half, 52, 8, kGreen);
         tft->drawRoundRect(20, btnY, half, 52, 8, kWhite);
-        tft->setTextColor(TFT_BLACK, kGreen);
+        tft->setTextColor(kWhite, kGreen);
         sparkyDrawBtnLabel(tft, 20, btnY, half, 52, "Yes", wide ? 3 : 2);
         tft->fillRoundRect(30 + half, btnY, half, 52, 8, kBtn);
         tft->drawRoundRect(30 + half, btnY, half, 52, 8, kWhite);
@@ -922,7 +1231,7 @@ void Screens_draw(SparkyTft* tft, ScreenId id) {
         int btnY = h - 56;
         tft->fillRoundRect(20, btnY, w - 40, 52, 8, kGreen);
         tft->drawRoundRect(20, btnY, w - 40, 52, 8, kWhite);
-        tft->setTextColor(TFT_BLACK, kGreen);
+        tft->setTextColor(kWhite, kGreen);
         sparkyDrawBtnLabel(tft, 20, btnY, w - 40, 52, "OK", 2);
       } else if (step.type == STEP_RESULT_ENTRY) {
         ensureResultEntryInputState(step.resultKind);
@@ -962,7 +1271,7 @@ void Screens_draw(SparkyTft* tft, ScreenId id) {
           uint16_t bg = (i == s_resultInputUnitIdx) ? kGreen : kBtn;
           tft->fillRoundRect(ux, rel.uy, rel.uw, rel.uh, 8, bg);
           tft->drawRoundRect(ux, rel.uy, rel.uw, rel.uh, 8, kWhite);
-          tft->setTextColor(i == s_resultInputUnitIdx ? TFT_BLACK : kWhite, bg);
+          tft->setTextColor(kWhite, bg);
           sparkyDrawBtnLabel(tft, ux, rel.uy, rel.uw, rel.uh, units[i].label, 2);
         }
 
@@ -975,7 +1284,7 @@ void Screens_draw(SparkyTft* tft, ScreenId id) {
             uint16_t bg = (strcmp(keys[idx], "OK") == 0) ? kGreen : kBtn;
             tft->fillRoundRect(kx, ky, rel.cellW, rel.cellH, 8, bg);
             tft->drawRoundRect(kx, ky, rel.cellW, rel.cellH, 8, kWhite);
-            tft->setTextColor(strcmp(keys[idx], "OK") == 0 ? TFT_BLACK : kWhite, bg);
+            tft->setTextColor(kWhite, bg);
             sparkyDrawBtnLabel(tft, kx, ky, rel.cellW, rel.cellH, keys[idx], rel.keypadTs);
           }
         }
@@ -1047,14 +1356,27 @@ void Screens_draw(SparkyTft* tft, ScreenId id) {
       const uint8_t lblTs = sparkyReadableUi(w, h) ? (uint8_t)2 : (uint8_t)1;
       for (int i = 0; i < nRows; i++) {
         const char* label = "";
-        if (i == 0) label = "Screen rotation";
-        else if (i == 1) label = "WiFi connection";
-        else if (i == 2) label = "Buzzer (sound)";
-        else if (i == 3) label = "About";
-        else if (i == 4) label = "Firmware updates";
-        else if (i == 5) label = "Email settings";
-        else if (i == 6) label = "Mode change (boot hold)";
-        else label = "Change PIN";
+        if (field) {
+          if (i == 0) label = "Screen rotation";
+          else if (i == 1) label = "WiFi connection";
+          else if (i == 2) label = "Buzzer (sound)";
+          else if (i == 3) label = "About";
+          else if (i == 4) label = "Firmware updates";
+          else if (i == 5) label = "Email settings";
+          else if (i == 6) label = "Mode change (boot hold)";
+          else label = "Restart device";
+        } else {
+          if (i == 0) label = "Screen rotation";
+          else if (i == 1) label = "WiFi connection";
+          else if (i == 2) label = "Buzzer (sound)";
+          else if (i == 3) label = "About";
+          else if (i == 4) label = "Firmware updates";
+          else if (i == 5) label = "Training sync (PIN)";
+          else if (i == 6) label = "Email settings";
+          else if (i == 7) label = "Mode change (boot hold)";
+          else if (i == 8) label = "Restart device";
+          else label = "Change PIN";
+        }
         tft->fillRoundRect(20, y, btnW, btnH, 6, kBtn);
         tft->drawRoundRect(20, y, btnW, btnH, 6, kWhite);
         tft->setTextColor(kWhite, kBtn);
@@ -1133,67 +1455,85 @@ void Screens_draw(SparkyTft* tft, ScreenId id) {
       tft->setTextSize(1);
       tft->setCursor(20, 8);
       tft->print(titles[s_editingEmailField]);
-      tft->setCursor(20, 28);
-      tft->print(s_editingEmailField == 3 ? (s_editLen > 0 ? "********" : "(not set)") : (s_editLen > 0 ? s_editBuffer : "(tap keys)"));
-      int cellW = (w - 56) / 10, cellH = 24, startY = 48, gap = 4;
-      const char* row0 = "1234567890", * row1 = "qwertyuiop", * row2 = "asdfghjkl", * row3 = "zxcvbnm", * row4 = "@.-_";
-      for (int col = 0; col < 10; col++) {
-        int kx = 20 + col * (cellW + gap);
-        tft->fillRoundRect(kx, startY, cellW, cellH, 4, kBtn);
-        tft->drawRoundRect(kx, startY, cellW, cellH, 4, kWhite);
-        char c[2] = { row0[col], '\0' };
-        tft->setTextColor(kWhite, kBtn);
-        tft->setCursor(kx + 2, startY + 4);
-        tft->print(c);
+      if (emailFieldNeedsQwertyOsk(s_editingEmailField)) {
+        tft->setCursor(20, 28);
+        tft->print(s_editingEmailField == 3 ? (s_editLen > 0 ? "********" : "(not set)") : (s_editLen > 0 ? s_editBuffer : "(tap keys)"));
+        QwertyKeyboardLayout qk;
+        layoutQwertyKeyboard(w, h, 48, 4, 40, &qk);
+        int startY = qk.keyStartY;
+        if (s_oskLettersMode) {
+          drawOskRowSyncLetters(tft, &qk, startY, kOskLettersRow0, 10);
+          startY += qk.cellH + qk.gap;
+          drawOskRowSyncLetters(tft, &qk, startY, kOskLettersRow1, 9);
+          startY += qk.cellH + qk.gap;
+          drawOskRowSyncLetters(tft, &qk, startY, kOskLettersRow2, 7);
+          startY += qk.cellH + qk.gap;
+          drawOskRow(tft, &qk, startY, kOskLettersRow3Email, 4);
+        } else {
+          drawOskRow(tft, &qk, startY, kOskNumsRow0, 10);
+          startY += qk.cellH + qk.gap;
+          drawOskRow(tft, &qk, startY, kOskNumsRow1, 8);
+          startY += qk.cellH + qk.gap;
+          drawOskRow(tft, &qk, startY, kOskNumsRow2, 10);
+          startY += qk.cellH + qk.gap;
+          drawOskRow(tft, &qk, startY, kOskNumsRow3, 10);
+        }
+        {
+          const int delW = 52, aaW = 44, modeW = 56;
+          int aaX = qk.marginX + delW + qk.gap;
+          int modeX = aaX + aaW + qk.gap;
+          int saveX = modeX + modeW + qk.gap;
+          int saveW = w - saveX - qk.marginX;
+          tft->fillRoundRect(qk.marginX, qk.ctrlY, delW, qk.ctrlRowH, 8, kAccent);
+          tft->drawRoundRect(qk.marginX, qk.ctrlY, delW, qk.ctrlRowH, 8, kWhite);
+          tft->setTextColor(TFT_BLACK, kAccent);
+          sparkyDrawBtnLabel(tft, qk.marginX, qk.ctrlY, delW, qk.ctrlRowH, "Del", qk.keyTs);
+          tft->fillRoundRect(aaX, qk.ctrlY, aaW, qk.ctrlRowH, 8, kBtn);
+          tft->drawRoundRect(aaX, qk.ctrlY, aaW, qk.ctrlRowH, 8, kWhite);
+          tft->setTextColor(kWhite, kBtn);
+          sparkyDrawBtnLabel(tft, aaX, qk.ctrlY, aaW, qk.ctrlRowH, "Aa", qk.keyTs);
+          tft->fillRoundRect(modeX, qk.ctrlY, modeW, qk.ctrlRowH, 8, kBtn);
+          tft->drawRoundRect(modeX, qk.ctrlY, modeW, qk.ctrlRowH, 8, kWhite);
+          tft->setTextColor(kWhite, kBtn);
+          sparkyDrawBtnLabel(tft, modeX, qk.ctrlY, modeW, qk.ctrlRowH, s_oskLettersMode ? "123" : "ABC", qk.keyTs);
+          tft->fillRoundRect(saveX, qk.ctrlY, saveW, qk.ctrlRowH, 8, kGreen);
+          tft->drawRoundRect(saveX, qk.ctrlY, saveW, qk.ctrlRowH, 8, kWhite);
+          tft->setTextColor(kWhite, kGreen);
+          sparkyDrawBtnLabel(tft, saveX, qk.ctrlY, saveW, qk.ctrlRowH, "Save", qk.keyTs);
+        }
+      } else {
+        /* SMTP port: digits only — same 3×4 geometry as PIN / student ID (no QWERTY or 123 toggle). */
+        tft->setTextColor(kAccent, kBg);
+        tft->setCursor(20, 22);
+        tft->print("TCP port 1-65535 (digits only).");
+        tft->setTextColor(kWhite, kBg);
+        tft->setCursor(20, 38);
+        tft->print(s_editLen > 0 ? s_editBuffer : "(tap keys)");
+        PinKeypadLayout pk;
+        layoutNumericKeypad3x4(w, h, 84, &pk);
+        const char* keys = "123456789D0E"; /* D=Del, E=Save */
+        for (int row = 0; row < 4; row++) {
+          for (int col = 0; col < 3; col++) {
+            int idx = row * 3 + col;
+            int kx = pk.kx + col * (pk.cellW + pk.gap);
+            int ky = pk.ky + row * (pk.cellH + pk.gap);
+            uint16_t cellBg = kBtn;
+            if (keys[idx] == 'D') cellBg = kAccent;
+            else if (keys[idx] == 'E') cellBg = kGreen;
+            tft->fillRoundRect(kx, ky, pk.cellW, pk.cellH, 8, cellBg);
+            tft->drawRoundRect(kx, ky, pk.cellW, pk.cellH, 8, kWhite);
+            tft->setTextColor(keys[idx] == 'D' ? TFT_BLACK : kWhite, cellBg);
+            if (keys[idx] == 'D') {
+              sparkyDrawBtnLabel(tft, kx, ky, pk.cellW, pk.cellH, "Del", pk.keypadTs);
+            } else if (keys[idx] == 'E') {
+              sparkyDrawBtnLabel(tft, kx, ky, pk.cellW, pk.cellH, "Save", pk.keypadTs);
+            } else {
+              char ds[2] = { keys[idx], '\0' };
+              sparkyDrawBtnLabel(tft, kx, ky, pk.cellW, pk.cellH, ds, pk.keypadTs);
+            }
+          }
+        }
       }
-      startY += cellH + gap;
-      for (int col = 0; col < 10; col++) {
-        int kx = 20 + col * (cellW + gap);
-        tft->fillRoundRect(kx, startY, cellW, cellH, 4, kBtn);
-        tft->drawRoundRect(kx, startY, cellW, cellH, 4, kWhite);
-        char c[2] = { row1[col], '\0' };
-        tft->setCursor(kx + 2, startY + 4);
-        tft->print(c);
-      }
-      startY += cellH + gap;
-      for (int col = 0; col < 9; col++) {
-        int kx = 20 + col * (cellW + gap);
-        tft->fillRoundRect(kx, startY, cellW, cellH, 4, kBtn);
-        tft->drawRoundRect(kx, startY, cellW, cellH, 4, kWhite);
-        char c[2] = { row2[col], '\0' };
-        tft->setCursor(kx + 2, startY + 4);
-        tft->print(c);
-      }
-      startY += cellH + gap;
-      for (int col = 0; col < 7; col++) {
-        int kx = 20 + col * (cellW + gap);
-        tft->fillRoundRect(kx, startY, cellW, cellH, 4, kBtn);
-        tft->drawRoundRect(kx, startY, cellW, cellH, 4, kWhite);
-        char c[2] = { row3[col], '\0' };
-        tft->setCursor(kx + 2, startY + 4);
-        tft->print(c);
-      }
-      startY += cellH + gap;
-      for (int col = 0; col < 4; col++) {
-        int kx = 20 + col * (cellW + gap);
-        tft->fillRoundRect(kx, startY, cellW, cellH, 4, kBtn);
-        tft->drawRoundRect(kx, startY, cellW, cellH, 4, kWhite);
-        char c[2] = { row4[col], '\0' };
-        tft->setTextColor(kWhite, kBtn);
-        tft->setCursor(kx + 2, startY + 4);
-        tft->print(c);
-      }
-      startY += cellH + gap + 4;
-      tft->fillRoundRect(20, startY, 50, 28, 6, kAccent);
-      tft->drawRoundRect(20, startY, 50, 28, 6, kWhite);
-      tft->setTextColor(TFT_BLACK, kAccent);
-      tft->setCursor(24, startY + 6);
-      tft->print("Del");
-      tft->fillRoundRect(78, startY, 60, 28, 6, kGreen);
-      tft->drawRoundRect(78, startY, 60, 28, 6, kWhite);
-      tft->setTextColor(TFT_BLACK, kGreen);
-      tft->setCursor(90, startY + 6);
-      tft->print("Save");
       tft->fillRoundRect(w - 62, 6, 48, 24, 6, kBtn);
       tft->drawRoundRect(w - 62, 6, 48, 24, 6, kWhite);
       tft->setTextColor(kWhite, kBtn);
@@ -1214,12 +1554,12 @@ void Screens_draw(SparkyTft* tft, ScreenId id) {
       int btnW = w - 40, btnH = 48, y = 60;
       tft->fillRoundRect(20, y, btnW, btnH, 8, r == 0 ? kGreen : kBtn);
       tft->drawRoundRect(20, y, btnW, btnH, 8, kWhite);
-      tft->setTextColor(r == 0 ? TFT_BLACK : kWhite, r == 0 ? kGreen : kBtn);
+      tft->setTextColor(kWhite, r == 0 ? kGreen : kBtn);
       sparkyDrawBtnLabel(tft, 20, y, btnW, btnH, "Portrait", 2);
       y += 58;
       tft->fillRoundRect(20, y, btnW, btnH, 8, r == 1 ? kGreen : kBtn);
       tft->drawRoundRect(20, y, btnW, btnH, 8, kWhite);
-      tft->setTextColor(r == 1 ? TFT_BLACK : kWhite, r == 1 ? kGreen : kBtn);
+      tft->setTextColor(kWhite, r == 1 ? kGreen : kBtn);
       sparkyDrawBtnLabel(tft, 20, y, btnW, btnH, "Landscape", 2);
       {
         const int backH = 44;
@@ -1232,15 +1572,69 @@ void Screens_draw(SparkyTft* tft, ScreenId id) {
       break;
     }
     case SCREEN_WIFI_LIST: {
+      char adminIp[20] = "";
+      char apSsid[32] = "", apPass[32] = "";
+      bool hasAdminIp = WifiManager_getIpString(adminIp, sizeof(adminIp));
+      if (!hasAdminIp && AdminPortal_isApActive()) {
+        hasAdminIp = AdminPortal_getApIp(adminIp, sizeof(adminIp));
+        AdminPortal_getApSsid(apSsid, sizeof(apSsid));
+        AdminPortal_getApPass(apPass, sizeof(apPass));
+      }
+      if (s_wifiPortalAssist) {
+        tft->setTextColor(kWhite, kBg);
+        tft->setTextSize(2);
+        tft->setCursor(20, 8);
+        tft->print("Portal Assist");
+        tft->setTextSize(1);
+        tft->setCursor(20, 34);
+        tft->print("Scan with phone to open portal login.");
+        tft->setCursor(20, 48);
+        tft->print("May fail if venue binds by MAC/session.");
+        drawQrCodeBox(tft, 20, 66, 140, s_wifiPortalUrl[0] ? s_wifiPortalUrl : "http://neverssl.com/");
+        tft->drawRoundRect(20, 66, 140, 140, 6, kWhite);
+        tft->setTextColor(kAccent, kBg);
+        tft->setCursor(176, 72);
+        tft->print("URL:");
+        tft->setTextColor(kWhite, kBg);
+        tft->setCursor(176, 88);
+        tft->print(s_wifiPortalUrl[0] ? s_wifiPortalUrl : "http://neverssl.com/");
+        tft->setTextColor(kAccent, kBg);
+        tft->setCursor(176, 108);
+        tft->print("Admin URL:");
+        tft->setTextColor(kWhite, kBg);
+        tft->setCursor(176, 122);
+        if (hasAdminIp) {
+          tft->print("http://");
+          tft->print(adminIp);
+          tft->print("/admin");
+        } else {
+          tft->print("(IP not available yet)");
+        }
+        tft->fillRoundRect(176, 144, w - 196, 34, 6, kGreen);
+        tft->drawRoundRect(176, 144, w - 196, 34, 6, kWhite);
+        tft->setTextColor(kWhite, kGreen);
+        sparkyDrawBtnLabel(tft, 176, 144, w - 196, 34, "Retry check", 2);
+        const int backX = 20, backY = h - 48, backW = 124, backH = 40;
+        tft->fillRoundRect(backX, backY, backW, backH, 6, kBtn);
+        tft->drawRoundRect(backX, backY, backW, backH, 6, kWhite);
+        tft->setTextColor(kWhite, kBtn);
+        sparkyDrawBtnLabel(tft, backX, backY, backW, backH, "Back", 2);
+        break;
+      }
       tft->setTextColor(kWhite, kBg);
       tft->setTextSize(2);
-      tft->setCursor(20, 8);
-      tft->print("WiFi");
+      {
+        const char* t = "WiFi";
+        int tw = (int)strlen(t) * 6 * 2;
+        tft->setCursor((w - tw) / 2, 8);
+        tft->print(t);
+      }
       tft->setTextSize(1);
       if (WifiManager_isConnected()) {
         char ssid[WIFI_SSID_LEN], ip[20];
         WifiManager_getConnectedSsid(ssid, sizeof(ssid));
-        WifiManager_getIpString(ip, sizeof(ip));
+        if (!hasAdminIp) ip[0] = '\0';
+        else strncpy(ip, adminIp, sizeof(ip) - 1), ip[sizeof(ip) - 1] = '\0';
         tft->setCursor(20, 34);
         tft->print("Connected: ");
         tft->print(ssid);
@@ -1250,27 +1644,56 @@ void Screens_draw(SparkyTft* tft, ScreenId id) {
         tft->setCursor(20, 34);
         tft->print("Not connected");
       }
-      int scanY = 62, btnH = 28, rowH = 30;
-      tft->fillRoundRect(20, scanY, 100, 28, 6, kGreen);
-      tft->drawRoundRect(20, scanY, 100, 28, 6, kWhite);
-      tft->setTextColor(TFT_BLACK, kGreen);
-      tft->setCursor(36, scanY + 6);
-      tft->print("Scan");
-      int listY = scanY + 36;
+      const int scanX = 20, scanY = 62, scanW = 124, scanH = 34, rowH = 38;
+      tft->fillRoundRect(scanX, scanY, scanW, scanH, 6, kGreen);
+      tft->drawRoundRect(scanX, scanY, scanW, scanH, 6, kWhite);
+      tft->setTextColor(kWhite, kGreen);
+      sparkyDrawBtnLabel(tft, scanX, scanY, scanW, scanH, "Scan", 2);
+      int listY = scanY + scanH + 6;
       for (int i = 0; i < s_networkCount && listY + rowH < h - 44; i++) {
         tft->setTextColor(kWhite, kBg);
-        tft->setCursor(20, listY);
+        tft->setTextSize(2);
+        tft->setCursor(20, listY + 4);
         tft->print(s_networks[i].ssid);
-        tft->setCursor(w - 50, listY);
+        tft->setTextSize(1);
+        tft->setCursor(w - 58, listY + 14);
         tft->print(s_networks[i].rssi);
         tft->print(" dBm");
         listY += rowH;
       }
-      tft->fillRoundRect(20, h - 42, 80, 34, 6, kBtn);
-      tft->drawRoundRect(20, h - 42, 80, 34, 6, kWhite);
+      tft->setTextSize(1);
+      const int backX = 20, backY = h - 48, backW = 124, backH = 40;
+      tft->fillRoundRect(backX, backY, backW, backH, 6, kBtn);
+      tft->drawRoundRect(backX, backY, backW, backH, 6, kWhite);
       tft->setTextColor(kWhite, kBtn);
-      tft->setCursor(40, h - 30);
-      tft->print("Back");
+      sparkyDrawBtnLabel(tft, backX, backY, backW, backH, "Back", 2);
+      tft->setTextColor(kAccent, kBg);
+      tft->setTextSize(2);
+      tft->setCursor(152, h - 38);
+      if (hasAdminIp) {
+        tft->print("Admin: ");
+        tft->setTextSize(1);
+        tft->setCursor(152, h - 18);
+        tft->print("http://");
+        tft->print(adminIp);
+        tft->print("/admin");
+      } else {
+        tft->setTextSize(1);
+        tft->setCursor(152, h - 24);
+        tft->print("Admin URL available");
+        tft->setCursor(152, h - 12);
+        tft->print("when connected");
+      }
+      if (apSsid[0]) {
+        tft->setTextSize(1);
+        tft->setTextColor(kWhite, kBg);
+        tft->setCursor(20, h - 66);
+        tft->print("Hotspot: ");
+        tft->print(apSsid);
+        tft->setCursor(20, h - 56);
+        tft->print("Pass: ");
+        tft->print(apPass);
+      }
       break;
     }
     case SCREEN_WIFI_PASSWORD: {
@@ -1282,59 +1705,49 @@ void Screens_draw(SparkyTft* tft, ScreenId id) {
       tft->print(s_selectedSsid);
       tft->setCursor(20, 46);
       tft->print(s_wifiPassLen > 0 ? "********" : "(tap keys below)");
-      int cellW = (w - 56) / 10, cellH = 26, startY = 68, gap = 4;
-      const char* row0 = "1234567890";
-      const char* row1 = "qwertyuiop";
-      const char* row2 = "asdfghjkl";
-      const char* row3 = "zxcvbnm";
-      for (int col = 0; col < 10; col++) {
-        int kx = 20 + col * (cellW + gap);
-        tft->fillRoundRect(kx, startY, cellW, cellH, 4, kBtn);
-        tft->drawRoundRect(kx, startY, cellW, cellH, 4, kWhite);
+      QwertyKeyboardLayout qk;
+      layoutQwertyKeyboard(w, h, 68, 4, 40, &qk);
+      int startY = qk.keyStartY;
+      if (s_oskLettersMode) {
+        drawOskRowSyncLetters(tft, &qk, startY, kOskLettersRow0, 10);
+        startY += qk.cellH + qk.gap;
+        drawOskRowSyncLetters(tft, &qk, startY, kOskLettersRow1, 9);
+        startY += qk.cellH + qk.gap;
+        drawOskRowSyncLetters(tft, &qk, startY, kOskLettersRow2, 7);
+        startY += qk.cellH + qk.gap;
+        drawOskRow(tft, &qk, startY, kOskLettersRow3Email, 4);
+      } else {
+        drawOskRow(tft, &qk, startY, kOskNumsRow0, 10);
+        startY += qk.cellH + qk.gap;
+        drawOskRow(tft, &qk, startY, kOskNumsRow1, 8);
+        startY += qk.cellH + qk.gap;
+        drawOskRow(tft, &qk, startY, kOskNumsRow2, 10);
+        startY += qk.cellH + qk.gap;
+        drawOskRow(tft, &qk, startY, kOskNumsRow3, 10);
+      }
+      {
+        const int delW = 52, aaW = 44, modeW = 56;
+        int aaX = qk.marginX + delW + qk.gap;
+        int modeX = aaX + aaW + qk.gap;
+        int connX = modeX + modeW + qk.gap;
+        int connW = w - connX - qk.marginX;
+        tft->fillRoundRect(qk.marginX, qk.ctrlY, delW, qk.ctrlRowH, 8, kAccent);
+        tft->drawRoundRect(qk.marginX, qk.ctrlY, delW, qk.ctrlRowH, 8, kWhite);
+        tft->setTextColor(TFT_BLACK, kAccent);
+        sparkyDrawBtnLabel(tft, qk.marginX, qk.ctrlY, delW, qk.ctrlRowH, "Del", qk.keyTs);
+        tft->fillRoundRect(aaX, qk.ctrlY, aaW, qk.ctrlRowH, 8, kBtn);
+        tft->drawRoundRect(aaX, qk.ctrlY, aaW, qk.ctrlRowH, 8, kWhite);
         tft->setTextColor(kWhite, kBtn);
-        tft->setTextSize(1);
-        char c[2] = { row0[col], '\0' };
-        tft->setCursor(kx + 2, startY + 6);
-        tft->print(c);
+        sparkyDrawBtnLabel(tft, aaX, qk.ctrlY, aaW, qk.ctrlRowH, "Aa", qk.keyTs);
+        tft->fillRoundRect(modeX, qk.ctrlY, modeW, qk.ctrlRowH, 8, kBtn);
+        tft->drawRoundRect(modeX, qk.ctrlY, modeW, qk.ctrlRowH, 8, kWhite);
+        tft->setTextColor(kWhite, kBtn);
+        sparkyDrawBtnLabel(tft, modeX, qk.ctrlY, modeW, qk.ctrlRowH, s_oskLettersMode ? "123" : "ABC", qk.keyTs);
+        tft->fillRoundRect(connX, qk.ctrlY, connW, qk.ctrlRowH, 8, kGreen);
+        tft->drawRoundRect(connX, qk.ctrlY, connW, qk.ctrlRowH, 8, kWhite);
+        tft->setTextColor(kWhite, kGreen);
+        sparkyDrawBtnLabel(tft, connX, qk.ctrlY, connW, qk.ctrlRowH, "Connect", qk.keyTs);
       }
-      startY += cellH + gap;
-      for (int col = 0; col < 10; col++) {
-        int kx = 20 + col * (cellW + gap);
-        tft->fillRoundRect(kx, startY, cellW, cellH, 4, kBtn);
-        tft->drawRoundRect(kx, startY, cellW, cellH, 4, kWhite);
-        char c[2] = { row1[col], '\0' };
-        tft->setCursor(kx + 2, startY + 6);
-        tft->print(c);
-      }
-      startY += cellH + gap;
-      for (int col = 0; col < 9; col++) {
-        int kx = 20 + col * (cellW + gap);
-        tft->fillRoundRect(kx, startY, cellW, cellH, 4, kBtn);
-        tft->drawRoundRect(kx, startY, cellW, cellH, 4, kWhite);
-        char c[2] = { row2[col], '\0' };
-        tft->setCursor(kx + 2, startY + 6);
-        tft->print(c);
-      }
-      startY += cellH + gap;
-      for (int col = 0; col < 7; col++) {
-        int kx = 20 + col * (cellW + gap);
-        tft->fillRoundRect(kx, startY, cellW, cellH, 4, kBtn);
-        tft->drawRoundRect(kx, startY, cellW, cellH, 4, kWhite);
-        char c[2] = { row3[col], '\0' };
-        tft->setCursor(kx + 2, startY + 6);
-        tft->print(c);
-      }
-      startY += cellH + gap + 4;
-      tft->fillRoundRect(20, startY, 60, 32, 6, kAccent);
-      tft->drawRoundRect(20, startY, 60, 32, 6, kWhite);
-      tft->setTextColor(TFT_BLACK, kAccent);
-      tft->setCursor(26, startY + 8);
-      tft->print("Del");
-      tft->fillRoundRect(90, startY, 80, 32, 6, kGreen);
-      tft->drawRoundRect(90, startY, 80, 32, 6, kWhite);
-      tft->setTextColor(TFT_BLACK, kGreen);
-      tft->setCursor(108, startY + 8);
-      tft->print("Connect");
       tft->fillRoundRect(w - 70, 8, 50, 26, 6, kBtn);
       tft->drawRoundRect(w - 70, 8, 50, 26, 6, kWhite);
       tft->setTextColor(kWhite, kBtn);
@@ -1446,19 +1859,10 @@ void Screens_draw(SparkyTft* tft, ScreenId id) {
         tft->print(pending);
       }
 
-      if (!AppState_isFieldMode()) {
-        tft->setTextColor(kAccent, kBg);
-        tft->setCursor(20, 136);
-        tft->print("Training sync:");
-        tft->setTextColor(kWhite, kBg);
-        tft->setCursor(102, 136);
-        tft->print(AppState_getTrainingSyncEnabled() ? "On" : "Off");
-      }
-
       int btnY = 150, btnH = 30, gap = 6;
       tft->fillRoundRect(20, btnY, w - 40, btnH, 6, kGreen);
       tft->drawRoundRect(20, btnY, w - 40, btnH, 6, kWhite);
-      tft->setTextColor(TFT_BLACK, kGreen);
+      tft->setTextColor(kWhite, kGreen);
       tft->setCursor(w / 2 - 36, btnY + 8);
       tft->print("Check now");
 
@@ -1484,14 +1888,6 @@ void Screens_draw(SparkyTft* tft, ScreenId id) {
       tft->print("Toggle auto-install");
 
       btnY += btnH + gap;
-      if (!AppState_isFieldMode()) {
-        tft->fillRoundRect(20, btnY, w - 40, btnH, 6, kBtn);
-        tft->drawRoundRect(20, btnY, w - 40, btnH, 6, kWhite);
-        tft->setTextColor(kWhite, kBtn);
-        tft->setCursor(w / 2 - 74, btnY + 8);
-        tft->print("Training sync setup (PIN)");
-        btnY += btnH + gap;
-      }
 
       tft->fillRoundRect(20, btnY, 80, 26, 6, kBtn);
       tft->drawRoundRect(20, btnY, 80, 26, 6, kWhite);
@@ -1618,7 +2014,7 @@ void Screens_draw(SparkyTft* tft, ScreenId id) {
 
       tft->fillRoundRect(20, y, w - 40, btnH, 6, kGreen);
       tft->drawRoundRect(20, y, w - 40, btnH, 6, kWhite);
-      tft->setTextColor(TFT_BLACK, kGreen);
+      tft->setTextColor(kWhite, kGreen);
       tft->setCursor(28, y + 5);
       tft->print("Send test ping");
       y += btnH + gap;
@@ -1642,77 +2038,50 @@ void Screens_draw(SparkyTft* tft, ScreenId id) {
       else
         tft->print(s_syncEditLen > 0 ? s_syncEditBuffer : "(tap keys)");
 
-      int cellW = (w - 56) / 10, cellH = 24, startY = 48, gap = 4;
-      const char* row0 = "1234567890";
-      const char* row1 = "qwertyuiop";
-      const char* row2 = "asdfghjkl";
-      const char* row3 = "zxcvbnm";
-      const char* row4 = "@.-_/:?&";
+      QwertyKeyboardLayout qk;
+      layoutQwertyKeyboard(w, h, 48, 4, 40, &qk);
+      int startY = qk.keyStartY;
+      if (s_oskLettersMode) {
+        drawOskRowSyncLetters(tft, &qk, startY, kOskLettersRow0, 10);
+        startY += qk.cellH + qk.gap;
+        drawOskRowSyncLetters(tft, &qk, startY, kOskLettersRow1, 9);
+        startY += qk.cellH + qk.gap;
+        drawOskRowSyncLetters(tft, &qk, startY, kOskLettersRow2, 7);
+        startY += qk.cellH + qk.gap;
+        drawOskRow(tft, &qk, startY, kOskLettersRow3Sync, 8);
+      } else {
+        drawOskRow(tft, &qk, startY, kOskNumsRow0, 10);
+        startY += qk.cellH + qk.gap;
+        drawOskRow(tft, &qk, startY, kOskNumsRow1, 8);
+        startY += qk.cellH + qk.gap;
+        drawOskRow(tft, &qk, startY, kOskNumsRow2, 10);
+        startY += qk.cellH + qk.gap;
+        drawOskRow(tft, &qk, startY, kOskNumsRow3, 10);
+      }
 
-      for (int col = 0; col < 10; col++) {
-        int kx = 20 + col * (cellW + gap);
-        tft->fillRoundRect(kx, startY, cellW, cellH, 4, kBtn);
-        tft->drawRoundRect(kx, startY, cellW, cellH, 4, kWhite);
-        char c[2] = { row0[col], '\0' };
+      {
+        const int delW = 52, aaW = 44, modeW = 56;
+        int aaX = qk.marginX + delW + qk.gap;
+        int modeX = aaX + aaW + qk.gap;
+        int saveX = modeX + modeW + qk.gap;
+        int saveW = w - saveX - qk.marginX;
+        tft->fillRoundRect(qk.marginX, qk.ctrlY, delW, qk.ctrlRowH, 8, kAccent);
+        tft->drawRoundRect(qk.marginX, qk.ctrlY, delW, qk.ctrlRowH, 8, kWhite);
+        tft->setTextColor(TFT_BLACK, kAccent);
+        sparkyDrawBtnLabel(tft, qk.marginX, qk.ctrlY, delW, qk.ctrlRowH, "Del", qk.keyTs);
+        tft->fillRoundRect(aaX, qk.ctrlY, aaW, qk.ctrlRowH, 8, kBtn);
+        tft->drawRoundRect(aaX, qk.ctrlY, aaW, qk.ctrlRowH, 8, kWhite);
         tft->setTextColor(kWhite, kBtn);
-        tft->setCursor(kx + 2, startY + 4);
-        tft->print(c);
+        sparkyDrawBtnLabel(tft, aaX, qk.ctrlY, aaW, qk.ctrlRowH, "Aa", qk.keyTs);
+        tft->fillRoundRect(modeX, qk.ctrlY, modeW, qk.ctrlRowH, 8, kBtn);
+        tft->drawRoundRect(modeX, qk.ctrlY, modeW, qk.ctrlRowH, 8, kWhite);
+        tft->setTextColor(kWhite, kBtn);
+        sparkyDrawBtnLabel(tft, modeX, qk.ctrlY, modeW, qk.ctrlRowH, s_oskLettersMode ? "123" : "ABC", qk.keyTs);
+        tft->fillRoundRect(saveX, qk.ctrlY, saveW, qk.ctrlRowH, 8, kGreen);
+        tft->drawRoundRect(saveX, qk.ctrlY, saveW, qk.ctrlRowH, 8, kWhite);
+        tft->setTextColor(kWhite, kGreen);
+        sparkyDrawBtnLabel(tft, saveX, qk.ctrlY, saveW, qk.ctrlRowH, "Save", qk.keyTs);
       }
-      startY += cellH + gap;
-      for (int col = 0; col < 10; col++) {
-        int kx = 20 + col * (cellW + gap);
-        tft->fillRoundRect(kx, startY, cellW, cellH, 4, kBtn);
-        tft->drawRoundRect(kx, startY, cellW, cellH, 4, kWhite);
-        char c[2] = { applyLetterCase(row1[col], s_syncEditUpper), '\0' };
-        tft->setCursor(kx + 2, startY + 4);
-        tft->print(c);
-      }
-      startY += cellH + gap;
-      for (int col = 0; col < 9; col++) {
-        int kx = 20 + col * (cellW + gap);
-        tft->fillRoundRect(kx, startY, cellW, cellH, 4, kBtn);
-        tft->drawRoundRect(kx, startY, cellW, cellH, 4, kWhite);
-        char c[2] = { applyLetterCase(row2[col], s_syncEditUpper), '\0' };
-        tft->setCursor(kx + 2, startY + 4);
-        tft->print(c);
-      }
-      startY += cellH + gap;
-      for (int col = 0; col < 7; col++) {
-        int kx = 20 + col * (cellW + gap);
-        tft->fillRoundRect(kx, startY, cellW, cellH, 4, kBtn);
-        tft->drawRoundRect(kx, startY, cellW, cellH, 4, kWhite);
-        char c[2] = { applyLetterCase(row3[col], s_syncEditUpper), '\0' };
-        tft->setCursor(kx + 2, startY + 4);
-        tft->print(c);
-      }
-      startY += cellH + gap;
-      for (int col = 0; col < 8; col++) {
-        int kx = 20 + col * (cellW + gap);
-        tft->fillRoundRect(kx, startY, cellW, cellH, 4, kBtn);
-        tft->drawRoundRect(kx, startY, cellW, cellH, 4, kWhite);
-        char c[2] = { row4[col], '\0' };
-        tft->setCursor(kx + 2, startY + 4);
-        tft->print(c);
-      }
-
-      startY += cellH + gap + 4;
-      tft->fillRoundRect(20, startY, 50, 28, 6, kAccent);
-      tft->drawRoundRect(20, startY, 50, 28, 6, kWhite);
-      tft->setTextColor(TFT_BLACK, kAccent);
-      tft->setCursor(24, startY + 6);
-      tft->print("Del");
-
-      tft->fillRoundRect(78, startY, 44, 28, 6, kBtn);
-      tft->drawRoundRect(78, startY, 44, 28, 6, kWhite);
-      tft->setTextColor(kWhite, kBtn);
-      tft->setCursor(86, startY + 6);
-      tft->print("Aa");
-
-      tft->fillRoundRect(130, startY, 60, 28, 6, kGreen);
-      tft->drawRoundRect(130, startY, 60, 28, 6, kWhite);
-      tft->setTextColor(TFT_BLACK, kGreen);
-      tft->setCursor(142, startY + 6);
-      tft->print("Save");
 
       tft->fillRoundRect(w - 62, 6, 48, 24, 6, kBtn);
       tft->drawRoundRect(w - 62, 6, 48, 24, 6, kWhite);
@@ -1738,30 +2107,34 @@ void Screens_draw(SparkyTft* tft, ScreenId id) {
       tft->setTextSize(2);
       tft->setCursor(20, 62);
       tft->print(disp);
-      /* Keypad: 1-9, then Clear 0 Confirm. Back top-right */
-      int cellW = (w - 50) / 3, cellH = 38, startY = 100, gap = 6;
+      PinKeypadLayout pk;
+      layoutPinKeypadGeometry(w, h, false, &pk);
       const char* keys = "123456789C0E";  /* C=Clear, E=Enter/Confirm */
       for (int row = 0; row < 4; row++) {
         for (int col = 0; col < 3; col++) {
           int idx = row * 3 + col;
-          int kx = 20 + col * (cellW + gap), ky = startY + row * (cellH + gap);
+          int kx = pk.kx + col * (pk.cellW + pk.gap);
+          int ky = pk.ky + row * (pk.cellH + pk.gap);
           uint16_t cellBg = kBtn;
           if (keys[idx] == 'C') cellBg = kAccent;
           else if (keys[idx] == 'E') cellBg = kGreen;
-          tft->fillRoundRect(kx, ky, cellW, cellH, 6, cellBg);
-          tft->drawRoundRect(kx, ky, cellW, cellH, 6, kWhite);
-          tft->setTextColor(TFT_BLACK, cellBg);
-          tft->setTextSize(1);
-          if (keys[idx] == 'C') tft->setCursor(kx + cellW/2 - 12, ky + cellH/2 - 4), tft->print("Clear");
-          else if (keys[idx] == 'E') tft->setCursor(kx + cellW/2 - 18, ky + cellH/2 - 4), tft->print("Confirm");
-          else tft->setCursor(kx + cellW/2 - 4, ky + cellH/2 - 4), tft->print(keys[idx]);
+          tft->fillRoundRect(kx, ky, pk.cellW, pk.cellH, 8, cellBg);
+          tft->drawRoundRect(kx, ky, pk.cellW, pk.cellH, 8, kWhite);
+          tft->setTextColor(keys[idx] == 'C' ? TFT_BLACK : kWhite, cellBg);
+          if (keys[idx] == 'C') {
+            sparkyDrawBtnLabel(tft, kx, ky, pk.cellW, pk.cellH, "Clear", pk.keypadTs);
+          } else if (keys[idx] == 'E') {
+            sparkyDrawBtnLabel(tft, kx, ky, pk.cellW, pk.cellH, "Confirm", pk.keypadTs);
+          } else {
+            char ds[2] = { keys[idx], '\0' };
+            sparkyDrawBtnLabel(tft, kx, ky, pk.cellW, pk.cellH, ds, pk.keypadTs);
+          }
         }
       }
-      tft->fillRoundRect(w - 70, 8, 50, 28, 6, kBtn);
-      tft->drawRoundRect(w - 70, 8, 50, 28, 6, kWhite);
+      tft->fillRoundRect(pk.backX, pk.backY, pk.backW, pk.backH, 6, kBtn);
+      tft->drawRoundRect(pk.backX, pk.backY, pk.backW, pk.backH, 6, kWhite);
       tft->setTextColor(kWhite, kBtn);
-      tft->setCursor(w - 62, 14);
-      tft->print("Back");
+      sparkyDrawBtnLabel(tft, pk.backX, pk.backY, pk.backW, pk.backH, "Back", 2);
       break;
     }
     case SCREEN_CHANGE_PIN: {
@@ -1781,35 +2154,49 @@ void Screens_draw(SparkyTft* tft, ScreenId id) {
       tft->setTextSize(2);
       tft->setCursor(20, 58);
       tft->print(disp);
-      int cellW = (w - 50) / 3, cellH = 36, startY = 92, gap = 6;
+      PinKeypadLayout pk;
+      layoutPinKeypadGeometry(w, h, true, &pk);
       const char* keys = "123456789C0E";
       for (int row = 0; row < 4; row++) {
         for (int col = 0; col < 3; col++) {
           int idx = row * 3 + col;
-          int kx = 20 + col * (cellW + gap), ky = startY + row * (cellH + gap);
+          int kx = pk.kx + col * (pk.cellW + pk.gap);
+          int ky = pk.ky + row * (pk.cellH + pk.gap);
           uint16_t cellBg = kBtn;
           if (keys[idx] == 'C') cellBg = kAccent;
           else if (keys[idx] == 'E') cellBg = kGreen;
-          tft->fillRoundRect(kx, ky, cellW, cellH, 6, cellBg);
-          tft->drawRoundRect(kx, ky, cellW, cellH, 6, kWhite);
-          tft->setTextColor(TFT_BLACK, cellBg);
-          tft->setTextSize(1);
-          if (keys[idx] == 'C') tft->setCursor(kx + cellW/2 - 12, ky + cellH/2 - 4), tft->print("Clear");
-          else if (keys[idx] == 'E') tft->setCursor(kx + cellW/2 - 18, ky + cellH/2 - 4), tft->print("OK");
-          else tft->setCursor(kx + cellW/2 - 4, ky + cellH/2 - 4), tft->print(keys[idx]);
+          tft->fillRoundRect(kx, ky, pk.cellW, pk.cellH, 8, cellBg);
+          tft->drawRoundRect(kx, ky, pk.cellW, pk.cellH, 8, kWhite);
+          tft->setTextColor(keys[idx] == 'C' ? TFT_BLACK : kWhite, cellBg);
+          if (keys[idx] == 'C') {
+            sparkyDrawBtnLabel(tft, kx, ky, pk.cellW, pk.cellH, "Clear", pk.keypadTs);
+          } else if (keys[idx] == 'E') {
+            sparkyDrawBtnLabel(tft, kx, ky, pk.cellW, pk.cellH, "OK", pk.keypadTs);
+          } else {
+            char ds[2] = { keys[idx], '\0' };
+            sparkyDrawBtnLabel(tft, kx, ky, pk.cellW, pk.cellH, ds, pk.keypadTs);
+          }
         }
       }
-      tft->fillRoundRect(w - 62, 8, 48, 26, 6, kBtn);
-      tft->drawRoundRect(w - 62, 8, 48, 26, 6, kWhite);
+      tft->fillRoundRect(pk.backX, pk.backY, pk.backW, pk.backH, 6, kBtn);
+      tft->drawRoundRect(pk.backX, pk.backY, pk.backW, pk.backH, 6, kWhite);
       tft->setTextColor(kWhite, kBtn);
-      tft->setCursor(w - 56, 12);
-      tft->print("Back");
+      sparkyDrawBtnLabel(tft, pk.backX, pk.backY, pk.backW, pk.backH, "Back", 2);
       break;
     }
     default:
       break;
   }
+  drawWifiConnectedIcon(tft);
   sparkyDisplayFlush(tft);
+}
+
+extern "C" void Screens_draw(SparkyTft* tft, ScreenId id) {
+  screens_draw_impl(tft, id, true);
+}
+
+void Screens_draw(SparkyTft* tft, ScreenId id, bool fullClear) {
+  screens_draw_impl(tft, id, fullClear);
 }
 
 ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint16_t y) {
@@ -1854,7 +2241,8 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
       int backX = w - backW - 12;
       int backY = panelWide ? 10 : 8;
       if (inRect(ix, iy, backX, backY, backW, backH)) return handled(SCREEN_MAIN_MENU);
-      for (int i = 0; i < VERIFY_TEST_COUNT; i++) {
+      const int testCount = VerificationSteps_getActiveTestCount();
+      for (int i = 0; i < testCount; i++) {
         int y0 = 0, rh = 0;
         sparkyTestSelectRowMetrics(w, h, i, &y0, &rh);
         if (inRect(ix, iy, 20, y0, w - 40, rh - 2)) {
@@ -1881,23 +2269,25 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
     }
     case SCREEN_STUDENT_ID: {
       if (inRect(ix, iy, w - 62, 8, 48, 24)) return handled(SCREEN_TEST_SELECT);
-      int cellW = (w - 50) / 3, cellH = 34, startY = 82, gap = 6;
+      PinKeypadLayout pk;
+      layoutNumericKeypad3x4(w, h, 84, &pk);
       const char* keys = "123456789D0E";
       for (int row = 0; row < 4; row++) {
         for (int col = 0; col < 3; col++) {
           int idx = row * 3 + col;
-          int kx = 20 + col * (cellW + gap), ky = startY + row * (cellH + gap);
-          if (!inRect(ix, iy, kx, ky, cellW, cellH)) continue;
+          int kx = pk.kx + col * (pk.cellW + pk.gap);
+          int ky = pk.ky + row * (pk.cellH + pk.gap);
+          if (!inRect(ix, iy, kx, ky, pk.cellW, pk.cellH)) continue;
           char k = keys[idx];
           if (k == 'D') {
             if (s_studentInputLen > 0) s_studentInput[--s_studentInputLen] = '\0';
-            Screens_draw(tft, current);
+            Screens_draw(tft, current, false);
             return handled(current);
           }
           if (k == 'E') {
             if (!normalizeStudentId(s_studentInput, s_studentId, sizeof(s_studentId))) {
               Buzzer_beepFail();
-              Screens_draw(tft, current);
+              Screens_draw(tft, current, false);
               return handled(current);
             }
             GoogleSync_resetSession();
@@ -1909,7 +2299,7 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
           if (k >= '0' && k <= '9' && s_studentInputLen < APP_STATE_DEVICE_ID_LEN - 2) {
             s_studentInput[s_studentInputLen++] = k;
             s_studentInput[s_studentInputLen] = '\0';
-            Screens_draw(tft, current);
+            Screens_draw(tft, current, false);
             return handled(current);
           }
         }
@@ -2051,7 +2441,7 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
 
         if (inRect(ix, iy, rel.delX, rel.delY, rel.delW, rel.delH)) {
           if (s_resultInputLen > 0) s_resultInput[--s_resultInputLen] = '\0';
-          Screens_draw(tft, current);
+          Screens_draw(tft, current, false);
           return handled(current);
         }
 
@@ -2059,7 +2449,7 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
           int ux = 20 + i * (rel.uw + rel.uGap);
           if (inRect(ix, iy, ux, rel.uy, rel.uw, rel.uh)) {
             s_resultInputUnitIdx = i;
-            Screens_draw(tft, current);
+            Screens_draw(tft, current, true);
             return handled(current);
           }
         }
@@ -2076,7 +2466,7 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
               if (s_resultInputLen <= 0) {
                 Buzzer_beepFail();
                 showPrompt(tft, "Enter a value", "before confirming", kRed);
-                Screens_draw(tft, current);
+                Screens_draw(tft, current, true);
                 return handled(current);
               }
               char* endptr = nullptr;
@@ -2084,7 +2474,7 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
               if (endptr == s_resultInput || !endptr || *endptr != '\0' || rawValue < 0.0f) {
                 Buzzer_beepFail();
                 showPrompt(tft, "Invalid value", "Try again", kRed);
-                Screens_draw(tft, current);
+                Screens_draw(tft, current, true);
                 return handled(current);
               }
               float canonicalValue = rawValue * units[s_resultInputUnitIdx].toCanonical;
@@ -2144,7 +2534,7 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
                 s_resultInput[s_resultInputLen] = '\0';
               }
             }
-            Screens_draw(tft, current);
+            Screens_draw(tft, current, false);
             return handled(current);
           }
         }
@@ -2174,9 +2564,8 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
       if (inRect(ix, iy, 20, y, w - 40, btnH)) {
         bool enabled = !AppState_getBuzzerEnabled();
         AppState_setBuzzerEnabled(enabled);
-        Screens_draw(tft, current);
-        showSavedPrompt(tft, enabled ? "Buzzer: ON" : "Buzzer: OFF");
-        Screens_draw(tft, current);
+        /* Keep toggle lightweight: redraw settings immediately without modal prompt. */
+        Screens_draw(tft, current, false);
         return handled(current);
       }
       y += btnH + gap;
@@ -2184,10 +2573,27 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
       y += btnH + gap;
       if (inRect(ix, iy, 20, y, w - 40, btnH)) return handled(SCREEN_UPDATES);
       y += btnH + gap;
+      if (!field) {
+        if (inRect(ix, iy, 20, y, w - 40, btnH)) {
+          Screens_resetPinEntry();
+          Screens_setPinSuccessTarget(SCREEN_TRAINING_SYNC);
+          Screens_setPinCancelTarget(SCREEN_SETTINGS);
+          return handled(SCREEN_PIN_ENTER);
+        }
+        y += btnH + gap;
+      }
       if (inRect(ix, iy, 20, y, w - 40, btnH)) return handled(SCREEN_EMAIL_SETTINGS);
       y += btnH + gap;
+      /* Mode change (boot hold): same destination as long-press on boot logo — PIN then Training/Field. */
       if (inRect(ix, iy, 20, y, w - 40, btnH)) {
-        Screens_draw(tft, current);
+        Screens_resetPinEntry();
+        Screens_setPinSuccessTarget(SCREEN_MODE_SELECT);
+        Screens_setPinCancelTarget(SCREEN_SETTINGS);
+        return handled(SCREEN_PIN_ENTER);
+      }
+      y += btnH + gap;
+      if (inRect(ix, iy, 20, y, w - 40, btnH)) {
+        ESP.restart();
         return handled(current);
       }
       y += btnH + gap;
@@ -2212,23 +2618,49 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
       if (inRect(ix, iy, 20, h - 52, w - 40, 44)) return handled(SCREEN_SETTINGS);
       break;
     case SCREEN_WIFI_LIST: {
-      if (inRect(ix, iy, 20, 62, 100, 28)) {
+      if (s_wifiPortalAssist) {
+        if (inRect(ix, iy, 176, 144, w - 196, 34)) {
+          bool stillPortal = WifiManager_isCaptivePortalLikely();
+          if (stillPortal) {
+            WifiManager_getPortalUrl(s_wifiPortalUrl, sizeof(s_wifiPortalUrl));
+            showPrompt(tft, "Portal still required", "Complete login on phone", kAccent);
+            Screens_draw(tft, current);
+          } else {
+            s_wifiPortalAssist = false;
+            showSavedPrompt(tft, "Internet reachable");
+            Screens_draw(tft, current);
+          }
+          return handled(current);
+        }
+        if (inRect(ix, iy, 20, h - 48, 124, 40)) {
+          s_wifiPortalAssist = false;
+          Screens_draw(tft, current);
+          return handled(current);
+        }
+        break;
+      }
+      const int scanX = 20, scanY = 62, scanW = 124, scanH = 34, rowH = 38;
+      if (inRect(ix, iy, scanX, scanY, scanW, scanH)) {
         s_networkCount = WifiManager_scan(s_networks, WIFI_MAX_SSIDS);
+        s_wifiPortalAssist = false;
         Screens_draw(tft, current);
         return handled(current);
       }
-      int listY = 98, rowH = 30;
+      int listY = scanY + scanH + 6;
       for (int i = 0; i < s_networkCount && listY + rowH < h - 44; i++) {
         if (inRect(ix, iy, 20, listY, w - 40, rowH)) {
           strncpy(s_selectedSsid, s_networks[i].ssid, WIFI_SSID_LEN - 1);
           s_selectedSsid[WIFI_SSID_LEN - 1] = '\0';
           s_wifiPassLen = 0;
           s_wifiPass[0] = '\0';
+          s_wifiPortalAssist = false;
+          s_oskLettersMode = true;
+          s_oskLetterUpper = false;
           return handled(SCREEN_WIFI_PASSWORD);
         }
         listY += rowH;
       }
-      if (inRect(ix, iy, 20, h - 42, 80, 34)) return handled(SCREEN_SETTINGS);
+      if (inRect(ix, iy, 20, h - 48, 124, 40)) { s_wifiPortalAssist = false; return handled(SCREEN_SETTINGS); }
       break;
     }
     case SCREEN_WIFI_PASSWORD: {
@@ -2237,38 +2669,87 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
         s_wifiPassLen = 0;
         return handled(SCREEN_WIFI_LIST);
       }
-      int cellW = (w - 56) / 10, cellH = 26, startY = 68, gap = 4;
-      const char* rows[] = { "1234567890", "qwertyuiop", "asdfghjkl", "zxcvbnm" };
-      int cols[] = { 10, 10, 9, 7 };
-      for (int row = 0; row < 4; row++) {
-        for (int col = 0; col < cols[row]; col++) {
-          int kx = 20 + col * (cellW + gap), ky = startY + row * (cellH + gap);
-          if (inRect(ix, iy, kx, ky, cellW, cellH) && s_wifiPassLen < WIFI_PASS_LEN - 1) {
-            char c = rows[row][col];
-            s_wifiPass[s_wifiPassLen++] = c;
-            s_wifiPass[s_wifiPassLen] = '\0';
-            Screens_draw(tft, current);
-            return handled(current);
+      QwertyKeyboardLayout qk;
+      layoutQwertyKeyboard(w, h, 68, 4, 40, &qk);
+      {
+        const char* rows[4];
+        int cols[4];
+        if (s_oskLettersMode) {
+          rows[0] = kOskLettersRow0;
+          cols[0] = 10;
+          rows[1] = kOskLettersRow1;
+          cols[1] = 9;
+          rows[2] = kOskLettersRow2;
+          cols[2] = 7;
+          rows[3] = kOskLettersRow3Email;
+          cols[3] = 4;
+        } else {
+          rows[0] = kOskNumsRow0;
+          cols[0] = 10;
+          rows[1] = kOskNumsRow1;
+          cols[1] = 8;
+          rows[2] = kOskNumsRow2;
+          cols[2] = 10;
+          rows[3] = kOskNumsRow3;
+          cols[3] = 10;
+        }
+        for (int row = 0; row < 4; row++) {
+          for (int col = 0; col < cols[row]; col++) {
+            int kx = qk.marginX + col * (qk.cellW + qk.gap);
+            int ky = qk.keyStartY + row * (qk.cellH + qk.gap);
+            if (inRect(ix, iy, kx, ky, qk.cellW, qk.cellH) && s_wifiPassLen < WIFI_PASS_LEN - 1) {
+              char c = rows[row][col];
+              if (s_oskLettersMode && row <= 2) c = applyLetterCase(c, s_oskLetterUpper);
+              s_wifiPass[s_wifiPassLen++] = c;
+              s_wifiPass[s_wifiPassLen] = '\0';
+              Screens_draw(tft, current, false);
+              return handled(current);
+            }
           }
         }
       }
-      int ctrlY = startY + 4 * (cellH + gap) + 4;
-      if (inRect(ix, iy, 20, ctrlY, 60, 32)) {
-        if (s_wifiPassLen > 0) s_wifiPass[--s_wifiPassLen] = '\0';
-        Screens_draw(tft, current);
-        return handled(current);
-      }
-      if (inRect(ix, iy, 90, ctrlY, 80, 32)) {
+      {
+        const int delW = 52, aaW = 44, modeW = 56;
+        int aaX = qk.marginX + delW + qk.gap;
+        int modeX = aaX + aaW + qk.gap;
+        int connX = modeX + modeW + qk.gap;
+        int connW = w - connX - qk.marginX;
+        if (inRect(ix, iy, aaX, qk.ctrlY, aaW, qk.ctrlRowH)) {
+          s_oskLetterUpper = !s_oskLetterUpper;
+          Screens_draw(tft, current, true);
+          return handled(current);
+        }
+        if (inRect(ix, iy, modeX, qk.ctrlY, modeW, qk.ctrlRowH)) {
+          s_oskLettersMode = !s_oskLettersMode;
+          Screens_draw(tft, current, true);
+          return handled(current);
+        }
+        if (inRect(ix, iy, qk.marginX, qk.ctrlY, delW, qk.ctrlRowH)) {
+          if (s_wifiPassLen > 0) s_wifiPass[--s_wifiPassLen] = '\0';
+          Screens_draw(tft, current, false);
+          return handled(current);
+        }
+        if (inRect(ix, iy, connX, qk.ctrlY, connW, qk.ctrlRowH)) {
         if (WifiManager_connect(s_selectedSsid, s_wifiPassLen > 0 ? s_wifiPass : "")) {
           Buzzer_beepPass();
-          showPrompt(tft, "Wi-Fi connected", s_selectedSsid, kGreen);
+          bool portal = WifiManager_isCaptivePortalLikely();
+          if (portal) {
+            WifiManager_getPortalUrl(s_wifiPortalUrl, sizeof(s_wifiPortalUrl));
+            s_wifiPortalAssist = true;
+            showPrompt(tft, "Portal login needed", "Open assist screen", kAccent);
+          } else {
+            s_wifiPortalAssist = false;
+            showPrompt(tft, "Wi-Fi connected", s_selectedSsid, kGreen);
+          }
         } else {
+          s_wifiPortalAssist = false;
           Buzzer_beepFail();
           showPrompt(tft, "Wi-Fi connect failed", "Check password", kRed);
         }
         s_selectedSsid[0] = '\0';
         s_wifiPassLen = 0;
         return handled(SCREEN_WIFI_LIST);
+        }
       }
       break;
     }
@@ -2307,19 +2788,12 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
         return handled(current);
       }
       btnY += btnH + gap;
-      if (!AppState_isFieldMode() && inRect(ix, iy, 20, btnY, w - 40, btnH)) {
-        Screens_resetPinEntry();
-        Screens_setPinSuccessTarget(SCREEN_TRAINING_SYNC);
-        Screens_setPinCancelTarget(SCREEN_UPDATES);
-        return handled(SCREEN_PIN_ENTER);
-      }
-      if (!AppState_isFieldMode()) btnY += btnH + gap;
       if (inRect(ix, iy, 20, btnY, 80, 26)) return handled(SCREEN_SETTINGS);
       break;
     }
     case SCREEN_TRAINING_SYNC: {
       if (AppState_isFieldMode()) {
-        if (inRect(ix, iy, 20, h - 38, 80, 30)) return handled(SCREEN_UPDATES);
+        if (inRect(ix, iy, 20, h - 38, 80, 30)) return handled(SCREEN_SETTINGS);
         break;
       }
       int y = 152, btnH = 22, gap = 3;
@@ -2366,39 +2840,72 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
         return handled(current);
       }
       y += btnH + gap;
-      if (inRect(ix, iy, 20, y, 80, btnH)) return handled(SCREEN_UPDATES);
+      if (inRect(ix, iy, 20, y, 80, btnH)) return handled(SCREEN_SETTINGS);
       break;
     }
     case SCREEN_TRAINING_SYNC_EDIT: {
       if (inRect(ix, iy, w - 62, 6, 48, 24)) return handled(SCREEN_TRAINING_SYNC);
-      int cellW = (w - 56) / 10, cellH = 24, startY = 48, gap = 4;
-      const char* rows[] = { "1234567890", "qwertyuiop", "asdfghjkl", "zxcvbnm", "@.-_/:?&" };
-      int cols[] = { 10, 10, 9, 7, 8 };
+      QwertyKeyboardLayout qk;
+      layoutQwertyKeyboard(w, h, 48, 4, 40, &qk);
       int maxLen = syncEditMaxLen();
-      for (int row = 0; row < 5; row++) {
-        for (int col = 0; col < cols[row]; col++) {
-          int kx = 20 + col * (cellW + gap), ky = startY + row * (cellH + gap);
-          if (!inRect(ix, iy, kx, ky, cellW, cellH) || s_syncEditLen >= maxLen - 1) continue;
-          char c = rows[row][col];
-          if (row >= 1 && row <= 3) c = applyLetterCase(c, s_syncEditUpper);
-          s_syncEditBuffer[s_syncEditLen++] = c;
-          s_syncEditBuffer[s_syncEditLen] = '\0';
-          Screens_draw(tft, current);
-          return handled(current);
+      {
+        const char* rows[4];
+        int cols[4];
+        if (s_oskLettersMode) {
+          rows[0] = kOskLettersRow0;
+          cols[0] = 10;
+          rows[1] = kOskLettersRow1;
+          cols[1] = 9;
+          rows[2] = kOskLettersRow2;
+          cols[2] = 7;
+          rows[3] = kOskLettersRow3Sync;
+          cols[3] = 8;
+        } else {
+          rows[0] = kOskNumsRow0;
+          cols[0] = 10;
+          rows[1] = kOskNumsRow1;
+          cols[1] = 8;
+          rows[2] = kOskNumsRow2;
+          cols[2] = 10;
+          rows[3] = kOskNumsRow3;
+          cols[3] = 10;
+        }
+        for (int row = 0; row < 4; row++) {
+          for (int col = 0; col < cols[row]; col++) {
+            int kx = qk.marginX + col * (qk.cellW + qk.gap);
+            int ky = qk.keyStartY + row * (qk.cellH + qk.gap);
+            if (!inRect(ix, iy, kx, ky, qk.cellW, qk.cellH) || s_syncEditLen >= maxLen - 1) continue;
+            char c = rows[row][col];
+            if (s_oskLettersMode && row <= 2) c = applyLetterCase(c, s_oskLetterUpper);
+            s_syncEditBuffer[s_syncEditLen++] = c;
+            s_syncEditBuffer[s_syncEditLen] = '\0';
+            Screens_draw(tft, current, false);
+            return handled(current);
+          }
         }
       }
-      int ctrlY = startY + 5 * (cellH + gap) + 4;
-      if (inRect(ix, iy, 20, ctrlY, 50, 28)) {
-        if (s_syncEditLen > 0) s_syncEditBuffer[--s_syncEditLen] = '\0';
-        Screens_draw(tft, current);
-        return handled(current);
-      }
-      if (inRect(ix, iy, 78, ctrlY, 44, 28)) {
-        s_syncEditUpper = !s_syncEditUpper;
-        Screens_draw(tft, current);
-        return handled(current);
-      }
-      if (inRect(ix, iy, 130, ctrlY, 60, 28)) {
+      {
+        const int delW = 52, aaW = 44, modeW = 56;
+        int aaX = qk.marginX + delW + qk.gap;
+        int modeX = aaX + aaW + qk.gap;
+        int saveX = modeX + modeW + qk.gap;
+        int saveW = w - saveX - qk.marginX;
+        if (inRect(ix, iy, modeX, qk.ctrlY, modeW, qk.ctrlRowH)) {
+          s_oskLettersMode = !s_oskLettersMode;
+          Screens_draw(tft, current, true);
+          return handled(current);
+        }
+        if (inRect(ix, iy, qk.marginX, qk.ctrlY, delW, qk.ctrlRowH)) {
+          if (s_syncEditLen > 0) s_syncEditBuffer[--s_syncEditLen] = '\0';
+          Screens_draw(tft, current, false);
+          return handled(current);
+        }
+        if (inRect(ix, iy, aaX, qk.ctrlY, aaW, qk.ctrlRowH)) {
+          s_oskLetterUpper = !s_oskLetterUpper;
+          Screens_draw(tft, current, true);
+          return handled(current);
+        }
+        if (inRect(ix, iy, saveX, qk.ctrlY, saveW, qk.ctrlRowH)) {
         const char* detail = "Setting updated";
         if (s_syncEditField == 0) AppState_setTrainingSyncEndpoint(s_syncEditBuffer);
         else if (s_syncEditField == 1) AppState_setTrainingSyncToken(s_syncEditBuffer);
@@ -2410,6 +2917,7 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
         else detail = "Device label saved";
         showSavedPrompt(tft, detail);
         return handled(SCREEN_TRAINING_SYNC);
+        }
       }
       break;
     }
@@ -2418,6 +2926,8 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
       for (int i = 0; i < 5; i++) {
         if (inRect(ix, iy, 20, editY + i * 28, w - 40, 26)) {
           s_editingEmailField = i;
+          s_oskLettersMode = true;
+          s_oskLetterUpper = false;
           s_editLen = 0;
           s_editBuffer[0] = '\0';
           if (i == 0) AppState_getSmtpServer(s_editBuffer, sizeof(s_editBuffer));
@@ -2435,59 +2945,121 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
     }
     case SCREEN_EMAIL_FIELD_EDIT: {
       if (inRect(ix, iy, w - 62, 6, 48, 24)) return handled(SCREEN_EMAIL_SETTINGS);
-      int cellW = (w - 56) / 10, cellH = 24, startY = 48, gap = 4;
-      const char* rows[] = { "1234567890", "qwertyuiop", "asdfghjkl", "zxcvbnm", "@.-_" };
-      int cols[] = { 10, 10, 9, 7, 4 };
-      for (int row = 0; row < 5; row++) {
-        for (int col = 0; col < cols[row]; col++) {
-          int kx = 20 + col * (cellW + gap), ky = startY + row * (cellH + gap);
-          if (inRect(ix, iy, kx, ky, cellW, cellH) && s_editLen < (int)(APP_STATE_EMAIL_STR_LEN - 1)) {
-            char c = rows[row][col];
-            s_editBuffer[s_editLen++] = c;
-            s_editBuffer[s_editLen] = '\0';
-            Screens_draw(tft, current);
-            return handled(current);
+      if (!emailFieldNeedsQwertyOsk(s_editingEmailField)) {
+        PinKeypadLayout pk;
+        layoutNumericKeypad3x4(w, h, 84, &pk);
+        const char* keys = "123456789D0E";
+        for (int row = 0; row < 4; row++) {
+          for (int col = 0; col < 3; col++) {
+            int idx = row * 3 + col;
+            int kx = pk.kx + col * (pk.cellW + pk.gap);
+            int ky = pk.ky + row * (pk.cellH + pk.gap);
+            if (!inRect(ix, iy, kx, ky, pk.cellW, pk.cellH)) continue;
+            char k = keys[idx];
+            if (k == 'D') {
+              if (s_editLen > 0) s_editBuffer[--s_editLen] = '\0';
+              Screens_draw(tft, current, false);
+              return handled(current);
+            }
+            if (k == 'E') {
+              applyEmailFieldSave(tft);
+              return handled(SCREEN_EMAIL_SETTINGS);
+            }
+            if (k >= '0' && k <= '9' && s_editLen < kSmtpPortMaxDigits &&
+                s_editLen < (int)(APP_STATE_EMAIL_STR_LEN - 1)) {
+              s_editBuffer[s_editLen++] = k;
+              s_editBuffer[s_editLen] = '\0';
+              Screens_draw(tft, current, false);
+              return handled(current);
+            }
+          }
+        }
+        break;
+      }
+      QwertyKeyboardLayout qk;
+      layoutQwertyKeyboard(w, h, 48, 4, 40, &qk);
+      {
+        const char* rows[4];
+        int cols[4];
+        if (s_oskLettersMode) {
+          rows[0] = kOskLettersRow0;
+          cols[0] = 10;
+          rows[1] = kOskLettersRow1;
+          cols[1] = 9;
+          rows[2] = kOskLettersRow2;
+          cols[2] = 7;
+          rows[3] = kOskLettersRow3Email;
+          cols[3] = 4;
+        } else {
+          rows[0] = kOskNumsRow0;
+          cols[0] = 10;
+          rows[1] = kOskNumsRow1;
+          cols[1] = 8;
+          rows[2] = kOskNumsRow2;
+          cols[2] = 10;
+          rows[3] = kOskNumsRow3;
+          cols[3] = 10;
+        }
+        for (int row = 0; row < 4; row++) {
+          for (int col = 0; col < cols[row]; col++) {
+            int kx = qk.marginX + col * (qk.cellW + qk.gap);
+            int ky = qk.keyStartY + row * (qk.cellH + qk.gap);
+            if (inRect(ix, iy, kx, ky, qk.cellW, qk.cellH) && s_editLen < (int)(APP_STATE_EMAIL_STR_LEN - 1)) {
+              char c = rows[row][col];
+              if (s_oskLettersMode && row <= 2) c = applyLetterCase(c, s_oskLetterUpper);
+              s_editBuffer[s_editLen++] = c;
+              s_editBuffer[s_editLen] = '\0';
+              Screens_draw(tft, current, false);
+              return handled(current);
+            }
           }
         }
       }
-      int ctrlY = startY + 5 * (cellH + gap) + 4;
-      if (inRect(ix, iy, 20, ctrlY, 50, 28)) {
-        if (s_editLen > 0) s_editBuffer[--s_editLen] = '\0';
-        Screens_draw(tft, current);
-        return handled(current);
-      }
-      if (inRect(ix, iy, 78, ctrlY, 60, 28)) {
-        const char* detail = "Email setting saved";
-        if (s_editingEmailField == 0) AppState_setSmtpServer(s_editBuffer);
-        else if (s_editingEmailField == 1) AppState_setSmtpPort(s_editBuffer);
-        else if (s_editingEmailField == 2) AppState_setSmtpUser(s_editBuffer);
-        else if (s_editingEmailField == 3) AppState_setSmtpPass(s_editBuffer);
-        else AppState_setReportToEmail(s_editBuffer);
-        if (s_editingEmailField == 0) detail = "SMTP server saved";
-        else if (s_editingEmailField == 1) detail = "SMTP port saved";
-        else if (s_editingEmailField == 2) detail = "SMTP user saved";
-        else if (s_editingEmailField == 3) detail = "SMTP pass saved";
-        else detail = "Report email saved";
-        showSavedPrompt(tft, detail);
-        return handled(SCREEN_EMAIL_SETTINGS);
+      {
+        const int delW = 52, aaW = 44, modeW = 56;
+        int aaX = qk.marginX + delW + qk.gap;
+        int modeX = aaX + aaW + qk.gap;
+        int saveX = modeX + modeW + qk.gap;
+        int saveW = w - saveX - qk.marginX;
+        if (inRect(ix, iy, aaX, qk.ctrlY, aaW, qk.ctrlRowH)) {
+          s_oskLetterUpper = !s_oskLetterUpper;
+          Screens_draw(tft, current, true);
+          return handled(current);
+        }
+        if (inRect(ix, iy, modeX, qk.ctrlY, modeW, qk.ctrlRowH)) {
+          s_oskLettersMode = !s_oskLettersMode;
+          Screens_draw(tft, current, true);
+          return handled(current);
+        }
+        if (inRect(ix, iy, qk.marginX, qk.ctrlY, delW, qk.ctrlRowH)) {
+          if (s_editLen > 0) s_editBuffer[--s_editLen] = '\0';
+          Screens_draw(tft, current, false);
+          return handled(current);
+        }
+        if (inRect(ix, iy, saveX, qk.ctrlY, saveW, qk.ctrlRowH)) {
+          applyEmailFieldSave(tft);
+          return handled(SCREEN_EMAIL_SETTINGS);
+        }
       }
       break;
     }
     case SCREEN_PIN_ENTER: {
-      if (inRect(ix, iy, w - 70, 8, 50, 28)) {
+      PinKeypadLayout pk;
+      layoutPinKeypadGeometry(w, h, false, &pk);
+      if (inRect(ix, iy, pk.backX, pk.backY, pk.backW, pk.backH)) {
         Screens_resetPinEntry();
         return handled(s_pinCancelTarget);
       }
-      int cellW = (w - 50) / 3, cellH = 38, startY = 100, gap = 6;
       const char* keys = "123456789C0E";
       for (int row = 0; row < 4; row++) {
         for (int col = 0; col < 3; col++) {
           int idx = row * 3 + col;
-          int kx = 20 + col * (cellW + gap), ky = startY + row * (cellH + gap);
-          if (!inRect(ix, iy, kx, ky, cellW, cellH)) continue;
+          int kx = pk.kx + col * (pk.cellW + pk.gap);
+          int ky = pk.ky + row * (pk.cellH + pk.gap);
+          if (!inRect(ix, iy, kx, ky, pk.cellW, pk.cellH)) continue;
           if (keys[idx] == 'C') {
             Screens_resetPinEntry();
-            Screens_draw(tft, current);
+            Screens_draw(tft, current, false);
             return handled(current);
           }
           if (keys[idx] == 'E') {
@@ -2519,14 +3091,14 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
                 Screens_resetPinEntry();
                 return handled(SCREEN_MAIN_MENU);
               }
-              Screens_draw(tft, current);
+              Screens_draw(tft, current, false);
               return handled(current);
             }
           }
           if (keys[idx] >= '0' && keys[idx] <= '9' && s_pinLen < kPinMaxLen) {
             s_pinDigits[s_pinLen++] = keys[idx];
             s_pinDigits[s_pinLen] = '\0';
-            Screens_draw(tft, current);
+            Screens_draw(tft, current, false);
             return handled(current);
           }
         }
@@ -2534,20 +3106,26 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
       break;
     }
     case SCREEN_CHANGE_PIN: {
-      if (inRect(ix, iy, w - 62, 8, 48, 26)) {
-        s_changePinStep = 0; s_pinLen = 0; s_pinDigits[0] = '\0'; s_newPinBuf[0] = '\0'; s_newPinLen = 0;
+      PinKeypadLayout pk;
+      layoutPinKeypadGeometry(w, h, true, &pk);
+      if (inRect(ix, iy, pk.backX, pk.backY, pk.backW, pk.backH)) {
+        s_changePinStep = 0;
+        s_pinLen = 0;
+        s_pinDigits[0] = '\0';
+        s_newPinBuf[0] = '\0';
+        s_newPinLen = 0;
         return handled(SCREEN_SETTINGS);
       }
-      int cellW = (w - 50) / 3, cellH = 36, startY = 92, gap = 6;
       const char* keys = "123456789C0E";
       for (int row = 0; row < 4; row++) {
         for (int col = 0; col < 3; col++) {
           int idx = row * 3 + col;
-          int kx = 20 + col * (cellW + gap), ky = startY + row * (cellH + gap);
-          if (!inRect(ix, iy, kx, ky, cellW, cellH)) continue;
+          int kx = pk.kx + col * (pk.cellW + pk.gap);
+          int ky = pk.ky + row * (pk.cellH + pk.gap);
+          if (!inRect(ix, iy, kx, ky, pk.cellW, pk.cellH)) continue;
           if (keys[idx] == 'C') {
             s_pinLen = 0; s_pinDigits[0] = '\0';
-            Screens_draw(tft, current);
+            Screens_draw(tft, current, false);
             return handled(current);
           }
           if (keys[idx] == 'E') {
@@ -2558,7 +3136,7 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
               s_newPinLen = s_pinLen;
               s_changePinStep = 1;
               s_pinLen = 0; s_pinDigits[0] = '\0';
-              Screens_draw(tft, current);
+              Screens_draw(tft, current, true);
               return handled(current);
             } else {
               bool match = (s_pinLen == s_newPinLen && s_pinLen >= kPinMinLen &&
@@ -2580,7 +3158,7 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
           if (keys[idx] >= '0' && keys[idx] <= '9' && s_pinLen < kPinMaxLen) {
             s_pinDigits[s_pinLen++] = keys[idx];
             s_pinDigits[s_pinLen] = '\0';
-            Screens_draw(tft, current);
+            Screens_draw(tft, current, false);
             return handled(current);
           }
         }

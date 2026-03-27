@@ -17,14 +17,19 @@
 
 void Buzzer_init(void) {
 #if BUZZER_PIN >= 0
+  Serial.printf("[Buzzer] init: BUZZER_PIN=%d\n", BUZZER_PIN);
   pinMode(BUZZER_PIN, OUTPUT);
   digitalWrite(BUZZER_PIN, LOW);
 #if ESP_ARDUINO_VERSION >= ESP_ARDUINO_VERSION_VAL(3, 0, 0)
+  Serial.println("[Buzzer] LEDC attach(pin, freq, bits)");
   ledcAttach(BUZZER_PIN, BUZZER_LEDC_FREQ, BUZZER_LEDC_RES_BITS);
 #else
+  Serial.println("[Buzzer] LEDC setup + attachPin(channel)");
   ledcSetup(BUZZER_LEDC_CHANNEL, BUZZER_LEDC_FREQ, BUZZER_LEDC_RES_BITS);
   ledcAttachPin(BUZZER_PIN, BUZZER_LEDC_CHANNEL);
 #endif
+#else
+  Serial.println("[Buzzer] disabled (BUZZER_PIN < 0)");
 #endif
 }
 
@@ -87,11 +92,13 @@ void Buzzer_beepWarning(void) {
 
 void Buzzer_startupChime(void) {
 #if BUZZER_PIN >= 0
+  Serial.printf("[Buzzer] startup chime: pin=%d enabled=%d\n", BUZZER_PIN, AppState_getBuzzerEnabled() ? 1 : 0);
   /* Always play: boot finished, ready for user input. Not affected by Settings. */
   beepUnmuted(1000, 50);
   delay(40);
   beepUnmuted(1200, 50);
   delay(40);
   beepUnmuted(1300, 80);   /* Rise into resonant band */
+  Serial.println("[Buzzer] startup chime complete");
 #endif
 }

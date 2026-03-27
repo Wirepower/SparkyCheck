@@ -48,6 +48,7 @@ NAV_MAP = {
         "WiFi connection": "SCREEN_WIFI_LIST",
         "About": "SCREEN_ABOUT",
         "Firmware updates": "SCREEN_UPDATES",
+        "Training sync (PIN)": "SCREEN_PIN_ENTER",
         "Email settings": "SCREEN_EMAIL_SETTINGS",
         "Change PIN": "SCREEN_CHANGE_PIN",
         "Back": "SCREEN_MAIN_MENU",
@@ -68,7 +69,6 @@ NAV_MAP = {
         "Back": "SCREEN_SETTINGS",
     },
     "SCREEN_UPDATES": {
-        "Training sync setup (PIN)": "SCREEN_PIN_ENTER",
         "Back": "SCREEN_SETTINGS",
     },
     "SCREEN_TRAINING_SYNC": {
@@ -76,7 +76,7 @@ NAV_MAP = {
         "Edit token": "SCREEN_TRAINING_SYNC_EDIT",
         "Edit cubicle": "SCREEN_TRAINING_SYNC_EDIT",
         "Edit device label": "SCREEN_TRAINING_SYNC_EDIT",
-        "Back": "SCREEN_UPDATES",
+        "Back": "SCREEN_SETTINGS",
     },
     "SCREEN_TRAINING_SYNC_EDIT": {
         "Save": "SCREEN_TRAINING_SYNC",
