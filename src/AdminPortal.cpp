@@ -10,6 +10,7 @@
 #include <WiFi.h>
 #include <ESPAsyncWebServer.h>
 #include <esp_system.h>
+#include <esp_heap_caps.h>
 #include <LittleFS.h>
 #include <SD_MMC.h>
 #include <ArduinoJson.h>
@@ -42,7 +43,17 @@ static char s_flashMsg[120] = "";
 static bool s_flashErr = false;
 static WifiNetwork s_scanResults[WIFI_MAX_SSIDS];
 static int s_scanCount = 0;
-static char s_testsJson[131072] = "";
+static constexpr size_t kTestsJsonCap = 131072;
+static char* s_testsJson = nullptr;
+
+static bool ensureTestsJsonBuf(void) {
+  if (s_testsJson) return true;
+  s_testsJson = (char*)heap_caps_calloc(1, kTestsJsonCap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (!s_testsJson) s_testsJson = (char*)heap_caps_calloc(1, kTestsJsonCap, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+  if (!s_testsJson) s_testsJson = (char*)calloc(1, kTestsJsonCap);
+  if (s_testsJson) s_testsJson[0] = '\0';
+  return s_testsJson != nullptr;
+}
 static String s_uploadTestsJson;
 static const char* kTestsPath = "/config/tests.json";
 static const char* kTestsPrevPath = "/config/tests_prev.json";
@@ -512,23 +523,24 @@ static String filesPage(void) {
 }
 
 static void ensureTestsJsonLoaded(void) {
+  if (!ensureTestsJsonBuf() || !s_testsJson) return;
   if (s_testsJson[0]) return;
-  if (!VerificationSteps_getConfigJson(s_testsJson, sizeof(s_testsJson))) {
+  if (!VerificationSteps_getConfigJson(s_testsJson, kTestsJsonCap)) {
     VerificationSteps_useFactoryDefaults();
-    if (!VerificationSteps_getConfigJson(s_testsJson, sizeof(s_testsJson))) {
-      if (!buildTestsJsonFromActive(s_testsJson, sizeof(s_testsJson))) {
-        strncpy(s_testsJson, "{\"tests\":[],\"rules\":[]}", sizeof(s_testsJson) - 1);
+    if (!VerificationSteps_getConfigJson(s_testsJson, kTestsJsonCap)) {
+      if (!buildTestsJsonFromActive(s_testsJson, kTestsJsonCap)) {
+        strncpy(s_testsJson, "{\"tests\":[],\"rules\":[]}", kTestsJsonCap - 1);
       }
     }
-    s_testsJson[sizeof(s_testsJson) - 1] = '\0';
+    s_testsJson[kTestsJsonCap - 1] = '\0';
   }
   DynamicJsonDocument doc(131072);
   if (deserializeJson(doc, s_testsJson) == DeserializationError::Ok) {
     if (ensureDefaultRulesInDoc(doc)) {
       String fixed;
       serializeJsonPretty(doc, fixed);
-      strncpy(s_testsJson, fixed.c_str(), sizeof(s_testsJson) - 1);
-      s_testsJson[sizeof(s_testsJson) - 1] = '\0';
+      strncpy(s_testsJson, fixed.c_str(), kTestsJsonCap - 1);
+      s_testsJson[kTestsJsonCap - 1] = '\0';
       if (!LittleFS.exists("/config")) LittleFS.mkdir("/config");
       File fw = LittleFS.open(kTestsPath, "w");
       if (fw) {
@@ -620,8 +632,8 @@ static bool activateAndPersistTestsJson(const String& json, String* outErr) {
   }
   File fa = LittleFS.open(kTestsPath, "w");
   if (fa) { fa.print(jsonFixed); fa.close(); }
-  strncpy(s_testsJson, jsonFixed.c_str(), sizeof(s_testsJson) - 1);
-  s_testsJson[sizeof(s_testsJson) - 1] = '\0';
+  strncpy(s_testsJson, jsonFixed.c_str(), kTestsJsonCap - 1);
+  s_testsJson[kTestsJsonCap - 1] = '\0';
   if (outErr) outErr->remove(0);
   return true;
 }
@@ -873,17 +885,17 @@ static String testsPage(AsyncWebServerRequest* req) {
     if (f) {
       String fromFs = f.readString();
       f.close();
-      if (fromFs.length() > 0 && fromFs.length() < sizeof(s_testsJson)) {
-        strncpy(s_testsJson, fromFs.c_str(), sizeof(s_testsJson) - 1);
-        s_testsJson[sizeof(s_testsJson) - 1] = '\0';
+      if (fromFs.length() > 0 && fromFs.length() < kTestsJsonCap) {
+        strncpy(s_testsJson, fromFs.c_str(), kTestsJsonCap - 1);
+        s_testsJson[kTestsJsonCap - 1] = '\0';
         /* If rules are empty/missing, repair and persist so the editor shows rule controls. */
         DynamicJsonDocument docFix(131072);
         if (deserializeJson(docFix, s_testsJson) == DeserializationError::Ok) {
           if (ensureDefaultRulesInDoc(docFix)) {
             String fixed;
             serializeJsonPretty(docFix, fixed);
-            strncpy(s_testsJson, fixed.c_str(), sizeof(s_testsJson) - 1);
-            s_testsJson[sizeof(s_testsJson) - 1] = '\0';
+            strncpy(s_testsJson, fixed.c_str(), kTestsJsonCap - 1);
+            s_testsJson[kTestsJsonCap - 1] = '\0';
             if (!LittleFS.exists("/config")) LittleFS.mkdir("/config");
             File fw = LittleFS.open(kTestsPath, "w");
             if (fw) { fw.print(fixed); fw.close(); }
@@ -900,23 +912,23 @@ static String testsPage(AsyncWebServerRequest* req) {
     if (ensureDefaultRulesInDoc(doc)) {
       String fixed;
       serializeJsonPretty(doc, fixed);
-      strncpy(s_testsJson, fixed.c_str(), sizeof(s_testsJson) - 1);
-      s_testsJson[sizeof(s_testsJson) - 1] = '\0';
+      strncpy(s_testsJson, fixed.c_str(), kTestsJsonCap - 1);
+      s_testsJson[kTestsJsonCap - 1] = '\0';
       if (!LittleFS.exists("/config")) LittleFS.mkdir("/config");
       File fw = LittleFS.open(kTestsPath, "w");
       if (fw) { fw.print(fixed); fw.close(); }
     }
     VerificationSteps_useFactoryDefaults();
-    if (!VerificationSteps_getConfigJson(s_testsJson, sizeof(s_testsJson)))
-      buildTestsJsonFromActive(s_testsJson, sizeof(s_testsJson));
+    if (!VerificationSteps_getConfigJson(s_testsJson, kTestsJsonCap))
+      buildTestsJsonFromActive(s_testsJson, kTestsJsonCap);
     doc.clear();
     deserializeJson(doc, s_testsJson);
   }
   if (!doc.isNull() && ensureDefaultRulesInDoc(doc)) {
     String fixed;
     serializeJsonPretty(doc, fixed);
-    strncpy(s_testsJson, fixed.c_str(), sizeof(s_testsJson) - 1);
-    s_testsJson[sizeof(s_testsJson) - 1] = '\0';
+    strncpy(s_testsJson, fixed.c_str(), kTestsJsonCap - 1);
+    s_testsJson[kTestsJsonCap - 1] = '\0';
     if (!LittleFS.exists("/config")) LittleFS.mkdir("/config");
     File fw = LittleFS.open(kTestsPath, "w");
     if (fw) { fw.print(fixed); fw.close(); }
@@ -924,8 +936,8 @@ static String testsPage(AsyncWebServerRequest* req) {
   JsonArray tests = doc["tests"].as<JsonArray>();
   if (tests.isNull() || tests.size() == 0) {
     VerificationSteps_useFactoryDefaults();
-    if (!VerificationSteps_getConfigJson(s_testsJson, sizeof(s_testsJson)))
-      buildTestsJsonFromActive(s_testsJson, sizeof(s_testsJson));
+    if (!VerificationSteps_getConfigJson(s_testsJson, kTestsJsonCap))
+      buildTestsJsonFromActive(s_testsJson, kTestsJsonCap);
     doc.clear();
     deserializeJson(doc, s_testsJson);
     tests = doc["tests"].as<JsonArray>();
@@ -1177,6 +1189,10 @@ static void adminEmailTestTask(void* arg) {
 
 void AdminPortal_init(void) {
   if (s_started) return;
+  if (!ensureTestsJsonBuf()) {
+    Serial.println("[Admin] FATAL: tests JSON buffer (PSRAM) alloc failed");
+    return;
+  }
 
   s_server.on("/admin", HTTP_GET, [](AsyncWebServerRequest* req) {
     if (req->url() == "/admin/tests" || req->url() == "/admin/tests/" || req->url() == "/admin/tests-page") {
@@ -1307,8 +1323,8 @@ void AdminPortal_init(void) {
     if (!activateAndPersistTestsJson(json, &err)) {
       snprintf(s_flashMsg, sizeof(s_flashMsg), "Tests config invalid: %s", err.length() ? err.c_str() : "unknown");
       s_flashErr = true;
-      strncpy(s_testsJson, json.c_str(), sizeof(s_testsJson) - 1);
-      s_testsJson[sizeof(s_testsJson) - 1] = '\0';
+      strncpy(s_testsJson, json.c_str(), kTestsJsonCap - 1);
+      s_testsJson[kTestsJsonCap - 1] = '\0';
       req->redirect("/admin/tests");
       return;
     }
@@ -1354,8 +1370,8 @@ void AdminPortal_init(void) {
     VerificationSteps_activateConfigJson(factoryJson.c_str(), err, sizeof(err));
     File fa = LittleFS.open(kTestsPath, "w");
     if (fa) { fa.print(factoryJson); fa.close(); }
-    strncpy(s_testsJson, factoryJson.c_str(), sizeof(s_testsJson) - 1);
-    s_testsJson[sizeof(s_testsJson) - 1] = '\0';
+    strncpy(s_testsJson, factoryJson.c_str(), kTestsJsonCap - 1);
+    s_testsJson[kTestsJsonCap - 1] = '\0';
     strncpy(s_flashMsg, "Factory defaults restored (built-in tests).", sizeof(s_flashMsg) - 1);
     s_flashMsg[sizeof(s_flashMsg) - 1] = '\0';
     s_flashErr = false;
@@ -2126,11 +2142,11 @@ void AdminPortal_init(void) {
         VerificationSteps_activateConfigJson(factoryJson.c_str(), err, sizeof(err));
         File fw = LittleFS.open(kTestsPath, "w");
         if (fw) { fw.print(factoryJson); fw.close(); }
-        strncpy(s_testsJson, factoryJson.c_str(), sizeof(s_testsJson) - 1);
-        s_testsJson[sizeof(s_testsJson) - 1] = '\0';
+        strncpy(s_testsJson, factoryJson.c_str(), kTestsJsonCap - 1);
+        s_testsJson[kTestsJsonCap - 1] = '\0';
       } else {
-        strncpy(s_testsJson, json.c_str(), sizeof(s_testsJson) - 1);
-        s_testsJson[sizeof(s_testsJson) - 1] = '\0';
+        strncpy(s_testsJson, json.c_str(), kTestsJsonCap - 1);
+        s_testsJson[kTestsJsonCap - 1] = '\0';
       }
     }
   } else {
@@ -2138,8 +2154,8 @@ void AdminPortal_init(void) {
     VerificationSteps_activateConfigJson(factoryJson.c_str(), err, sizeof(err));
     File fw = LittleFS.open(kTestsPath, "w");
     if (fw) { fw.print(factoryJson); fw.close(); }
-    strncpy(s_testsJson, factoryJson.c_str(), sizeof(s_testsJson) - 1);
-    s_testsJson[sizeof(s_testsJson) - 1] = '\0';
+    strncpy(s_testsJson, factoryJson.c_str(), kTestsJsonCap - 1);
+    s_testsJson[kTestsJsonCap - 1] = '\0';
   }
 
   if (WifiManager_isConnected()) {
