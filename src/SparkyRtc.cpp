@@ -3,14 +3,15 @@
 #include <Arduino.h>
 #include <Wire.h>
 #include <string.h>
+#include <time.h>
 #include <sys/time.h>
 
 #if defined(SPARKYCHECK_PANEL_43B)
 #define SPARKY_RTC_HAVE_HW 1
 #define SPARKY_RTC_SDA 8
 #define SPARKY_RTC_SCL 9
-/* Match Waveshare 04_RTC_Test demo (Arduino + ESP-IDF): same bus as GT911 on GPIO8/9. */
-#define SPARKY_RTC_I2C_HZ 400000
+/* Slower clock is more reliable when sharing GPIO8/9 with GT911 after panel init. */
+#define SPARKY_RTC_I2C_HZ 100000
 #else
 #define SPARKY_RTC_HAVE_HW 0
 #endif
@@ -100,6 +101,16 @@ static bool rtcApplyWaveshareCtrl1Init(void) {
   return Wire.endTransmission() == 0;
 }
 
+static void rtcBusProbe(void) {
+  Wire.setPins(SPARKY_RTC_SDA, SPARKY_RTC_SCL);
+  Wire.begin();
+  Wire.setClock(SPARKY_RTC_I2C_HZ);
+  delay(4);
+  pickRtcAddress();
+  s_present = (s_i2cAddr != 0);
+  if (s_present) rtcApplyWaveshareCtrl1Init();
+}
+
 #endif
 
 void SparkyRtc_init(void) {
@@ -108,22 +119,18 @@ void SparkyRtc_init(void) {
   s_present = false;
   s_i2cAddr = 0;
 #if SPARKY_RTC_HAVE_HW
-  Wire.setPins(SPARKY_RTC_SDA, SPARKY_RTC_SCL);
-  Wire.begin();
-  Wire.setClock(SPARKY_RTC_I2C_HZ);
-  delay(2);
-  pickRtcAddress();
-  s_present = (s_i2cAddr != 0);
-  if (s_present) rtcApplyWaveshareCtrl1Init();
+  /* After panel init: shared I2C on GPIO8/9 (GT911 + PCF85063). Must not run Wire before tft.init(). */
+  rtcBusProbe();
 #endif
 }
 
 void SparkyRtc_refreshPresence(void) {
 #if SPARKY_RTC_HAVE_HW
-  Wire.setPins(SPARKY_RTC_SDA, SPARKY_RTC_SCL);
-  Wire.begin();
-  Wire.setClock(SPARKY_RTC_I2C_HZ);
-  delay(1);
+  if (!s_inited) {
+    SparkyRtc_init();
+    return;
+  }
+  /* Never call Wire.begin() here — it resets the I2C driver and breaks GT911 touch. */
   pickRtcAddress();
   s_present = (s_i2cAddr != 0);
 #endif
@@ -215,7 +222,9 @@ bool SparkyRtc_syncSystemFromRtc(void) {
 bool SparkyRtc_writeFromSystemClock(void) {
   time_t now = time(nullptr);
   if (now < (time_t)100000) return false;
-  struct tm lt;
-  if (!localtime_r(&now, &lt)) return false;
-  return SparkyRtc_writeTm(&lt);
+  /* Match on-screen wall clock (TZ offset + DST), not libc localtime (TZ often unset on ESP32). */
+  time_t w = SparkyTime_utcToWallTime(now);
+  struct tm wall;
+  if (!gmtime_r(&w, &wall)) return false;
+  return SparkyRtc_writeTm(&wall);
 }

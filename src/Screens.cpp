@@ -514,8 +514,9 @@ static int s_clockWizInputLen = 0;
 
 static void clockWizardLoadFromClock(void) {
   time_t t = time(nullptr);
+  time_t w = SparkyTime_utcToWallTime(t);
   struct tm lt;
-  if (localtime_r(&t, &lt)) {
+  if (gmtime_r(&w, &lt)) {
     s_clockWizDay = lt.tm_mday;
     s_clockWizMon = lt.tm_mon + 1;
     s_clockWizYear = lt.tm_year + 1900;
@@ -1875,7 +1876,7 @@ static void screens_draw_impl(SparkyTft* tft, ScreenId id, bool fullClear) {
       tft->setCursor(20, 64);
       tft->print(s_reportSavedBasename);
       tft->setCursor(20, 92);
-      tft->print(".csv + .html saved — View reports from menu.");
+        tft->print(".csv + .html saved - View reports from menu.");
       tft->fillRoundRect(okX, okY, okW, okH, 8, kBtn);
       tft->drawRoundRect(okX, okY, okW, okH, 8, kWhite);
       tft->setTextColor(kWhite, kBtn);
@@ -2257,7 +2258,7 @@ static void screens_draw_impl(SparkyTft* tft, ScreenId id, bool fullClear) {
       y += btnH + gap;
       tft->fillRoundRect(20, y, btnW, btnH, 6, kBtn);
       tft->drawRoundRect(20, y, btnW, btnH, 6, kWhite);
-      sparkyDrawBtnLabel(tft, 20, y, btnW, btnH, "Set date & time (dd/mm/yyyy…)", 2);
+      sparkyDrawBtnLabel(tft, 20, y, btnW, btnH, "Set date & time (dd/mm/yyyy)", 2);
       y += btnH + gap;
       tft->fillRoundRect(20, y, btnW, btnH, 6, kBtn);
       tft->drawRoundRect(20, y, btnW, btnH, 6, kWhite);
@@ -2281,7 +2282,7 @@ static void screens_draw_impl(SparkyTft* tft, ScreenId id, bool fullClear) {
       tft->setTextSize(1);
       tft->setTextColor(kAccent, kBg);
       char st[40];
-      snprintf(st, sizeof(st), "Step %d of 6 — %s", s_clockWizardStep + 1, clockWizardFieldTitle(s_clockWizardStep));
+      snprintf(st, sizeof(st), "Step %d of 6 - %s", s_clockWizardStep + 1, clockWizardFieldTitle(s_clockWizardStep));
       tft->setCursor(20, 38);
       tft->print(st);
       tft->setTextColor(kWhite, kBg);
@@ -2311,11 +2312,21 @@ static void screens_draw_impl(SparkyTft* tft, ScreenId id, bool fullClear) {
           }
         }
       }
-      tft->fillRoundRect(w - 62, 6, 48, 24, 6, kBtn);
-      tft->drawRoundRect(w - 62, 6, 48, 24, 6, kWhite);
-      tft->setTextColor(kWhite, kBtn);
-      tft->setCursor(w - 56, 10);
-      tft->print("Back");
+      {
+        const bool panelWide = (w >= 700);
+        const int backW = panelWide ? 96 : 92;
+        const int backH = 36;
+        const int backX = w - backW - 12;
+        const int backY = panelWide ? 10 : 8;
+        tft->fillRoundRect(backX, backY, backW, backH, 6, kBtn);
+        tft->drawRoundRect(backX, backY, backW, backH, 6, kWhite);
+        tft->setTextSize(2);
+        tft->setTextColor(kWhite, kBtn);
+        int tx = 0, ty = 0;
+        sparkyBackLabelCoords(backW, backH, backX, backY, &tx, &ty);
+        tft->setCursor(tx, ty);
+        tft->print("Back");
+      }
       break;
     }
     case SCREEN_WIFI_LIST: {
@@ -3619,7 +3630,6 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
       }
       y += btnH + gap;
       if (inRect(ix, iy, 20, y, btnW, btnH)) {
-        SparkyRtc_refreshPresence();
         if (SparkyRtc_syncSystemFromRtc()) showSavedPrompt(tft, "Time from RTC");
         else showSavedPrompt(tft, "RTC read failed");
         return handled(current);
@@ -3631,7 +3641,6 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
       }
       y += btnH + gap;
       if (inRect(ix, iy, 20, y, btnW, btnH)) {
-        SparkyRtc_refreshPresence();
         if (SparkyRtc_writeFromSystemClock()) showSavedPrompt(tft, "Saved to RTC");
         else showSavedPrompt(tft, "RTC write failed");
         return handled(current);
@@ -3641,7 +3650,14 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
       break;
     }
     case SCREEN_CLOCK_SET: {
-      if (inRect(ix, iy, w - 62, 6, 48, 24)) return handled(SCREEN_DATE_TIME);
+      {
+        const bool panelWide = (w >= 700);
+        const int backW = panelWide ? 96 : 92;
+        const int backH = 36;
+        const int backX = w - backW - 12;
+        const int backY = panelWide ? 10 : 8;
+        if (inRect(ix, iy, backX, backY, backW, backH)) return handled(SCREEN_DATE_TIME);
+      }
       PinKeypadLayout pk;
       layoutNumericKeypad3x4(w, h, 88, &pk);
       const char* keys = "123456789D0E";

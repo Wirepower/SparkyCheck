@@ -1,0 +1,2 @@
+# Merged into sdkconfig for Arduino-ESP32 (replaces default 8192 without -D redefinition warnings).
+CONFIG_ARDUINO_LOOP_STACK_SIZE=16384

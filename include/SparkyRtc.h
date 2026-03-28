@@ -18,7 +18,7 @@ extern "C" {
 
 void SparkyRtc_init(void);
 
-/** Re-scan I2C (e.g. after touch stack re-inits Wire). Updates presence flag. */
+/** Re-scan addresses only; does not call Wire.begin() (avoids breaking GT911 touch). */
 void SparkyRtc_refreshPresence(void);
 
 bool SparkyRtc_isPresent(void);

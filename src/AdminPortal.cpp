@@ -68,7 +68,7 @@ static void handleTestsImportUploadDone(AsyncWebServerRequest* req);
 static void handleTestsImportUploadChunk(AsyncWebServerRequest* req, const String& filename, size_t index, uint8_t* data,
                                          size_t len, bool final);
 
-static const unsigned long kSessionTtlMs = 15UL * 60UL * 1000UL;
+static const unsigned long kSessionTtlMs = 120UL * 60UL * 1000UL; /* 2 h; PIN pages stay usable while configuring */
 static const unsigned long kPortalTickMs = 5000UL;
 
 static void tryStartServer(void) {
@@ -431,9 +431,10 @@ static String settingsPage(void) {
     char nowFmt[56];
     SparkyTime_formatPreferred(nowFmt, sizeof(nowFmt));
     time_t nowt = time(nullptr);
+    time_t wall = SparkyTime_utcToWallTime(nowt);
     struct tm lt;
     int df = 1, mf = 1, yf = 2026, hf = 0, minf = 0, sf = 0;
-    if (localtime_r(&nowt, &lt)) {
+    if (gmtime_r(&wall, &lt)) {
       df = lt.tm_mday;
       mf = lt.tm_mon + 1;
       yf = lt.tm_year + 1900;
@@ -476,7 +477,7 @@ static String settingsPage(void) {
     b += ">On</option></select><p class='small'>Adds one hour on top of the offset (if sync already includes DST, leave Off).</p></div></div>";
     b += "<p class='small'>Timestamps in emails and reports use dd/mm/yyyy with AM/PM when 12-hour is on.</p>";
     b += "<button class='btn' type='submit'>Save date &amp; time</button></form>";
-    b += "<p class='small' style='margin-top:12px'>Sync sets true UTC from this PC and stores the browser’s timezone offset. Use DST only if the clock still looks wrong after sync.</p>";
+    b += "<p class='small' style='margin-top:12px'>Sync sends the PC’s current instant (UTC) and your browser’s offset. Form fields below match the on-device <em>wall</em> clock (offset + optional extra DST). If the hour looks wrong, turn <strong>Extra +1 h DST</strong> off when your zone already includes daylight time in the offset.</p>";
     b += "<button class='btn btn2' type='button' id='syncPcTimeBtn'>Sync to PC time</button>";
     b += "<p class='small' id='syncPcTimeMsg'></p>";
     b += "<script>(function(){const b=document.getElementById('syncPcTimeBtn');const m=document.getElementById('syncPcTimeMsg');if(!b)return;function dstVal(){const s=document.querySelector('select[name=clock_dst]');return s&&s.value==='1'?'1':'0';}b.addEventListener('click',async function(){m.textContent='Setting…';b.disabled=true;try{const u=Math.floor(Date.now()/1000);const tzo=-(new Date().getTimezoneOffset());const body='unix='+encodeURIComponent(String(u))+'&tzo='+encodeURIComponent(String(tzo))+'&dst='+encodeURIComponent(dstVal());const r=await fetch('/admin/clock/sync-pc',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:body,credentials:'same-origin',redirect:'manual'});if(r.type==='opaqueredirect'||r.status===302||r.status===301){window.location.href='/admin';return;}if(r.ok)window.location.href='/admin';else m.textContent='Failed ('+r.status+').';}catch(e){m.textContent='Network error.';}finally{b.disabled=false;}});})();</script></div>";
