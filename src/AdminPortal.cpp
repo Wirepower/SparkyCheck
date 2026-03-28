@@ -1098,7 +1098,7 @@ static String testsPage(AsyncWebServerRequest* req) {
   /* SWP tests have many steps; HTML per step is large — avoid fragmenting heap on small reserve. */
   b.reserve(131072);
   b += "<h1>Tests & Questions</h1><p><a href='/admin' style='color:#93c5fd'>Back to admin</a></p>";
-  b += "<div class='card'><h2>Easy editor (no coding)</h2>";
+  b += "<div class='card'><h2>Easy editor</h2>";
   b += "<p class='small'>Use this page to build and maintain tests. You do not need JSON or IT knowledge.</p>";
   int selectedTest = 0;
   if (req && req->hasParam("test")) selectedTest = req->getParam("test")->value().toInt();

@@ -1,4 +1,5 @@
 #include "SparkyRtc.h"
+#include "SparkyTime.h"
 #include <Arduino.h>
 #include <Wire.h>
 #include <string.h>
@@ -8,12 +9,20 @@
 #define SPARKY_RTC_HAVE_HW 1
 #define SPARKY_RTC_SDA 8
 #define SPARKY_RTC_SCL 9
+/* Match Waveshare 04_RTC_Test demo (Arduino + ESP-IDF): same bus as GT911 on GPIO8/9. */
+#define SPARKY_RTC_I2C_HZ 400000
 #else
 #define SPARKY_RTC_HAVE_HW 0
 #endif
 
-/* PCF85063A on Waveshare 4.3B is typically 0x51 (7-bit). Probe alternates after touch/display init. */
-static const uint8_t kRtcProbeAddrs[] = {0x51, 0x50, 0x52};
+/* PCF85063A 7-bit address on Waveshare 4.3B demo (waveshare_pcf85063a.h). */
+static const uint8_t kRtcI2cAddr7 = 0x51;
+
+/* Year in chip registers is 0–99 meaning 1970–2069 (Waveshare YEAR_OFFSET = 1970). */
+static const int kRtcYearOffset = 1970;
+
+/* Reg 0x00: same default as Waveshare PCF85063A_Init — 12.5 pF load, clock running. */
+static const uint8_t kRtcCtrl1Init = 0x01u; /* RTC_CTRL_1_DEFAULT | RTC_CTRL_1_CAP_SEL */
 
 static bool s_inited = false;
 static bool s_present = false;
@@ -29,23 +38,19 @@ static uint8_t fromBcd(uint8_t v) {
 
 #if SPARKY_RTC_HAVE_HW
 
-static bool i2cWriteReg(uint8_t reg, uint8_t val) {
-  if (!s_i2cAddr) return false;
-  Wire.beginTransmission(s_i2cAddr);
-  Wire.write(reg);
-  Wire.write(val);
-  return Wire.endTransmission() == 0;
-}
-
-static bool i2cReadRegs(uint8_t reg, uint8_t* buf, size_t n) {
-  if (!buf || n == 0 || !s_i2cAddr) return false;
-  Wire.beginTransmission(s_i2cAddr);
+static bool i2cReadRegsAt(uint8_t addr, uint8_t reg, uint8_t* buf, size_t n) {
+  if (!buf || n == 0 || !addr) return false;
+  Wire.beginTransmission(addr);
   Wire.write(reg);
   if (Wire.endTransmission(false) != 0) return false;
-  size_t got = Wire.requestFrom((int)s_i2cAddr, (int)n);
+  size_t got = Wire.requestFrom((int)addr, (int)n);
   if (got != n) return false;
   for (size_t i = 0; i < n; i++) buf[i] = (uint8_t)Wire.read();
   return true;
+}
+
+static bool i2cReadRegs(uint8_t reg, uint8_t* buf, size_t n) {
+  return i2cReadRegsAt(s_i2cAddr, reg, buf, n);
 }
 
 static bool i2cBurstWrite(uint8_t reg, const uint8_t* data, size_t n) {
@@ -61,21 +66,38 @@ static bool probeAddress(uint8_t addr) {
   return Wire.endTransmission() == 0;
 }
 
+/** PCF85063 time registers: plausible BCD ranges (not strict on weekday/month). */
+static bool raw7LooksLikeRtc(const uint8_t* raw) {
+  if (!raw) return false;
+  int s = fromBcd((uint8_t)(raw[0] & 0x7Fu));
+  int m = fromBcd((uint8_t)(raw[1] & 0x7Fu));
+  int d = fromBcd((uint8_t)(raw[3] & 0x3Fu));
+  return s >= 0 && s <= 59 && m >= 0 && m <= 59 && d >= 1 && d <= 31;
+}
+
+static bool trySelectRtcAt(uint8_t a) {
+  if (!probeAddress(a)) return false;
+  uint8_t raw[7];
+  if (!i2cReadRegsAt(a, 0x04, raw, sizeof(raw))) return false;
+  if (!raw7LooksLikeRtc(raw)) return false;
+  s_i2cAddr = a;
+  return true;
+}
+
 static void pickRtcAddress(void) {
   s_i2cAddr = 0;
-  for (size_t i = 0; i < sizeof(kRtcProbeAddrs); i++) {
-    uint8_t a = kRtcProbeAddrs[i];
-    if (!probeAddress(a)) continue;
-    uint8_t sec = 0;
-    Wire.beginTransmission(a);
-    Wire.write((uint8_t)0x04);
-    if (Wire.endTransmission(false) != 0) continue;
-    if (Wire.requestFrom((int)a, 1) != 1) continue;
-    sec = (uint8_t)Wire.read();
-    (void)sec;
-    s_i2cAddr = a;
-    return;
-  }
+  if (trySelectRtcAt(kRtcI2cAddr7)) return;
+  /* Some boards tie A0 differently; keep narrow fallback. */
+  if (trySelectRtcAt(0x50)) return;
+  trySelectRtcAt(0x52);
+}
+
+static bool rtcApplyWaveshareCtrl1Init(void) {
+  if (!s_i2cAddr) return false;
+  Wire.beginTransmission(s_i2cAddr);
+  Wire.write((uint8_t)0x00);
+  Wire.write(kRtcCtrl1Init);
+  return Wire.endTransmission() == 0;
 }
 
 #endif
@@ -86,18 +108,21 @@ void SparkyRtc_init(void) {
   s_present = false;
   s_i2cAddr = 0;
 #if SPARKY_RTC_HAVE_HW
-  Wire.begin(SPARKY_RTC_SDA, SPARKY_RTC_SCL);
-  Wire.setClock(100000);
+  Wire.setPins(SPARKY_RTC_SDA, SPARKY_RTC_SCL);
+  Wire.begin();
+  Wire.setClock(SPARKY_RTC_I2C_HZ);
   delay(2);
   pickRtcAddress();
   s_present = (s_i2cAddr != 0);
+  if (s_present) rtcApplyWaveshareCtrl1Init();
 #endif
 }
 
 void SparkyRtc_refreshPresence(void) {
 #if SPARKY_RTC_HAVE_HW
-  Wire.begin(SPARKY_RTC_SDA, SPARKY_RTC_SCL);
-  Wire.setClock(100000);
+  Wire.setPins(SPARKY_RTC_SDA, SPARKY_RTC_SCL);
+  Wire.begin();
+  Wire.setClock(SPARKY_RTC_I2C_HZ);
   delay(1);
   pickRtcAddress();
   s_present = (s_i2cAddr != 0);
@@ -144,7 +169,7 @@ bool SparkyRtc_readTm(struct tm* out) {
   if (out->tm_mon < 0 || out->tm_mon > 11) out->tm_mon = 0;
 
   int yy = (int)fromBcd(raw[6]);
-  int fullYear = 2000 + yy;
+  int fullYear = kRtcYearOffset + yy;
   out->tm_year = fullYear - 1900;
 
   out->tm_isdst = -1;
@@ -160,44 +185,31 @@ bool SparkyRtc_writeTm(const struct tm* t) {
 #else
   if (!SparkyRtc_isPresent()) return false;
   int yearFull = t->tm_year + 1900;
-  int year2 = yearFull % 100;
-  if (year2 < 0 || year2 > 99) return false;
+  int yearReg = yearFull - kRtcYearOffset;
+  if (yearReg < 0 || yearReg > 99) return false;
   int mon = t->tm_mon + 1;
   if (mon < 1 || mon > 12) return false;
 
-  uint8_t ctrl1 = 0;
-  if (!i2cReadRegs(0x00, &ctrl1, 1)) return false;
-  uint8_t stopOn = (uint8_t)(ctrl1 | (1u << 5));
-  if (!i2cWriteReg(0x00, stopOn)) return false;
-
+  /* Same burst layout as Waveshare PCF85063A_Set_All (no STOP toggle in their demo). */
   uint8_t buf[7];
   buf[0] = (uint8_t)(toBcd((uint8_t)t->tm_sec) & 0x7Fu);
   buf[1] = (uint8_t)(toBcd((uint8_t)t->tm_min) & 0x7Fu);
   buf[2] = (uint8_t)(toBcd((uint8_t)t->tm_hour) & 0x3Fu);
   buf[3] = (uint8_t)(toBcd((uint8_t)t->tm_mday) & 0x3Fu);
   buf[4] = (uint8_t)(t->tm_wday & 0x07);
-  uint8_t monthBcd = (uint8_t)(toBcd((uint8_t)mon) & 0x1Fu);
-  if (yearFull >= 2000) monthBcd |= 0x80u;
-  buf[5] = monthBcd;
-  buf[6] = toBcd((uint8_t)year2);
+  buf[5] = (uint8_t)(toBcd((uint8_t)mon) & 0x1Fu);
+  buf[6] = toBcd((uint8_t)yearReg);
 
-  bool ok = i2cBurstWrite(0x04, buf, sizeof(buf));
-  uint8_t stopOff = (uint8_t)(ctrl1 & ~(1u << 5));
-  i2cWriteReg(0x00, stopOff);
-  return ok;
+  return i2cBurstWrite(0x04, buf, sizeof(buf));
 #endif
 }
 
 bool SparkyRtc_syncSystemFromRtc(void) {
   struct tm rtcTm;
   if (!SparkyRtc_readTm(&rtcTm)) return false;
-  rtcTm.tm_isdst = -1;
-  time_t sec = mktime(&rtcTm);
-  if (sec == (time_t)-1) return false;
-  struct timeval tv;
-  tv.tv_sec = sec;
-  tv.tv_usec = 0;
-  return settimeofday(&tv, nullptr) == 0;
+  int y = rtcTm.tm_year + 1900;
+  return SparkyTime_setSystemUtcFromWallFields(rtcTm.tm_mday, rtcTm.tm_mon + 1, y, rtcTm.tm_hour, rtcTm.tm_min,
+                                                rtcTm.tm_sec, false);
 }
 
 bool SparkyRtc_writeFromSystemClock(void) {

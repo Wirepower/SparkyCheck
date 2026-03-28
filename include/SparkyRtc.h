@@ -1,7 +1,10 @@
 /**
- * PCF85063A RTC on the Waveshare 4.3B I2C bus (SDA=8, SCL=9). RTC_INT is GPIO6
- * on the schematic; GPIO6 is also used for battery ADC on this build — use I2C
- * polling only (no interrupt line required for clock read/write).
+ * PCF85063A RTC on the Waveshare 4.3B I2C bus (SDA=8, SCL=9), same addressing and
+ * year encoding as Waveshare 04_RTC_Test (year register = calendar year − 1970).
+ * This is separate from the ESP32’s internal RTC (sleep / low-power); the external
+ * chip keeps time across main power loss when a coin cell is fitted.
+ * RTC_INT is GPIO6 on the schematic; GPIO6 is also used for battery ADC on this build —
+ * use I2C polling only (no interrupt line required for clock read/write).
  */
 #pragma once
 

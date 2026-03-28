@@ -53,7 +53,8 @@ jobs:
     if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     env:
-      BOARD_ENV: esp32-s3-devkitc-1
+      # Must match [env:...] in platformio.ini (board = esp32-s3-devkitc-1 is inside that env).
+      BOARD_ENV: waveshare-s3-touch-lcd-43b
     steps:
       - name: Checkout
         uses: actions/checkout@v4

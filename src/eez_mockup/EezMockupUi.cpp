@@ -219,6 +219,11 @@ static int compactButtonsTop(SparkyTft* tft, const EezMockupScreen* screen) {
     /* EEZ mockup subtitle row(s) — omit in production UI */
     if (screen->labels[i].y >= 38 && screen->labels[i].y <= 50) continue;
     int ly = sy(tft, screen->labels[i].y);
+    const bool title = (screen->labels[i].y <= 14 && screen->labels[i].x < 100);
+    if (title) {
+      if (ly < 28) ly = 28;
+      ly += 18; /* ~glyph height at label text size 2 */
+    }
     if (ly > maxLabelBottom) maxLabelBottom = ly;
   }
   int top = maxLabelBottom + 14;
@@ -855,6 +860,7 @@ void EezMockupUi_draw(SparkyTft* tft, ScreenId id) {
       int tw = (int)strlen(txt) * 6 * (int)lblTs;
       int xp = (tft->width() - tw) / 2;
       if (xp < 8) xp = 8;
+      if (yp < 28) yp = 28;
       tft->setCursor(xp, yp);
     } else {
       tft->setCursor(sx(tft, screen->labels[i].x), yp);
@@ -867,7 +873,7 @@ void EezMockupUi_draw(SparkyTft* tft, ScreenId id) {
     tft->setTextColor(kAccent, kBg);
     const char* mode = AppState_isFieldMode() ? "Field mode" : "Training mode";
     int twm = (int)strlen(mode) * 6;
-    tft->setCursor((tft->width() - twm) / 2, layoutLandWide(tft) ? 44 : (tft->height() >= 700 ? 52 : 40));
+    tft->setCursor((tft->width() - twm) / 2, layoutLandWide(tft) ? 54 : (tft->height() >= 700 ? 62 : 50));
     tft->print(mode);
   }
 
@@ -897,7 +903,7 @@ void EezMockupUi_draw(SparkyTft* tft, ScreenId id) {
     Standards_getVerificationScopeLine(scope, sizeof(scope));
     const char* key = " Sec 8 & ";
     char* hit = strstr(scope, key);
-    const int yScope = layoutLandWide(tft) ? 48 : (tft->height() >= 700 ? 50 : 42);
+    const int yScope = layoutLandWide(tft) ? 56 : (tft->height() >= 700 ? 58 : 50);
     if (hit) {
       *hit = '\0';
       const char* b = hit + strlen(key);

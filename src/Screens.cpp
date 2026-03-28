@@ -34,6 +34,9 @@ static const uint16_t kWhite = 0xFFFF;
 static const uint16_t kGreen = kBtn;
 static const uint16_t kRed = 0xF800;
 
+/** Centered headings: below status bar band so periodic clock refresh never clips them. */
+static const int kScreenTitleYCenterSize2 = 28;
+
 /** Readable text on 4.3" landscape or tall portrait (matches EEZ layout helpers). */
 static bool sparkyReadableUi(int w, int h) {
   return (w >= 700) || (h >= 700) || (w >= 480 && h >= 600);
@@ -1183,17 +1186,16 @@ static void drawOskRowSyncLetters(SparkyTft* tft, const QwertyKeyboardLayout* qk
   }
 }
 
-/* Clock sits top-left after battery + Wi‑Fi; clear to just before top-right Back. */
-static const int kStatusTimeX = 68;
-static const int kStatusRightReserve = 112;
+/* Clock after battery + Wi‑Fi; erase only the clock strip (not full width — that clipped titles). */
+static const int kStatusBattLeftX = 10;
+static const int kStatusWifiCx = 54;
+static const int kStatusTimeX = 92;
+static const int kStatusClockClearW = 104;
 
 static void drawStatusBarTime(SparkyTft* tft) {
   char tb[20];
   SparkyTime_formatStatusBar(tb, sizeof(tb));
-  int w = getW(tft);
-  int clearW = w - kStatusRightReserve - kStatusTimeX;
-  if (clearW < 40) clearW = 40;
-  tft->fillRect(kStatusTimeX - 2, 8, clearW, 14, kBg);
+  tft->fillRect(kStatusTimeX - 2, 8, kStatusClockClearW, 14, kBg);
   tft->setTextWrap(false);
   tft->setTextSize(1);
   tft->setTextColor(kWhite, kBg);
@@ -1204,7 +1206,7 @@ static void drawStatusBarTime(SparkyTft* tft) {
 /* Small "connected Wi‑Fi" glyph beside battery (white, same as battery outline). */
 static void drawWifiConnectedIcon(SparkyTft* tft) {
   if (!WifiManager_isConnected() && !AdminPortal_isApActive()) return;
-  const int cx = 42;
+  const int cx = kStatusWifiCx;
   const int cy = 16;
   const int radii[3] = { 4, 7, 10 };
   for (int i = 0; i < 3; i++) {
@@ -1217,7 +1219,7 @@ static void drawWifiConnectedIcon(SparkyTft* tft) {
 }
 
 static void drawBatteryStatusIcon(SparkyTft* tft) {
-  const int x = 10;
+  const int x = kStatusBattLeftX;
   const int y = 7;
   const int bw = 18;
   const int bh = 10;
@@ -1544,7 +1546,7 @@ static void screens_draw_impl(SparkyTft* tft, ScreenId id, bool fullClear) {
       {
         const char* title = "SparkyCheck";
         int tw = (int)strlen(title) * 6 * 2;
-        tft->setCursor((w - tw) / 2, 16);
+        tft->setCursor((w - tw) / 2, 30);
         tft->print(title);
       }
       tft->setTextSize(1);
@@ -1552,7 +1554,7 @@ static void screens_draw_impl(SparkyTft* tft, ScreenId id, bool fullClear) {
       {
         const char* mode = AppState_isFieldMode() ? "Field mode" : "Training mode";
         int twm = (int)strlen(mode) * 6;
-        tft->setCursor((w - twm) / 2, 44);
+        tft->setCursor((w - twm) / 2, 54);
         tft->print(mode);
       }
       int btnW = w - 40, y = y0;
@@ -1581,7 +1583,7 @@ static void screens_draw_impl(SparkyTft* tft, ScreenId id, bool fullClear) {
       {
         const char* t = "Select test";
         int tw = (int)strlen(t) * 6 * (panelWide ? 3 : 2);
-        tft->setCursor((w - tw) / 2, 10);
+        tft->setCursor((w - tw) / 2, kScreenTitleYCenterSize2);
         tft->print(t);
       }
       int backW = panelWide ? 96 : 92;
@@ -1599,7 +1601,7 @@ static void screens_draw_impl(SparkyTft* tft, ScreenId id, bool fullClear) {
         tft->print("Back");
       }
       {
-        const int scopeY = panelWide ? 48 : (h >= 700 ? 50 : 42);
+        const int scopeY = panelWide ? 56 : (h >= 700 ? 58 : 50);
         sparkyDrawVerificationScope(tft, w, scopeY, 2);
       }
       sparkyDrawTestSelectPagedList(tft, w, h);
@@ -2045,7 +2047,7 @@ static void screens_draw_impl(SparkyTft* tft, ScreenId id, bool fullClear) {
       {
         const char* t = "Settings";
         int tw = (int)strlen(t) * 6 * 2;
-        tft->setCursor((w - tw) / 2, 10);
+        tft->setCursor((w - tw) / 2, kScreenTitleYCenterSize2);
         tft->print(t);
       }
       {
@@ -2195,7 +2197,7 @@ static void screens_draw_impl(SparkyTft* tft, ScreenId id, bool fullClear) {
       {
         const char* t = "Screen orientation";
         int tw = (int)strlen(t) * 6 * 2;
-        tft->setCursor((w - tw) / 2, 10);
+        tft->setCursor((w - tw) / 2, kScreenTitleYCenterSize2);
         tft->print(t);
       }
       int r = AppState_getRotation();
@@ -2225,7 +2227,7 @@ static void screens_draw_impl(SparkyTft* tft, ScreenId id, bool fullClear) {
       {
         const char* t = "Date & time";
         int tw = (int)strlen(t) * 6 * 2;
-        tft->setCursor((w - tw) / 2, 10);
+        tft->setCursor((w - tw) / 2, kScreenTitleYCenterSize2);
         tft->print(t);
       }
       char ts[48];
@@ -2257,16 +2259,6 @@ static void screens_draw_impl(SparkyTft* tft, ScreenId id, bool fullClear) {
       tft->drawRoundRect(20, y, btnW, btnH, 6, kWhite);
       sparkyDrawBtnLabel(tft, 20, y, btnW, btnH, "Set date & time (dd/mm/yyyy…)", 2);
       y += btnH + gap;
-      {
-        int half = (btnW - 8) / 2;
-        tft->fillRoundRect(20, y, half, btnH, 6, kBtn);
-        tft->drawRoundRect(20, y, half, btnH, 6, kWhite);
-        sparkyDrawBtnLabel(tft, 20, y, half, btnH, "-1 min", 2);
-        tft->fillRoundRect(28 + half, y, half, btnH, 6, kBtn);
-        tft->drawRoundRect(28 + half, y, half, btnH, 6, kWhite);
-        sparkyDrawBtnLabel(tft, 28 + half, y, half, btnH, "+1 min", 2);
-      }
-      y += btnH + gap;
       tft->fillRoundRect(20, y, btnW, btnH, 6, kBtn);
       tft->drawRoundRect(20, y, btnW, btnH, 6, kWhite);
       sparkyDrawBtnLabel(tft, 20, y, btnW, btnH, "Write clock to RTC chip", 2);
@@ -2283,7 +2275,7 @@ static void screens_draw_impl(SparkyTft* tft, ScreenId id, bool fullClear) {
       {
         const char* t = "Set date & time";
         int tw = (int)strlen(t) * 6 * 2;
-        tft->setCursor((w - tw) / 2, 10);
+        tft->setCursor((w - tw) / 2, kScreenTitleYCenterSize2);
         tft->print(t);
       }
       tft->setTextSize(1);
@@ -2381,7 +2373,7 @@ static void screens_draw_impl(SparkyTft* tft, ScreenId id, bool fullClear) {
       {
         const char* t = "WiFi";
         int tw = (int)strlen(t) * 6 * 2;
-        tft->setCursor((w - tw) / 2, 8);
+        tft->setCursor((w - tw) / 2, kScreenTitleYCenterSize2);
         tft->print(t);
       }
       tft->setTextSize(1);
@@ -2980,10 +2972,7 @@ void Screens_refreshLiveStatus(SparkyTft* tft, ScreenId currentScreen) {
     if (strcmp(tb, s_prevClock) != 0) {
       strncpy(s_prevClock, tb, sizeof(s_prevClock) - 1);
       s_prevClock[sizeof(s_prevClock) - 1] = '\0';
-      int w = getW(tft);
-      int clearW = w - kStatusRightReserve - kStatusTimeX;
-      if (clearW < 40) clearW = 40;
-      tft->fillRect(kStatusTimeX - 2, 8, clearW, 14, kBg);
+      tft->fillRect(kStatusTimeX - 2, 8, kStatusClockClearW, 14, kBg);
       tft->setTextWrap(false);
       tft->setTextSize(1);
       tft->setTextColor(kWhite, kBg);
@@ -2995,8 +2984,8 @@ void Screens_refreshLiveStatus(SparkyTft* tft, ScreenId currentScreen) {
 
   if (now - s_lastLeftPollMs >= 10000 && statusBarLeftPeriodicRefreshOk(currentScreen)) {
     s_lastLeftPollMs = now;
-    /* Only battery + Wi‑Fi (do not clear the clock band at x ≥ 66). */
-    tft->fillRect(4, 4, 58, 22, kBg);
+    /* Battery + Wi‑Fi only; leave kStatusTimeX band for the clock tick handler. */
+    tft->fillRect(4, 4, kStatusTimeX - 8, 22, kBg);
     drawBatteryStatusIcon(tft);
     drawWifiConnectedIcon(tft);
     sparkyDisplayFlush(tft);
@@ -3639,20 +3628,6 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
       if (inRect(ix, iy, 20, y, btnW, btnH)) {
         clockWizardBegin();
         return handled(SCREEN_CLOCK_SET);
-      }
-      y += btnH + gap;
-      {
-        int half = (btnW - 8) / 2;
-        if (inRect(ix, iy, 20, y, half, btnH)) {
-          SparkyTime_addSeconds(-60);
-          Screens_draw(tft, current);
-          return handled(current);
-        }
-        if (inRect(ix, iy, 28 + half, y, half, btnH)) {
-          SparkyTime_addSeconds(60);
-          Screens_draw(tft, current);
-          return handled(current);
-        }
       }
       y += btnH + gap;
       if (inRect(ix, iy, 20, y, btnW, btnH)) {

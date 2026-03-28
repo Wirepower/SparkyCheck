@@ -36,8 +36,7 @@ void setup() {
   SdConfig_initAndApply();
   tft.init();
   SparkyRtc_init();
-  if (SparkyRtc_isPresent() && SparkyRtc_syncSystemFromRtc())
-    AppState_saveWallClockUtc(time(nullptr));
+  if (SparkyRtc_isPresent()) SparkyRtc_syncSystemFromRtc();
   AppState_applySavedWallClockIfInvalid();
   tft.setRotation(sparkyGfxRotationFromApp(AppState_getRotation()));
   tft.fillScreen(TFT_BLACK);
