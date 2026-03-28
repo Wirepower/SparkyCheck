@@ -8,6 +8,7 @@
 #include <HTTPUpdate.h>
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
+#include <freertos/task.h>
 #include <ctype.h>
 #include <stdio.h>
 #include <string.h>
@@ -326,4 +327,10 @@ void OtaUpdate_runAutoFlow(void) {
 
   bool doInstall = AppState_getOtaAutoInstallEnabled() || s_pending.force;
   if (doInstall) OtaUpdate_installPending();
+}
+
+void OtaUpdate_autoFlowTask(void* arg) {
+  (void)arg;
+  OtaUpdate_runAutoFlow();
+  vTaskDelete(nullptr);
 }

@@ -56,6 +56,9 @@ bool OtaUpdate_installPending(void);
 /** Auto-check and optional auto-install according to AppState toggles. */
 void OtaUpdate_runAutoFlow(void);
 
+/** FreeRTOS task entry: calls OtaUpdate_runAutoFlow() then deletes the task. */
+void OtaUpdate_autoFlowTask(void* arg);
+
 #ifdef __cplusplus
 }
 #endif

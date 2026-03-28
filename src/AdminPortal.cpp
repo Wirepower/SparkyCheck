@@ -467,7 +467,11 @@ static String settingsPage(void) {
     b += boolSelected(!AppState_getClock12Hour());
     b += ">Off (24-hour)</option></select>";
     b += "<p class='small'>Timestamps in emails and reports use dd/mm/yyyy with AM/PM when 12-hour is on.</p>";
-    b += "<button class='btn' type='submit'>Save date &amp; time</button></form></div>";
+    b += "<button class='btn' type='submit'>Save date &amp; time</button></form>";
+    b += "<p class='small' style='margin-top:12px'>Sync the device clock to this computer’s current time (browser sends UTC Unix time).</p>";
+    b += "<button class='btn btn2' type='button' id='syncPcTimeBtn'>Sync to PC time</button>";
+    b += "<p class='small' id='syncPcTimeMsg'></p>";
+    b += "<script>(function(){const b=document.getElementById('syncPcTimeBtn');const m=document.getElementById('syncPcTimeMsg');if(!b)return;b.addEventListener('click',async function(){m.textContent='Setting…';b.disabled=true;try{const u=Math.floor(Date.now()/1000);const r=await fetch('/admin/clock/sync-pc',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'unix='+encodeURIComponent(String(u)),credentials:'same-origin',redirect:'manual'});if(r.type==='opaqueredirect'||r.status===302||r.status===301){window.location.href='/admin';return;}if(r.ok)window.location.href='/admin';else m.textContent='Failed ('+r.status+').';}catch(e){m.textContent='Network error.';}finally{b.disabled=false;}});})();</script></div>";
   }
 
   b += "<div class='card'><h2>Email / SMTP</h2><form method='post' action='/admin/save'>";
@@ -587,7 +591,17 @@ static bool isReportListEntry(const String& rawName) {
 static String filesPage(void) {
   String b;
   b.reserve(10000);
-  b += "<h1>Report Files</h1><p><a href='/admin' style='color:#93c5fd'>Back to admin</a></p>";
+  b += "<h1>Report Files</h1>";
+  if (s_flashMsg[0]) {
+    b += "<div class='card' style='border-color:";
+    b += s_flashErr ? "#f87171" : "#4ade80";
+    b += ";'><p style='margin:0;'>";
+    b += esc(s_flashMsg);
+    b += "</p></div>";
+    s_flashMsg[0] = '\0';
+    s_flashErr = false;
+  }
+  b += "<p><a href='/admin' style='color:#93c5fd'>Back to admin</a></p>";
   b += "<div class='card'><h2>/reports</h2>";
   if (!LittleFS.exists("/reports")) LittleFS.mkdir("/reports");
   File root = LittleFS.open("/reports");
@@ -595,9 +609,13 @@ static String filesPage(void) {
     b += "<p class='small'>Could not open reports folder (LittleFS).</p></div>";
     return htmlPage("SparkyCheck Reports", b);
   }
-  b += "<table style='width:100%;border-collapse:collapse;'><tr><th style='text-align:left'>File</th>"
+  b += "<form method='post' action='/admin/files/delete_bulk' id='reportsBulkForm'>";
+  b += "<table style='width:100%;border-collapse:collapse;'><tr>"
+       "<th style='text-align:center;width:2.5rem'><input type='checkbox' title='Select all' aria-label='Select all' id='reportsSelAll'/></th>"
+       "<th style='text-align:left'>File</th>"
        "<th style='text-align:left'>Local time</th><th style='text-align:right'>Unix (UTC s)</th>"
-       "<th style='text-align:right'>Size</th><th>Actions</th></tr>";
+       "<th style='text-align:right'>Size</th>"
+       "<th style='text-align:right'>Actions</th></tr>";
   File f = root.openNextFile();
   int count = 0;
   while (f) {
@@ -617,7 +635,9 @@ static String filesPage(void) {
         unixStr = String((unsigned long)mw);
         localStr = "(weak mtime)";
       }
-      b += "<tr><td>";
+      b += "<tr><td style='text-align:center'><input type='checkbox' class='reportsFileCb' name='f' value='";
+      b += esc(base.c_str());
+      b += "' aria-label='Select file'/></td><td>";
       b += esc(base.c_str());
       b += "</td><td style='white-space:nowrap;font-size:0.85rem'>";
       b += localStr;
@@ -625,7 +645,7 @@ static String filesPage(void) {
       b += unixStr;
       b += "</td><td style='text-align:right'>";
       b += String((unsigned long)f.size());
-      b += " B</td><td style='text-align:right'>";
+      b += " B</td><td style='text-align:right;white-space:nowrap'>";
       b += "<a style='color:#93c5fd' href='/admin/files/download?name=";
       b += enc;
       b += "' target='_blank' rel='noopener noreferrer' download>Download</a> &nbsp; ";
@@ -638,6 +658,9 @@ static String filesPage(void) {
     f = root.openNextFile();
   }
   b += "</table>";
+  b += "<p style='margin-top:10px'><button class='btn btn2' type='submit' onclick=\"return confirm('Delete all selected files?')\">Delete selected</button></p>";
+  b += "</form>";
+  b += "<script>(function(){var a=document.getElementById('reportsSelAll');if(!a)return;var c=function(){var boxes=document.querySelectorAll('.reportsFileCb');for(var i=0;i<boxes.length;i++)boxes[i].checked=a.checked;};a.addEventListener('change',c);})();</script>";
   if (!count) b += "<p class='small'>(No report files yet)</p>";
   b += "</div>";
   return htmlPage("SparkyCheck Reports", b);
@@ -1457,6 +1480,60 @@ void AdminPortal_init(void) {
     if (!LittleFS.exists(path)) { req->send(404, "text/plain", "Not found"); return; }
     LittleFS.remove(path);
     req->redirect("/admin/files");
+  });
+
+  s_server.on("/admin/files/delete_bulk", HTTP_POST, [](AsyncWebServerRequest* req) {
+    if (!isAuthorized(req)) { req->send(403, "text/plain", "Forbidden"); return; }
+    int deleted = 0;
+    const int n = req->params();
+    for (int i = 0; i < n; i++) {
+      const AsyncWebParameter* p = req->getParam(i);
+      if (!p || !p->isPost()) continue;
+      if (p->name() != "f") continue;
+      String name = p->value();
+      if (!isSafeReportName(name)) continue;
+      String path = "/reports/" + name;
+      if (LittleFS.exists(path) && LittleFS.remove(path)) deleted++;
+    }
+    if (deleted > 0) {
+      snprintf(s_flashMsg, sizeof(s_flashMsg), "Deleted %d report file(s).", deleted);
+      s_flashMsg[sizeof(s_flashMsg) - 1] = '\0';
+      s_flashErr = false;
+    } else {
+      strncpy(s_flashMsg, "No files deleted (none selected or invalid names).", sizeof(s_flashMsg) - 1);
+      s_flashMsg[sizeof(s_flashMsg) - 1] = '\0';
+      s_flashErr = true;
+    }
+    req->redirect("/admin/files");
+  });
+
+  s_server.on("/admin/clock/sync-pc", HTTP_POST, [](AsyncWebServerRequest* req) {
+    if (!isAuthorized(req)) { req->send(403, "text/plain", "Forbidden"); return; }
+    const String su = postValue(req, "unix");
+    const unsigned long u = strtoul(su.c_str(), nullptr, 10);
+    /* Reject garbage; allow roughly 2020–2099 UTC. */
+    if (u < 1577836800UL || u > 4102444800UL) {
+      strncpy(s_flashMsg, "Invalid time from browser.", sizeof(s_flashMsg) - 1);
+      s_flashMsg[sizeof(s_flashMsg) - 1] = '\0';
+      s_flashErr = true;
+      req->redirect("/admin");
+      return;
+    }
+    struct timeval tv;
+    tv.tv_sec = (time_t)u;
+    tv.tv_usec = 0;
+    if (settimeofday(&tv, nullptr) == 0) {
+      AppState_saveWallClockUtc((time_t)u);
+      SparkyRtc_writeFromSystemClock();
+      strncpy(s_flashMsg, "Clock synced from this computer (UTC).", sizeof(s_flashMsg) - 1);
+      s_flashMsg[sizeof(s_flashMsg) - 1] = '\0';
+      s_flashErr = false;
+    } else {
+      strncpy(s_flashMsg, "Could not set system clock from PC time.", sizeof(s_flashMsg) - 1);
+      s_flashMsg[sizeof(s_flashMsg) - 1] = '\0';
+      s_flashErr = true;
+    }
+    req->redirect("/admin");
   });
 
   s_server.on("/admin/files", HTTP_GET, [](AsyncWebServerRequest* req) {

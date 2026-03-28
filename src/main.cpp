@@ -105,7 +105,8 @@ void loop() {
   if (!s_otaAutoDone && (long)(millis() - s_otaAutoAfterMs) >= 0) {
     s_otaAutoDone = true;
     /* OTA uses HTTPUpdate + TLS; running on loopTask blew the stack canary when combined with UI saves. */
-    if (xTaskCreate(otaAutoWorker, "ota_auto", 16384, nullptr, 1, nullptr) != pdPASS) OtaUpdate_runAutoFlow();
+    if (xTaskCreate(OtaUpdate_autoFlowTask, "ota_auto", 16384, nullptr, 1, nullptr) != pdPASS)
+      OtaUpdate_runAutoFlow();
   }
 
   static bool s_touchWasDown = false;
