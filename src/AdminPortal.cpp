@@ -5,6 +5,8 @@
 #include "BatteryStatus.h"
 #include "TestLimits.h"
 #include "EmailTest.h"
+#include "SparkyRtc.h"
+#include "SparkyTime.h"
 
 #include <Arduino.h>
 #include <WiFi.h>
@@ -17,6 +19,8 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
+#include <sys/time.h>
 #include <memory>
 #include <atomic>
 
@@ -289,7 +293,7 @@ static void streamBootLogo565(AsyncWebServerRequest* req) {
   size_t words = 0;
   logoEffectiveDims(&w, &h, &words);
   const size_t bytes = words * sizeof(uint16_t);
-  AsyncWebServerResponse* resp = req->beginResponse_P(200, "application/octet-stream", (const uint8_t*)kBootLogoRgb565, bytes);
+  AsyncWebServerResponse* resp = req->beginResponse(200, "application/octet-stream", (const uint8_t*)kBootLogoRgb565, bytes);
   resp->addHeader("Cache-Control", "no-store");
   resp->addHeader("X-Logo-W", String(w));
   resp->addHeader("X-Logo-H", String(h));
@@ -423,6 +427,49 @@ static String settingsPage(void) {
   b += boolSelected(AppState_getMode() == APP_MODE_FIELD);
   b += ">Field</option></select><p class='small' id='modeSaveHint'>Auto-saves when changed.</p></form></div>";
 
+  {
+    char nowFmt[56];
+    SparkyTime_formatPreferred(nowFmt, sizeof(nowFmt));
+    time_t nowt = time(nullptr);
+    struct tm lt;
+    int df = 1, mf = 1, yf = 2026, hf = 0, minf = 0, sf = 0;
+    if (localtime_r(&nowt, &lt)) {
+      df = lt.tm_mday;
+      mf = lt.tm_mon + 1;
+      yf = lt.tm_year + 1900;
+      hf = lt.tm_hour;
+      minf = lt.tm_min;
+      sf = lt.tm_sec;
+    }
+    b += "<div class='card mode-both'><h2>Date &amp; time</h2>";
+    b += "<p class='small'>Uses the PCF85063 RTC when present (I2C on GPIO8/9). RTC_INT is GPIO6 on the schematic; this firmware reads the chip over I2C only.</p>";
+    b += "<p class='small'>Current device time: <strong>";
+    b += esc(nowFmt);
+    b += "</strong></p>";
+    b += "<form method='post' action='/admin/save'><input type='hidden' name='section' value='clock'/>";
+    b += "<div class='row'><div><label>Day (dd)</label><input type='number' name='clock_day' min='1' max='31' value='";
+    b += String(df);
+    b += "'/></div><div><label>Month (mm)</label><input type='number' name='clock_month' min='1' max='12' value='";
+    b += String(mf);
+    b += "'/></div><div><label>Year (yyyy)</label><input type='number' name='clock_year' min='2000' max='2099' value='";
+    b += String(yf);
+    b += "'/></div></div>";
+    b += "<div class='row'><div><label>Hour (0–23)</label><input type='number' name='clock_hour' min='0' max='23' value='";
+    b += String(hf);
+    b += "'/></div><div><label>Minute</label><input type='number' name='clock_min' min='0' max='59' value='";
+    b += String(minf);
+    b += "'/></div><div><label>Second</label><input type='number' name='clock_sec' min='0' max='59' value='";
+    b += String(sf);
+    b += "'/></div></div>";
+    b += "<label>12-hour clock (AM/PM in timestamps)</label><select name='clock_12'><option value='1'";
+    b += boolSelected(AppState_getClock12Hour());
+    b += ">On</option><option value='0'";
+    b += boolSelected(!AppState_getClock12Hour());
+    b += ">Off (24-hour)</option></select>";
+    b += "<p class='small'>Timestamps in emails and reports use dd/mm/yyyy with AM/PM when 12-hour is on.</p>";
+    b += "<button class='btn' type='submit'>Save date &amp; time</button></form></div>";
+  }
+
   b += "<div class='card'><h2>Email / SMTP</h2><form method='post' action='/admin/save'>";
   b += "<input type='hidden' name='section' value='email'/><label>SMTP server</label><input name='smtp_server' value='" + esc(smtpServer) + "'/><p class='small'>Example: smtp.office365.com</p>";
   b += "<div class='row'><div><label>Port</label><input name='smtp_port' value='" + esc(smtpPort) + "'/><p class='small'>Example: 587</p></div>";
@@ -493,6 +540,23 @@ static String settingsPage(void) {
   return htmlPage("SparkyCheck Admin", b);
 }
 
+/** Encode query param for report filenames (keeps admin links working for odd characters). */
+static String uriEncodePathParam(const char* s) {
+  String o;
+  if (!s) return o;
+  for (; *s; ++s) {
+    unsigned char c = (unsigned char)*s;
+    if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.')
+      o += (char)c;
+    else {
+      char hx[6];
+      snprintf(hx, sizeof(hx), "%%%02X", c);
+      o += hx;
+    }
+  }
+  return o;
+}
+
 static bool isSafeReportName(const String& s) {
   if (s.length() < 1 || s.length() > 64) return false;
   for (size_t i = 0; i < s.length(); i++) {
@@ -524,30 +588,49 @@ static String filesPage(void) {
   String b;
   b.reserve(10000);
   b += "<h1>Report Files</h1><p><a href='/admin' style='color:#93c5fd'>Back to admin</a></p>";
-  b += "<div class='card'><h2>LittleFS /reports</h2>";
+  b += "<div class='card'><h2>/reports</h2>";
   if (!LittleFS.exists("/reports")) LittleFS.mkdir("/reports");
   File root = LittleFS.open("/reports");
   if (!root || !root.isDirectory()) {
     b += "<p class='small'>Could not open reports folder (LittleFS).</p></div>";
     return htmlPage("SparkyCheck Reports", b);
   }
-  b += "<table style='width:100%;border-collapse:collapse;'><tr><th style='text-align:left'>File</th><th>Size</th><th>Actions</th></tr>";
+  b += "<table style='width:100%;border-collapse:collapse;'><tr><th style='text-align:left'>File</th>"
+       "<th style='text-align:left'>Local time</th><th style='text-align:right'>Unix (UTC s)</th>"
+       "<th style='text-align:right'>Size</th><th>Actions</th></tr>";
   File f = root.openNextFile();
   int count = 0;
   while (f) {
     String name = f.name();
     if (isReportListEntry(name)) {
       String base = reportBasenameFromFsName(name);
+      String enc = uriEncodePathParam(base.c_str());
+      String localStr = "&mdash;";
+      String unixStr = "&mdash;";
+      time_t mw = f.getLastWrite();
+      if (mw > (time_t)100000) {
+        char tb[56];
+        SparkyTime_formatAt(mw, tb, sizeof(tb));
+        localStr = tb;
+        unixStr = String((unsigned long)mw);
+      } else if (mw > 0) {
+        unixStr = String((unsigned long)mw);
+        localStr = "(weak mtime)";
+      }
       b += "<tr><td>";
       b += esc(base.c_str());
+      b += "</td><td style='white-space:nowrap;font-size:0.85rem'>";
+      b += localStr;
+      b += "</td><td style='text-align:right;font-family:monospace;font-size:0.85rem'>";
+      b += unixStr;
       b += "</td><td style='text-align:right'>";
       b += String((unsigned long)f.size());
       b += " B</td><td style='text-align:right'>";
       b += "<a style='color:#93c5fd' href='/admin/files/download?name=";
-      b += esc(base.c_str());
-      b += "'>Download</a> &nbsp; ";
+      b += enc;
+      b += "' target='_blank' rel='noopener noreferrer' download>Download</a> &nbsp; ";
       b += "<a style='color:#fca5a5' href='/admin/files/delete?name=";
-      b += esc(base.c_str());
+      b += enc;
       b += "' onclick=\"return confirm('Delete file?')\">Delete</a>";
       b += "</td></tr>";
       count++;
@@ -1333,25 +1416,36 @@ void AdminPortal_init(void) {
     req->send(resp);
   });
 
-  s_server.on("/admin/files", HTTP_GET, [](AsyncWebServerRequest* req) {
-    if (!isAuthorized(req)) { req->redirect("/admin/login"); return; }
-    sendHtmlNoCache(req, filesPage());
-  });
-  s_server.on("/admin/files/", HTTP_GET, [](AsyncWebServerRequest* req) {
-    if (!isAuthorized(req)) { req->redirect("/admin/login"); return; }
-    sendHtmlNoCache(req, filesPage());
-  });
-  s_server.on("/admin/reports", HTTP_GET, [](AsyncWebServerRequest* req) {
-    if (!isAuthorized(req)) { req->redirect("/admin/login"); return; }
-    sendHtmlNoCache(req, filesPage());
-  });
-
+  /* Register download/delete before /admin/files/ — prefix handler matches /admin/files/download otherwise. */
   s_server.on("/admin/files/download", HTTP_GET, [](AsyncWebServerRequest* req) {
     if (!isAuthorized(req)) { req->send(403, "text/plain", "Forbidden"); return; }
-    String name = req->hasParam("name") ? req->getParam("name")->value() : "";
+    String name;
+    if (req->hasParam("name", false)) name = req->getParam("name", false)->value();
+    else if (req->hasParam("name", true)) name = req->getParam("name", true)->value();
     if (!isSafeReportName(name)) { req->send(400, "text/plain", "Invalid name"); return; }
     String path = "/reports/" + name;
     if (!LittleFS.exists(path)) { req->send(404, "text/plain", "Not found"); return; }
+    File f = LittleFS.open(path, "r");
+    if (!f || f.isDirectory()) {
+      if (f) f.close();
+      req->send(500, "text/plain", "Could not open file");
+      return;
+    }
+    size_t sz = f.size();
+    f.close();
+    if (sz > 1024UL * 1024UL) {
+      req->send(413, "text/plain", "File too large");
+      return;
+    }
+    /* Stream from LittleFS (String/buffer responses often fail or OOM on device). */
+    AsyncWebServerResponse* resp = req->beginResponse(LittleFS, path, "application/octet-stream", true);
+    if (resp) {
+      resp->addHeader("Content-Disposition", String("attachment; filename=\"") + name + "\"");
+      resp->addHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+      req->send(resp);
+      return;
+    }
+    /* Some ESPAsyncWebServer builds: direct send from FS. */
     req->send(LittleFS, path, "application/octet-stream", true);
   });
 
@@ -1363,6 +1457,19 @@ void AdminPortal_init(void) {
     if (!LittleFS.exists(path)) { req->send(404, "text/plain", "Not found"); return; }
     LittleFS.remove(path);
     req->redirect("/admin/files");
+  });
+
+  s_server.on("/admin/files", HTTP_GET, [](AsyncWebServerRequest* req) {
+    if (!isAuthorized(req)) { req->redirect("/admin/login"); return; }
+    sendHtmlNoCache(req, filesPage());
+  });
+  s_server.on("/admin/files/", HTTP_GET, [](AsyncWebServerRequest* req) {
+    if (!isAuthorized(req)) { req->redirect("/admin/login"); return; }
+    sendHtmlNoCache(req, filesPage());
+  });
+  s_server.on("/admin/reports", HTTP_GET, [](AsyncWebServerRequest* req) {
+    if (!isAuthorized(req)) { req->redirect("/admin/login"); return; }
+    sendHtmlNoCache(req, filesPage());
   });
 
   s_server.on("/admin/tests", HTTP_GET, [](AsyncWebServerRequest* req) {
@@ -1897,6 +2004,45 @@ void AdminPortal_init(void) {
     if (section == "mode") {
       int mode = postValue(req, "mode").toInt();
       AppState_setMode(mode == 1 ? APP_MODE_FIELD : APP_MODE_TRAINING);
+    } else if (section == "clock") {
+      int d = postValue(req, "clock_day").toInt();
+      int mo = postValue(req, "clock_month").toInt();
+      int y = postValue(req, "clock_year").toInt();
+      int hh = postValue(req, "clock_hour").toInt();
+      int mi = postValue(req, "clock_min").toInt();
+      int se = postValue(req, "clock_sec").toInt();
+      AppState_setClock12Hour(postValue(req, "clock_12").toInt() != 0);
+      struct tm tt;
+      memset(&tt, 0, sizeof(tt));
+      tt.tm_mday = d;
+      tt.tm_mon = mo - 1;
+      tt.tm_year = y - 1900;
+      tt.tm_hour = hh;
+      tt.tm_min = mi;
+      tt.tm_sec = se;
+      tt.tm_isdst = -1;
+      time_t sec = mktime(&tt);
+      if (sec != (time_t)-1 && d >= 1 && d <= 31 && mo >= 1 && mo <= 12 && y >= 2000 && y <= 2099 && hh >= 0 && hh <= 23 &&
+          mi >= 0 && mi <= 59 && se >= 0 && se <= 59) {
+        struct timeval tv;
+        tv.tv_sec = sec;
+        tv.tv_usec = 0;
+        if (settimeofday(&tv, nullptr) == 0) {
+          AppState_saveWallClockUtc(sec);
+          SparkyRtc_writeFromSystemClock();
+          strncpy(s_flashMsg, "Date and time saved.", sizeof(s_flashMsg) - 1);
+          s_flashMsg[sizeof(s_flashMsg) - 1] = '\0';
+          s_flashErr = false;
+        } else {
+          strncpy(s_flashMsg, "Could not set system clock.", sizeof(s_flashMsg) - 1);
+          s_flashMsg[sizeof(s_flashMsg) - 1] = '\0';
+          s_flashErr = true;
+        }
+      } else {
+        strncpy(s_flashMsg, "Invalid date or time values.", sizeof(s_flashMsg) - 1);
+        s_flashMsg[sizeof(s_flashMsg) - 1] = '\0';
+        s_flashErr = true;
+      }
     } else if (section == "email") {
       String smtpServer = postValue(req, "smtp_server");
       String smtpPort = postValue(req, "smtp_port");

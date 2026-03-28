@@ -18,6 +18,7 @@ typedef enum {
   SCREEN_TEST_FLOW,
   SCREEN_REPORT_SAVED,
   SCREEN_REPORT_LIST,
+  SCREEN_REPORT_VIEW,
   SCREEN_SETTINGS,
   SCREEN_ROTATION,
   SCREEN_WIFI_LIST,
@@ -31,6 +32,8 @@ typedef enum {
   SCREEN_CHANGE_PIN,
   SCREEN_PIN_ENTER,
   SCREEN_MODE_SELECT,
+  SCREEN_DATE_TIME,
+  SCREEN_CLOCK_SET,
   SCREEN_COUNT
 } ScreenId;
 
@@ -40,16 +43,10 @@ void Screens_draw(SparkyTft* tft, ScreenId id);
 /** Handle touch; returns next screen or same if no action. */
 ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint16_t y);
 
-/**
- * While the panel reports touch down, call with each new (x,y) so scrollable lists can track drag.
- * Call after Screens_handleTouch on the initial press edge.
- */
+/** Optional drag hook (test list no longer scrolls; returns current). */
 ScreenId Screens_handleTouchDrag(SparkyTft* tft, ScreenId current, uint16_t x, uint16_t y);
 
-/**
- * Call once when touch goes from down to up (last x/y from the final down sample).
- * Completes tap-to-select on the test list when the gesture was a tap, not a scroll.
- */
+/** Optional touch-up hook (test select uses press-only hits; returns current). */
 ScreenId Screens_handleTouchEnd(SparkyTft* tft, ScreenId current, uint16_t x, uint16_t y);
 
 /** Set data for report-saved screen (basename). */
@@ -76,4 +73,17 @@ void Screens_showSavedPrompt(SparkyTft* tft, const char* detail);
 
 /** Same as two-arg draw when fullClear is true. When false, repaints only the edited value line on keypad/OSK screens to reduce flicker. */
 void Screens_draw(SparkyTft* tft, ScreenId id, bool fullClear);
+
+/** Paginated test list (5 per page) + PREV / page / NEXT; EEZ shell draws title/scope then calls this. */
+void Screens_drawTestSelectPagedContent(SparkyTft* tft);
+
+/** Settings rows (5 per page) + pager + Back; EEZ shell draws title then calls this. */
+void Screens_drawSettingsPagedContent(SparkyTft* tft);
+
+/** Battery + Wi‑Fi + clock (top strip); used by full redraw and EEZ shell. */
+void Screens_drawStatusBar(SparkyTft* tft);
+
+/** Update status bar on a timer: clock when the string changes (~1s check), battery/Wi‑Fi periodically
+ *  on screens where the top-left icons do not cover other widgets. */
+void Screens_refreshLiveStatus(SparkyTft* tft, ScreenId currentScreen);
 #endif

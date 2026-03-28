@@ -164,7 +164,7 @@ static bool postPayload(const char* endpoint, const String& payload, int* httpCo
   return code >= 200 && code < 300;
 }
 
-bool GoogleSync_sendResult(const GoogleSyncResult* result) {
+static bool buildTrainingSyncPayload(const GoogleSyncResult* result, String& payload, char* endpoint, size_t endpointCap) {
   if (!result) {
     setStatus("Sync skipped: no payload.");
     return false;
@@ -178,13 +178,12 @@ bool GoogleSync_sendResult(const GoogleSyncResult* result) {
     return false;
   }
 
-  char endpoint[APP_STATE_TRAINING_SYNC_URL_LEN];
   char token[APP_STATE_TRAINING_SYNC_TOKEN_LEN];
   char cubicle[APP_STATE_TRAINING_SYNC_CUBICLE_LEN];
   char deviceId[GOOGLE_SYNC_DEVICE_ID_LEN];
   char rulesVer[16];
   TrainingSyncTarget target = AppState_getTrainingSyncTarget();
-  AppState_getTrainingSyncEndpoint(endpoint, sizeof(endpoint));
+  AppState_getTrainingSyncEndpoint(endpoint, endpointCap);
   AppState_getTrainingSyncToken(token, sizeof(token));
   AppState_getTrainingSyncCubicleId(cubicle, sizeof(cubicle));
   GoogleSync_getDeviceId(deviceId, sizeof(deviceId));
@@ -229,12 +228,30 @@ bool GoogleSync_sendResult(const GoogleSyncResult* result) {
   doc["firmware_version"] = OtaUpdate_getCurrentVersion();
   doc["ts_ms"] = (uint32_t)millis();
 
-  String payload;
   serializeJson(doc, payload);
+  return true;
+}
 
-  if (WifiManager_isConnected()) {
-    flushQueue(endpoint);
+bool GoogleSync_queueResult(const GoogleSyncResult* result) {
+  char endpoint[APP_STATE_TRAINING_SYNC_URL_LEN];
+  String payload;
+  if (!buildTrainingSyncPayload(result, payload, endpoint, sizeof(endpoint))) return false;
+  /* Never flush/sync HTTP here — runs from UI/touch path; flushQueue blocks and trips the WDT. */
+  (void)endpoint;
+  if (queueAppend(payload)) {
+    setStatus("Training sync queued.");
+    return true;
   }
+  setStatus("Queue append failed.");
+  return false;
+}
+
+bool GoogleSync_sendResult(const GoogleSyncResult* result) {
+  char endpoint[APP_STATE_TRAINING_SYNC_URL_LEN];
+  String payload;
+  if (!buildTrainingSyncPayload(result, payload, endpoint, sizeof(endpoint))) return false;
+
+  /* Do not flushQueue here — runs from UI path; blocks on HTTPS and can trip the WDT. Drain via GoogleSync_tick(). */
 
   if (!WifiManager_isConnected()) {
     if (queueAppend(payload)) {

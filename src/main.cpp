@@ -11,6 +11,10 @@
 #include "GoogleSync.h"
 #include "SdConfig.h"
 #include "AdminPortal.h"
+#include "SparkyRtc.h"
+#include <time.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 
 #if defined(SPARKYCHECK_EEZ_MOCKUP_UI)
 #include "EezMockupUi.h"
@@ -31,6 +35,10 @@ void setup() {
   AppState_load();
   SdConfig_initAndApply();
   tft.init();
+  SparkyRtc_init();
+  if (SparkyRtc_isPresent() && SparkyRtc_syncSystemFromRtc())
+    AppState_saveWallClockUtc(time(nullptr));
+  AppState_applySavedWallClockIfInvalid();
   tft.setRotation(sparkyGfxRotationFromApp(AppState_getRotation()));
   tft.fillScreen(TFT_BLACK);
 
@@ -90,11 +98,14 @@ void setup() {
 void loop() {
   if (!s_appReady) return;
 
+  ReportGenerator_pollDeferredEmail();
   GoogleSync_tick();
   AdminPortal_tick();
+  Screens_refreshLiveStatus(&tft, s_currentScreen);
   if (!s_otaAutoDone && (long)(millis() - s_otaAutoAfterMs) >= 0) {
-    OtaUpdate_runAutoFlow();
     s_otaAutoDone = true;
+    /* OTA uses HTTPUpdate + TLS; running on loopTask blew the stack canary when combined with UI saves. */
+    if (xTaskCreate(otaAutoWorker, "ota_auto", 16384, nullptr, 1, nullptr) != pdPASS) OtaUpdate_runAutoFlow();
   }
 
   static bool s_touchWasDown = false;

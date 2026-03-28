@@ -1,5 +1,6 @@
 #include "EmailTest.h"
 #include "AppState.h"
+#include "SparkyTime.h"
 
 #include <Arduino.h>
 #include <WiFi.h>
@@ -157,6 +158,8 @@ bool EmailTest_sendNow(char* err, unsigned err_size) {
   readIdentity(deviceId, sizeof(deviceId), cubicleId, sizeof(cubicleId));
   char ip[24] = "";
   snprintf(ip, sizeof(ip), "%s", WiFi.localIP().toString().c_str());
+  char wallTs[48];
+  SparkyTime_formatPreferred(wallTs, sizeof(wallTs));
   snprintf(s_testBodyBuf, sizeof(s_testBodyBuf),
            "Hello,\r\n\r\n"
            "This is a test email from SparkyCheck.\r\n\r\n"
@@ -165,13 +168,13 @@ bool EmailTest_sendNow(char* err, unsigned err_size) {
            "Cubicle ID: %s\r\n"
            "Device IP: %s\r\n"
            "Mode: %s\r\n"
-           "Timestamp(ms): %lu\r\n\r\n"
+           "Timestamp: %s\r\n\r\n"
            "Regards,\r\nSparkyCheck\r\n",
            deviceId[0] ? deviceId : "(not set)",
            cubicleId[0] ? cubicleId : "(not set)",
            ip[0] ? ip : "(offline)",
            AppState_isFieldMode() ? "Field" : "Training",
-           (unsigned long)millis());
+           wallTs);
   snprintf(s_testHtmlCoreBuf, sizeof(s_testHtmlCoreBuf),
            "<p>Hello,</p>"
            "<p>This is a <strong>test email from SparkyCheck</strong>.</p>"
@@ -180,13 +183,13 @@ bool EmailTest_sendNow(char* err, unsigned err_size) {
            "<strong>Cubicle ID:</strong> %s<br/>"
            "<strong>Device IP:</strong> %s<br/>"
            "<strong>Mode:</strong> %s<br/>"
-           "<strong>Timestamp (ms):</strong> %lu</p>"
+           "<strong>Timestamp:</strong> %s</p>"
            "<p>Regards,<br/>SparkyCheck</p>",
            deviceId[0] ? deviceId : "(not set)",
            cubicleId[0] ? cubicleId : "(not set)",
            ip[0] ? ip : "(offline)",
            AppState_isFieldMode() ? "Field" : "Training",
-           (unsigned long)millis());
+           wallTs);
   return EmailTest_sendCustomNow("SparkyCheck SMTP Test Email", "SMTP Test Email", s_testBodyBuf, s_testHtmlCoreBuf, err, err_size);
 }
 

@@ -6,6 +6,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <time.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -51,6 +52,14 @@ void AppState_setRotation(int rotation);
 /** Buzzer on/off. Persisted in NVS. Default on (1). */
 bool AppState_getBuzzerEnabled(void);
 void AppState_setBuzzerEnabled(bool on);
+
+/** Timestamps/UI: 12-hour clock with AM/PM vs 24-hour. Persisted in NVS. Default 12h. */
+bool AppState_getClock12Hour(void);
+void AppState_setClock12Hour(bool on);
+
+/** Persist last known wall time (UTC epoch) when user or admin sets the clock; restored on boot if RTC missing. */
+void AppState_saveWallClockUtc(time_t utc);
+void AppState_applySavedWallClockIfInvalid(void);
 
 /** WiFi credentials (saved for reconnect). */
 void AppState_getWifiCredentials(char* ssid, unsigned ssid_size, char* pass, unsigned pass_size);

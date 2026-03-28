@@ -32,18 +32,8 @@ static const EezMockupLabel kLabels_screen_test_select[] = {
   { 400, 86, "Back button top-right" },
   { 400, 116, "Training mode redirects to Student ID first" },
 };
+/* Test rows are drawn by Screens_drawTestSelectPagedContent (5 per page + PREV/NEXT). */
 static const EezMockupButton kButtons_screen_test_select[] = {
-  { 18, 76, 350, 44, "Earth continuity (conductors)", SCREEN_TEST_FLOW },
-  { 18, 128, 350, 44, "Insulation resistance", SCREEN_TEST_FLOW },
-  { 18, 180, 350, 44, "Polarity", SCREEN_TEST_FLOW },
-  { 18, 232, 350, 44, "Earth continuity (CPC)", SCREEN_TEST_FLOW },
-  { 18, 284, 350, 44, "Correct circuit connections", SCREEN_TEST_FLOW },
-  { 18, 336, 350, 44, "Earth fault loop impedance", SCREEN_TEST_FLOW },
-  { 18, 388, 350, 44, "RCD operation", SCREEN_TEST_FLOW },
-  { 18, 440, 350, 44, "SWP D/R (motor)", SCREEN_TEST_FLOW },
-  { 18, 492, 350, 44, "SWP D/R (appliance)", SCREEN_TEST_FLOW },
-  { 18, 544, 350, 44, "SWP D/R (heater/sheathed)", SCREEN_TEST_FLOW },
-  /* Top-right Back — matches Screens.cpp hit area (legacy delegate uses same rect). */
   { 718, 8, 72, 28, "Back", SCREEN_MAIN_MENU },
 };
 
@@ -83,7 +73,7 @@ static const EezMockupLabel kLabels_screen_report_saved[] = {
   { 400, 116, "Training sync event: session_saved" },
 };
 static const EezMockupButton kButtons_screen_report_saved[] = {
-  { 18, 76, 350, 44, "OK", SCREEN_MAIN_MENU },
+  { 18, 76, 350, 44, "OK", SCREEN_TEST_SELECT },
 };
 
 static const EezMockupLabel kLabels_screen_report_list[] = {
@@ -105,14 +95,15 @@ static const EezMockupButton kButtons_screen_settings[] = {
   { 18, 76, 350, 44, "Screen rotation", SCREEN_ROTATION },
   { 18, 128, 350, 44, "WiFi connection", SCREEN_WIFI_LIST },
   { 18, 180, 350, 44, "Buzzer (sound)", SCREEN_SETTINGS },
-  { 18, 232, 350, 44, "About", SCREEN_ABOUT },
-  { 18, 284, 350, 44, "Firmware updates", SCREEN_UPDATES },
-  { 18, 336, 350, 44, "Training sync (PIN)", SCREEN_PIN_ENTER },
-  { 18, 388, 350, 44, "Email settings", SCREEN_EMAIL_SETTINGS },
-  { 18, 440, 350, 44, "Mode change (boot hold)", SCREEN_SETTINGS },
-  { 18, 492, 350, 44, "Restart device", SCREEN_SETTINGS },
-  { 18, 544, 350, 44, "Change PIN", SCREEN_CHANGE_PIN },
-  { 18, 596, 350, 44, "Back", SCREEN_MAIN_MENU },
+  { 18, 232, 350, 44, "Date & time", SCREEN_DATE_TIME },
+  { 18, 284, 350, 44, "About", SCREEN_ABOUT },
+  { 18, 336, 350, 44, "Firmware updates", SCREEN_UPDATES },
+  { 18, 388, 350, 44, "Training sync (PIN)", SCREEN_PIN_ENTER },
+  { 18, 440, 350, 44, "Email settings", SCREEN_EMAIL_SETTINGS },
+  { 18, 492, 350, 44, "Mode change (boot hold)", SCREEN_SETTINGS },
+  { 18, 544, 350, 44, "Restart device", SCREEN_SETTINGS },
+  { 18, 596, 350, 44, "Change PIN", SCREEN_CHANGE_PIN },
+  { 18, 648, 350, 44, "Back", SCREEN_MAIN_MENU },
 };
 
 static const EezMockupLabel kLabels_screen_rotation[] = {

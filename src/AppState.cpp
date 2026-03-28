@@ -1,12 +1,16 @@
 #include "AppState.h"
 #include "Standards.h"
 #include <Preferences.h>
+#include <sys/time.h>
+#include <time.h>
 
 static const char* NVS_NAMESPACE   = "sparky";
 static const char* NVS_KEY_MODE    = "mode";
 static const char* NVS_KEY_PIN    = "pin";
 static const char* NVS_KEY_ROT    = "rot";
 static const char* NVS_KEY_BUZZ   = "buzz";
+static const char* NVS_KEY_CLK12  = "clk_12";
+static const char* NVS_KEY_WALL_UTC = "wall_utc";
 static const char* NVS_KEY_WIFI_SSID   = "wifi_ssid";
 static const char* NVS_KEY_WIFI_PASS   = "wifi_pass";
 static const char* NVS_KEY_ADMIN_AP_SSID = "adm_ap_ssid";
@@ -30,6 +34,7 @@ static const char* NVS_KEY_REPORT_TO   = "report_to";
 static AppMode s_mode = APP_MODE_FIELD;
 static int s_rotation = 1;   /* 0=portrait, 1=landscape; default landscape */
 static bool s_buzzer = true;
+static bool s_clock12 = true;
 static bool s_loaded = false;
 
 void AppState_load(void) {
@@ -39,6 +44,7 @@ void AppState_load(void) {
     s_mode = (AppMode)prefs.getUChar(NVS_KEY_MODE, (uint8_t)APP_MODE_FIELD);
     s_rotation = prefs.getInt(NVS_KEY_ROT, 1);
     s_buzzer = prefs.getBool(NVS_KEY_BUZZ, true);
+    s_clock12 = prefs.getBool(NVS_KEY_CLK12, true);
     prefs.end();
   }
   s_loaded = true;
@@ -117,6 +123,45 @@ void AppState_setBuzzerEnabled(bool on) {
     prefs.putBool(NVS_KEY_BUZZ, on);
     prefs.end();
   }
+}
+
+bool AppState_getClock12Hour(void) {
+  if (!s_loaded) AppState_load();
+  return s_clock12;
+}
+
+void AppState_setClock12Hour(bool on) {
+  s_clock12 = on;
+  Preferences prefs;
+  if (prefs.begin(NVS_NAMESPACE, false)) {
+    prefs.putBool(NVS_KEY_CLK12, on);
+    prefs.end();
+  }
+}
+
+void AppState_saveWallClockUtc(time_t utc) {
+  if (utc < (time_t)100000) return;
+  uint64_t v = (uint64_t)utc;
+  Preferences prefs;
+  if (prefs.begin(NVS_NAMESPACE, false)) {
+    prefs.putBytes(NVS_KEY_WALL_UTC, &v, sizeof(v));
+    prefs.end();
+  }
+}
+
+void AppState_applySavedWallClockIfInvalid(void) {
+  time_t now = time(nullptr);
+  if (now >= (time_t)100000) return;
+  Preferences prefs;
+  if (!prefs.begin(NVS_NAMESPACE, true)) return;
+  uint64_t v = 0;
+  if (prefs.getBytesLength(NVS_KEY_WALL_UTC) == sizeof(v)) prefs.getBytes(NVS_KEY_WALL_UTC, &v, sizeof(v));
+  prefs.end();
+  if (v < 100000ULL) return;
+  struct timeval tv;
+  tv.tv_sec = (time_t)v;
+  tv.tv_usec = 0;
+  settimeofday(&tv, nullptr);
 }
 
 void AppState_getWifiCredentials(char* ssid, unsigned ssid_size, char* pass, unsigned pass_size) {

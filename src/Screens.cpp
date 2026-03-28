@@ -12,6 +12,11 @@
 #include "Standards.h"
 #include "VerificationSteps.h"
 #include "SparkyDisplay.h"
+#include "SparkyRtc.h"
+#include "SparkyTime.h"
+#if defined(SPARKYCHECK_EEZ_MOCKUP_UI)
+#include "EezMockupUi.h"
+#endif
 #include <qrcode.h>
 #include <Arduino.h>
 #include <WiFi.h>
@@ -55,51 +60,54 @@ static void sparkyMainMenuLayout(int w, int h, int* y0, int* btnH, int* gap) {
   }
 }
 
-/** Test list row Y and height (must match EezMockupUi testSelectRowGeometryDims). */
-static void sparkyTestSelectRowMetrics(int w, int h, int row, int* outY, int* outRowH) {
-  const int n = VerificationSteps_getActiveTestCount();
-  const int g = 10;
-  const int top = (w >= 700) ? 114 : ((h >= 700) ? 106 : 90);
-  int usable = h - top - 28;
-  if (usable < n * 28) usable = n * 28;
-  int rowH = (usable - (n - 1) * g) / n;
-  if (rowH < 28) rowH = 28;
-  if (rowH > 54) rowH = 54;
-  *outY = top + row * (rowH + g);
-  *outRowH = rowH;
+static const int kTestSelectPerPage = 5;
+
+static int sparkyTestSelectNumPages(int n) {
+  if (n <= 0) return 1;
+  return (n + kTestSelectPerPage - 1) / kTestSelectPerPage;
 }
 
-static int sparkyTestSelectHitIndex(int w, int h, int yScreen, int scrollPx) {
-  const int testCount = VerificationSteps_getActiveTestCount();
-  for (int i = 0; i < testCount; i++) {
-    int y0 = 0, rh = 0;
-    sparkyTestSelectRowMetrics(w, h, i, &y0, &rh);
-    y0 += scrollPx;
-    if (yScreen >= y0 && yScreen < (y0 + rh - 2)) return i;
-  }
-  return -1;
-}
+typedef struct {
+  int rowY[5];
+  int rowH;
+  int navY, navH;
+  int prevX, prevW, midX, midW, nextX, nextW;
+} SparkyTestSelectPagedLayout;
 
-static void sparkyClampTestSelectScroll(int w, int h, int* ioScrollPx) {
-  if (!ioScrollPx) return;
-  const int testCount = VerificationSteps_getActiveTestCount();
-  if (testCount <= 0) {
-    *ioScrollPx = 0;
-    return;
+static void sparkyTestSelectComputePagedLayout(int w, int h, SparkyTestSelectPagedLayout* L) {
+  const bool panelWide = (w >= 700);
+  int listTop = panelWide ? 114 : ((h >= 700) ? 106 : 90);
+  int navH = panelWide ? 48 : 44;
+  int navY = h - navH - 6;
+  int listBottom = navY - 8;
+  int gap = (listBottom - listTop > 220) ? 10 : 6;
+  int usable = listBottom - listTop;
+  int rowH = (usable - 4 * gap) / 5;
+  if (rowH < 28) {
+    gap = 4;
+    usable = listBottom - listTop;
+    rowH = (usable - 4 * gap) / 5;
   }
-  int firstY = 0, firstH = 0;
-  int lastY = 0, lastH = 0;
-  sparkyTestSelectRowMetrics(w, h, 0, &firstY, &firstH);
-  sparkyTestSelectRowMetrics(w, h, testCount - 1, &lastY, &lastH);
-  const int contentTop = firstY;
-  const int contentBottom = lastY + (lastH - 2);
-  const int contentH = contentBottom - contentTop;
-  const int viewTop = contentTop;
-  const int viewBottom = h - 28;
-  const int viewH = viewBottom - viewTop;
-  const int maxScroll = (contentH > viewH) ? (contentH - viewH) : 0;
-  if (*ioScrollPx > 0) *ioScrollPx = 0;
-  if (*ioScrollPx < -maxScroll) *ioScrollPx = -maxScroll;
+  if (rowH < 24) rowH = 24;
+  for (int i = 0; i < 5; i++)
+    L->rowY[i] = listTop + i * (rowH + gap);
+  L->rowH = rowH;
+  L->navY = navY;
+  L->navH = navH;
+  const int marginX = 20;
+  const int innerW = w - 2 * marginX;
+  const int gapN = 8;
+  int cell = (innerW - 2 * gapN) / 3;
+  if (cell < 56) cell = 56;
+  if (3 * cell + 2 * gapN > innerW) cell = (innerW - 2 * gapN) / 3;
+  int totalW = 3 * cell + 2 * gapN;
+  int startX = marginX + (innerW - totalW) / 2;
+  L->prevX = startX;
+  L->prevW = cell;
+  L->midX = startX + cell + gapN;
+  L->midW = cell;
+  L->nextX = startX + 2 * (cell + gapN);
+  L->nextW = cell;
 }
 
 /** Word-wrap with each line centered (Adafruit fixed width font). Returns Y after last line. */
@@ -225,6 +233,29 @@ static void sparkyDrawBtnLabel(SparkyTft* tft, int x, int y, int bw, int bh, con
   tft->print(text);
 }
 
+/** Two centered lines in a settings row (Wi‑Fi + IP, buzzer + state). */
+static void sparkyDrawDualLineSettingRow(SparkyTft* tft, int x, int y, int bw, int bh, const char* line1,
+                                         const char* line2, uint8_t ts1, uint8_t ts2) {
+  if (!line1) line1 = "";
+  if (!line2) line2 = "";
+  tft->setTextWrap(false);
+  int h1 = 7 * (int)ts1;
+  int h2 = 7 * (int)ts2;
+  const int g = 2;
+  int total = h1 + g + h2;
+  int ty = y + (bh - total) / 2;
+  if (ty < y + 2) ty = y + 2;
+  tft->setTextColor(kWhite, kBtn);
+  tft->setTextSize(ts1);
+  int w1 = (int)strlen(line1) * 6 * (int)ts1;
+  tft->setCursor(x + (bw - w1) / 2, ty);
+  tft->print(line1);
+  tft->setTextSize(ts2);
+  int w2 = (int)strlen(line2) * 6 * (int)ts2;
+  tft->setCursor(x + (bw - w2) / 2, ty + h1 + g);
+  tft->print(line2);
+}
+
 /* Device-only friendly expansion for abbreviated test names. */
 static const char* sparkyDeviceTestLabel(const char* name) {
   static char buf[96];
@@ -238,6 +269,323 @@ static const char* sparkyDeviceTestLabel(const char* name) {
   return buf;
 }
 
+static int s_testSelectPage = 0;
+
+static void sparkyTestSelectClampPage(int n) {
+  int p = sparkyTestSelectNumPages(n);
+  if (s_testSelectPage >= p) s_testSelectPage = p - 1;
+  if (s_testSelectPage < 0) s_testSelectPage = 0;
+}
+
+static void sparkyDrawTestSelectPagedList(SparkyTft* tft, int w, int h) {
+  const int n = VerificationSteps_getActiveTestCount();
+  sparkyTestSelectClampPage(n);
+  const int pages = sparkyTestSelectNumPages(n);
+  SparkyTestSelectPagedLayout L;
+  sparkyTestSelectComputePagedLayout(w, h, &L);
+  const bool panelWide = (w >= 700);
+  const bool readable = sparkyReadableUi(w, h);
+  uint8_t ts = panelWide ? (uint8_t)2 : (readable ? (uint8_t)2 : (uint8_t)1);
+  const uint16_t kSlotOutline = 0x4A69;
+
+  int first = s_testSelectPage * kTestSelectPerPage;
+  for (int slot = 0; slot < kTestSelectPerPage; slot++) {
+    int idx = first + slot;
+    int y = L.rowY[slot];
+    int bh = L.rowH - 2;
+    if (idx < n) {
+      tft->fillRoundRect(20, y, w - 40, bh, 6, kBtn);
+      tft->drawRoundRect(20, y, w - 40, bh, 6, kWhite);
+      tft->setTextColor(kWhite, kBtn);
+      sparkyDrawBtnLabel(tft, 20, y, w - 40, bh, sparkyDeviceTestLabel(VerificationSteps_getTestName((VerifyTestId)idx)), ts);
+    } else {
+      tft->fillRoundRect(20, y, w - 40, bh, 6, kBg);
+      tft->drawRoundRect(20, y, w - 40, bh, 6, kSlotOutline);
+    }
+  }
+
+  bool prevEn = (s_testSelectPage > 0);
+  bool nextEn = (s_testSelectPage < pages - 1);
+  uint16_t prevBg = prevEn ? kBtn : (uint16_t)0x18C3;
+  uint16_t nextBg = nextEn ? kBtn : (uint16_t)0x18C3;
+
+  tft->fillRoundRect(L.prevX, L.navY, L.prevW, L.navH, 6, prevBg);
+  tft->drawRoundRect(L.prevX, L.navY, L.prevW, L.navH, 6, kWhite);
+  tft->setTextColor(kWhite, prevBg);
+  sparkyDrawBtnLabel(tft, L.prevX, L.navY, L.prevW, L.navH, "PREV", 2);
+
+  tft->fillRect(L.midX, L.navY, L.midW, L.navH, kBg);
+  char pg[12];
+  snprintf(pg, sizeof(pg), "%d/%d", s_testSelectPage + 1, pages);
+  tft->setTextSize(2);
+  tft->setTextColor(kWhite, kBg);
+  int ptw = (int)strlen(pg) * 12;
+  tft->setCursor(L.midX + (L.midW - ptw) / 2, L.navY + (L.navH - 14) / 2);
+  tft->print(pg);
+
+  tft->fillRoundRect(L.nextX, L.navY, L.nextW, L.navH, 6, nextBg);
+  tft->drawRoundRect(L.nextX, L.navY, L.nextW, L.navH, 6, kWhite);
+  tft->setTextColor(kWhite, nextBg);
+  sparkyDrawBtnLabel(tft, L.nextX, L.navY, L.nextW, L.navH, "NEXT", 2);
+}
+
+void Screens_drawTestSelectPagedContent(SparkyTft* tft) {
+  if (!tft) return;
+  sparkyDrawTestSelectPagedList(tft, tft->width(), tft->height());
+}
+
+static int s_settingsPage = 0;
+
+static int settingsRowCount(bool field) { return field ? 9 : 11; }
+
+static int settingsNumPages(bool field) {
+  int n = settingsRowCount(field);
+  int p = (n + kTestSelectPerPage - 1) / kTestSelectPerPage;
+  return p < 1 ? 1 : p;
+}
+
+static void settingsClampPage(bool field) {
+  int p = settingsNumPages(field);
+  if (s_settingsPage >= p) s_settingsPage = p - 1;
+  if (s_settingsPage < 0) s_settingsPage = 0;
+}
+
+static const char* settingsRowPrimaryLabel(bool field, int row) {
+  if (field) {
+    switch (row) {
+      case 0: return "Screen rotation";
+      case 1: return "WiFi connection";
+      case 2: return "Buzzer (sound)";
+      case 3: return "Date & time";
+      case 4: return "About";
+      case 5: return "Firmware updates";
+      case 6: return "Email settings";
+      case 7: return "Mode change (boot hold)";
+      case 8: return "Restart device";
+      default: return "";
+    }
+  }
+  switch (row) {
+    case 0: return "Screen rotation";
+    case 1: return "WiFi connection";
+    case 2: return "Buzzer (sound)";
+    case 3: return "Date & time";
+    case 4: return "About";
+    case 5: return "Firmware updates";
+    case 6: return "Training sync (PIN)";
+    case 7: return "Email settings";
+    case 8: return "Mode change (boot hold)";
+    case 9: return "Restart device";
+    case 10: return "Change PIN";
+    default: return "";
+  }
+}
+
+static ScreenId settingsRowNavigate(SparkyTft* tft, bool field, int row) {
+  (void)tft;
+  if (field) {
+    if (row == 0) return SCREEN_ROTATION;
+    if (row == 1) return SCREEN_WIFI_LIST;
+    if (row == 2) {
+      AppState_setBuzzerEnabled(!AppState_getBuzzerEnabled());
+      return SCREEN_SETTINGS;
+    }
+    if (row == 3) return SCREEN_DATE_TIME;
+    if (row == 4) return SCREEN_ABOUT;
+    if (row == 5) return SCREEN_UPDATES;
+    if (row == 6) return SCREEN_EMAIL_SETTINGS;
+    if (row == 7) {
+      Screens_resetPinEntry();
+      Screens_setPinSuccessTarget(SCREEN_MODE_SELECT);
+      Screens_setPinCancelTarget(SCREEN_SETTINGS);
+      return SCREEN_PIN_ENTER;
+    }
+    if (row == 8) {
+      ESP.restart();
+      return SCREEN_SETTINGS;
+    }
+  } else {
+    if (row == 0) return SCREEN_ROTATION;
+    if (row == 1) return SCREEN_WIFI_LIST;
+    if (row == 2) {
+      AppState_setBuzzerEnabled(!AppState_getBuzzerEnabled());
+      return SCREEN_SETTINGS;
+    }
+    if (row == 3) return SCREEN_DATE_TIME;
+    if (row == 4) return SCREEN_ABOUT;
+    if (row == 5) return SCREEN_UPDATES;
+    if (row == 6) {
+      Screens_resetPinEntry();
+      Screens_setPinSuccessTarget(SCREEN_TRAINING_SYNC);
+      Screens_setPinCancelTarget(SCREEN_SETTINGS);
+      return SCREEN_PIN_ENTER;
+    }
+    if (row == 7) return SCREEN_EMAIL_SETTINGS;
+    if (row == 8) {
+      Screens_resetPinEntry();
+      Screens_setPinSuccessTarget(SCREEN_MODE_SELECT);
+      Screens_setPinCancelTarget(SCREEN_SETTINGS);
+      return SCREEN_PIN_ENTER;
+    }
+    if (row == 9) {
+      ESP.restart();
+      return SCREEN_SETTINGS;
+    }
+    if (row == 10) return SCREEN_CHANGE_PIN;
+  }
+  return SCREEN_SETTINGS;
+}
+
+static void sparkyDrawSettingsPagedList(SparkyTft* tft, int w, int h) {
+  bool field = AppState_isFieldMode();
+  settingsClampPage(field);
+  const int n = settingsRowCount(field);
+  const int pages = settingsNumPages(field);
+  SparkyTestSelectPagedLayout L;
+  sparkyTestSelectComputePagedLayout(w, h, &L);
+  const uint8_t lblTs = sparkyReadableUi(w, h) ? (uint8_t)2 : (uint8_t)1;
+
+  int first = s_settingsPage * kTestSelectPerPage;
+  for (int slot = 0; slot < kTestSelectPerPage; slot++) {
+    int idx = first + slot;
+    int y = L.rowY[slot];
+    int bh = L.rowH - 2;
+    if (idx < n) {
+      tft->fillRoundRect(20, y, w - 40, bh, 6, kBtn);
+      tft->drawRoundRect(20, y, w - 40, bh, 6, kWhite);
+      tft->setTextColor(kWhite, kBtn);
+      if (idx == 1) {
+        char ipLine[24];
+        if (WifiManager_isConnected()) {
+          WifiManager_getIpString(ipLine, sizeof(ipLine));
+        } else {
+          strncpy(ipLine, "Not connected", sizeof(ipLine) - 1);
+          ipLine[sizeof(ipLine) - 1] = '\0';
+        }
+        sparkyDrawDualLineSettingRow(tft, 20, y, w - 40, bh, "WiFi connection", ipLine, lblTs, 1);
+      } else if (idx == 2) {
+        sparkyDrawDualLineSettingRow(tft, 20, y, w - 40, bh, "Buzzer (sound)",
+                                     AppState_getBuzzerEnabled() ? "On" : "Off", lblTs, 1);
+      } else {
+        sparkyDrawBtnLabel(tft, 20, y, w - 40, bh, settingsRowPrimaryLabel(field, idx), lblTs);
+      }
+    } else {
+      tft->fillRoundRect(20, y, w - 40, bh, 6, kBg);
+      tft->drawRoundRect(20, y, w - 40, bh, 6, (uint16_t)0x4A69);
+    }
+  }
+
+  bool prevEn = (s_settingsPage > 0);
+  bool nextEn = (s_settingsPage < pages - 1);
+  uint16_t prevBg = prevEn ? kBtn : (uint16_t)0x18C3;
+  uint16_t nextBg = nextEn ? kBtn : (uint16_t)0x18C3;
+  tft->fillRoundRect(L.prevX, L.navY, L.prevW, L.navH, 6, prevBg);
+  tft->drawRoundRect(L.prevX, L.navY, L.prevW, L.navH, 6, kWhite);
+  tft->setTextColor(kWhite, prevBg);
+  sparkyDrawBtnLabel(tft, L.prevX, L.navY, L.prevW, L.navH, "PREV", 2);
+  tft->fillRect(L.midX, L.navY, L.midW, L.navH, kBg);
+  char pg[12];
+  snprintf(pg, sizeof(pg), "%d/%d", s_settingsPage + 1, pages);
+  tft->setTextSize(2);
+  tft->setTextColor(kWhite, kBg);
+  int ptw = (int)strlen(pg) * 12;
+  tft->setCursor(L.midX + (L.midW - ptw) / 2, L.navY + (L.navH - 14) / 2);
+  tft->print(pg);
+  tft->fillRoundRect(L.nextX, L.navY, L.nextW, L.navH, 6, nextBg);
+  tft->drawRoundRect(L.nextX, L.navY, L.nextW, L.navH, 6, kWhite);
+  tft->setTextColor(kWhite, nextBg);
+  sparkyDrawBtnLabel(tft, L.nextX, L.navY, L.nextW, L.navH, "NEXT", 2);
+}
+
+void Screens_drawSettingsPagedContent(SparkyTft* tft) {
+  if (!tft) return;
+  sparkyDrawSettingsPagedList(tft, tft->width(), tft->height());
+}
+
+/* Full clock edit (same fields as admin web form). */
+static int s_clockWizardStep = 0;
+static int s_clockWizDay = 1, s_clockWizMon = 1, s_clockWizYear = 2026;
+static int s_clockWizHour = 12, s_clockWizMin = 0, s_clockWizSec = 0;
+static char s_clockWizInput[12];
+static int s_clockWizInputLen = 0;
+
+static void clockWizardLoadFromClock(void) {
+  time_t t = time(nullptr);
+  struct tm lt;
+  if (localtime_r(&t, &lt)) {
+    s_clockWizDay = lt.tm_mday;
+    s_clockWizMon = lt.tm_mon + 1;
+    s_clockWizYear = lt.tm_year + 1900;
+    s_clockWizHour = lt.tm_hour;
+    s_clockWizMin = lt.tm_min;
+    s_clockWizSec = lt.tm_sec;
+  }
+}
+
+static void clockWizardPrefillInput(void) {
+  s_clockWizInput[0] = '\0';
+  int v = 0;
+  switch (s_clockWizardStep) {
+    case 0: v = s_clockWizDay; break;
+    case 1: v = s_clockWizMon; break;
+    case 2: v = s_clockWizYear; break;
+    case 3: v = s_clockWizHour; break;
+    case 4: v = s_clockWizMin; break;
+    case 5: v = s_clockWizSec; break;
+    default: return;
+  }
+  if (s_clockWizardStep == 2)
+    snprintf(s_clockWizInput, sizeof(s_clockWizInput), "%d", v);
+  else
+    snprintf(s_clockWizInput, sizeof(s_clockWizInput), "%02d", v);
+  s_clockWizInputLen = (int)strlen(s_clockWizInput);
+}
+
+static void clockWizardBegin(void) {
+  clockWizardLoadFromClock();
+  s_clockWizardStep = 0;
+  clockWizardPrefillInput();
+}
+
+static const char* clockWizardFieldTitle(int step) {
+  switch (step) {
+    case 0: return "Day (dd)";
+    case 1: return "Month (mm)";
+    case 2: return "Year (yyyy)";
+    case 3: return "Hour (0-23)";
+    case 4: return "Minute";
+    case 5: return "Second";
+    default: return "";
+  }
+}
+
+static bool clockWizardCommitStep(int* outVal) {
+  if (!s_clockWizInput[0]) return false;
+  int v = atoi(s_clockWizInput);
+  switch (s_clockWizardStep) {
+    case 0:
+      if (v < 1 || v > 31) return false;
+      break;
+    case 1:
+      if (v < 1 || v > 12) return false;
+      break;
+    case 2:
+      if (v < 2000 || v > 2099) return false;
+      break;
+    case 3:
+      if (v < 0 || v > 23) return false;
+      break;
+    case 4:
+    case 5:
+      if (v < 0 || v > 59) return false;
+      break;
+    default:
+      return false;
+  }
+  *outVal = v;
+  return true;
+}
+
 static void sparkyBackLabelCoords(int backW, int backH, int backX, int backY, int* outTx, int* outTy) {
   const char* b = "Back";
   const uint8_t ts = 2;
@@ -247,22 +595,6 @@ static void sparkyBackLabelCoords(int backW, int backH, int backX, int backY, in
   const int fh = 7 * (int)ts;
   *outTy = backY + (backH - fh) / 2;
   if (*outTy < backY + 2) *outTy = backY + 2;
-}
-
-static void sparkySettingsLayout(int w, int h, bool field, int* y0, int* btnH, int* gap, int* nRows, int* backY) {
-  const bool r = sparkyReadableUi(w, h);
-  *gap = 6;
-  *btnH = r ? 38 : 32;
-  *y0 = 56;
-  /* Field: 8 rows (incl. Restart). Training: 10 rows (+ Training sync + Change PIN). */
-  *nRows = field ? 8 : 10;
-  *backY = *y0 + *nRows * (*btnH + *gap) + 8;
-  /* Training has extra rows; tighten vertical rhythm on short panels so Back stays on-screen. */
-  if (!field && *nRows >= 10 && h <= 500) {
-    *gap = 4;
-    if (r && *btnH > 32) *btnH = 34;
-    *backY = *y0 + *nRows * (*btnH + *gap) + 8;
-  }
 }
 
 /** Layout for test-flow numeric entry: shared by draw + touch (STEP_RESULT_ENTRY). */
@@ -417,7 +749,21 @@ static void drawQwertyCharKey(SparkyTft* tft, int kx, int ky, int cw, int cellH,
   sparkyDrawBtnLabel(tft, kx, ky, cw, cellH, s, ts);
 }
 
-static char s_reportSavedBasename[48] = "";
+static char s_reportSavedBasename[64] = "";
+static int s_reportListPage = 0;
+/** Bit i = report index i marked for delete (max 32 reports). */
+static uint32_t s_reportDeleteMask = 0;
+static const int kReportListPerPage = 5;
+/** Width reserved at left of each row for delete checkbox hit target. */
+static const int kReportCheckCol = 48;
+static char s_reportListNames[32][64];
+static int s_reportListCount = 0;
+
+static char s_reportViewBasename[64] = "";
+static char s_reportViewCsv[12288];
+static int s_reportViewLineOff[256];
+static int s_reportViewLineCount = 0;
+static int s_reportViewScrollLine = 0;
 static int s_modeSelectChoice = 0;  /* 0 = Training, 1 = Field */
 /** Bottom of instruction text on STEP_RESULT_ENTRY (for layoutResultEntry in draw + touch). */
 static int s_resultEntryYAfterInstr = 0;
@@ -425,13 +771,6 @@ static int s_resultEntryYAfterInstr = 0;
 /* Verification coach state */
 static int s_selectedTestType = 0;
 static int s_stepIndex = 0;
-static int s_testSelectScrollPx = 0;
-static bool s_testSelectTouchActive = false;
-static int s_testSelectLastY = 0;
-static int s_testSelectAccumDy = 0;
-static unsigned long s_testSelectLastTouchMs = 0;
-static int s_testSelectTapCandidate = -1;
-static unsigned long s_testSelectTapCandidateMs = 0;
 static float s_resultValue = 0.0f;
 static bool s_resultIsSheathedHeating = false;
 static int s_flowPhase = 0;   /* 0 = steps, 1 = result screen (pass/fail) */
@@ -533,6 +872,99 @@ static bool inRect(int x, int y, int rx, int ry, int rw, int rh) {
   return x >= rx && x < rx + rw && y >= ry && y < ry + rh;
 }
 
+static void sparkyRefreshReportListCache(void) {
+  s_reportListCount = ReportGenerator_fillBasenameList(s_reportListNames, 32);
+  int pages = (s_reportListCount + kReportListPerPage - 1) / kReportListPerPage;
+  if (pages < 1) pages = 1;
+  if (s_reportListPage >= pages) s_reportListPage = pages - 1;
+  if (s_reportListPage < 0) s_reportListPage = 0;
+  for (int i = s_reportListCount; i < 32; i++) s_reportDeleteMask &= ~(1u << i);
+}
+
+typedef struct {
+  int rowY[5];
+  int rowH;
+  int navY, navH;
+  int backX, backY, backW, backH;
+  int delX, delY, delW, delH;
+  int prevX, prevW, midX, midW, nextX, nextW;
+  int pages;
+  bool showPager;
+} ReportListLayout;
+
+static void sparkyReportListComputeLayout(int w, int h, bool fieldMode, ReportListLayout* L) {
+  L->pages = (s_reportListCount + kReportListPerPage - 1) / kReportListPerPage;
+  if (L->pages < 1) L->pages = 1;
+  /* Below status bar + centered title and hint (see SCREEN_REPORT_LIST draw). */
+  const int listTop = 68;
+  L->navH = 40;
+  L->navY = h - 8 - L->navH;
+  const int listBottom = L->navY - 12;
+  int gap = 6;
+  int usable = listBottom - listTop;
+  L->rowH = (usable - 4 * gap) / 5;
+  if (L->rowH < 22) L->rowH = 22;
+  for (int i = 0; i < 5; i++) L->rowY[i] = listTop + i * (L->rowH + gap);
+  L->backX = 20;
+  L->backY = L->navY;
+  L->backW = 88;
+  L->backH = L->navH;
+  /* Delete + checkbox column only in field mode; training is view-only on device. */
+  if (fieldMode && s_reportListCount > 0) {
+    L->delW = 108;
+    L->delX = w - 20 - L->delW;
+    L->delY = L->navY;
+    L->delH = L->navH;
+  } else {
+    L->delX = 0;
+    L->delY = 0;
+    L->delW = 0;
+    L->delH = 0;
+  }
+  int innerL = L->backX + L->backW + 6;
+  int innerR = (L->delW > 0) ? (L->delX - 6) : (w - 20);
+  int innerW = innerR - innerL;
+  L->showPager = (L->pages > 1 && innerW >= 120);
+  const int gapN = 6;
+  if (L->showPager) {
+    int cell = (innerW - 2 * gapN) / 3;
+    if (cell < 40) {
+      L->showPager = false;
+      L->midX = innerL;
+      L->midW = innerW;
+      L->prevX = L->prevW = L->nextX = L->nextW = 0;
+    } else {
+      int total = 3 * cell + 2 * gapN;
+      int startX = innerL + (innerW - total) / 2;
+      L->prevX = startX;
+      L->prevW = cell;
+      L->midX = startX + cell + gapN;
+      L->midW = cell;
+      L->nextX = startX + 2 * (cell + gapN);
+      L->nextW = cell;
+    }
+  } else {
+    L->midX = innerL;
+    L->midW = innerW;
+    L->prevX = L->prevW = L->nextX = L->nextW = 0;
+  }
+}
+
+static void buildReportViewLineIndex(char* buf) {
+  s_reportViewLineCount = 0;
+  if (!buf || !buf[0]) return;
+  char* p = buf;
+  while (s_reportViewLineCount < 256) {
+    s_reportViewLineOff[s_reportViewLineCount++] = (int)(p - buf);
+    char* eol = strpbrk(p, "\r\n");
+    if (!eol) break;
+    *eol = '\0';
+    p = eol + 1;
+    while (*p == '\r' || *p == '\n') p++;
+    if (*p == '\0') break;
+  }
+}
+
 static void showPrompt(SparkyTft* tft, const char* line1, const char* line2, uint16_t frameColor) {
   if (!tft || !line1 || !line1[0]) return;
   int w = getW(tft);
@@ -623,19 +1055,10 @@ static void resetResultEntryInput(void) {
   s_rcdRequiredMaxMs = 0.0f;
 }
 
-static void sparkyResetTestSelectGesture(void) {
-  s_testSelectTouchActive = false;
-  s_testSelectAccumDy = 0;
-  s_testSelectTapCandidate = -1;
-}
-
-/** Begin verification for test index `rowIndex`; clears list gesture state. */
+/** Begin verification for test index `rowIndex`. */
 static ScreenId sparkyCommitTestSelectRow(int rowIndex) {
   const int n = VerificationSteps_getActiveTestCount();
-  if (rowIndex < 0 || rowIndex >= n) {
-    sparkyResetTestSelectGesture();
-    return SCREEN_TEST_SELECT;
-  }
+  if (rowIndex < 0 || rowIndex >= n) return SCREEN_TEST_SELECT;
   s_selectedTestType = rowIndex;
   s_stepIndex = 0;
   s_flowPhase = 0;
@@ -647,7 +1070,6 @@ static ScreenId sparkyCommitTestSelectRow(int rowIndex) {
   resetResultEntryInput();
   s_testStartedMs = 0;
   s_testCompletedMs = 0;
-  sparkyResetTestSelectGesture();
   if (AppState_getMode() == APP_MODE_TRAINING) {
     s_studentInputLen = 0;
     s_studentInput[0] = '\0';
@@ -756,10 +1178,31 @@ static void drawOskRowSyncLetters(SparkyTft* tft, const QwertyKeyboardLayout* qk
   }
 }
 
-/* Small "connected Wi‑Fi" glyph in the top-right status area. */
+/** Right-aligned, left of typical top-right Back button, so titles on the left are not covered. */
+static int statusBarTimeCursorX(SparkyTft* tft, const char* tb) {
+  if (!tft || !tb || !tb[0]) return 72;
+  int w = getW(tft);
+  int tw = (int)strlen(tb) * 6;
+  int backReserve = (w >= 400) ? 108 : 72;
+  int x = w - 8 - backReserve - tw;
+  if (x < 70) x = 70;
+  return x;
+}
+
+static void drawStatusBarTime(SparkyTft* tft) {
+  char tb[16];
+  SparkyTime_formatStatusBar12(tb, sizeof(tb));
+  tft->setTextWrap(false);
+  tft->setTextSize(1);
+  tft->setTextColor(kWhite, kBg);
+  tft->setCursor(statusBarTimeCursorX(tft, tb), 10);
+  tft->print(tb);
+}
+
+/* Small "connected Wi‑Fi" glyph top-left (battery to its left in EEZ; back remains top-right). */
 static void drawWifiConnectedIcon(SparkyTft* tft) {
   if (!WifiManager_isConnected() && !AdminPortal_isApActive()) return;
-  const int cx = getW(tft) - 50;
+  const int cx = 50;
   const int cy = 16;
   const int radii[3] = { 4, 7, 10 };
   for (int i = 0; i < 3; i++) {
@@ -772,8 +1215,7 @@ static void drawWifiConnectedIcon(SparkyTft* tft) {
 }
 
 static void drawBatteryStatusIcon(SparkyTft* tft) {
-  int w = getW(tft);
-  const int x = w - 26;
+  const int x = 10;
   const int y = 7;
   const int bw = 18;
   const int bh = 10;
@@ -901,7 +1343,10 @@ static void syncTrainingFlowEvent(const char* event, bool include_result, const 
   gs.unit = include_result ? (s_resultUnit ? s_resultUnit : "") : "";
   gs.passed = s_resultPass;
   gs.clause = include_result ? (s_resultClause ? s_resultClause : "") : "";
-  GoogleSync_sendResult(&gs);
+  if (event && strcmp(event, "session_saved") == 0)
+    GoogleSync_queueResult(&gs);
+  else
+    GoogleSync_sendResult(&gs);
 }
 
 void Screens_setReportSavedBasename(const char* basename) {
@@ -1036,6 +1481,13 @@ static bool screens_try_partial_redraw(SparkyTft* tft, ScreenId id, int w, int h
   }
 }
 
+void Screens_drawStatusBar(SparkyTft* tft) {
+  if (!tft) return;
+  drawBatteryStatusIcon(tft);
+  drawWifiConnectedIcon(tft);
+  drawStatusBarTime(tft);
+}
+
 static void screens_draw_impl(SparkyTft* tft, ScreenId id, bool fullClear) {
   int w = getW(tft);
   int h = getH(tft);
@@ -1138,25 +1590,7 @@ static void screens_draw_impl(SparkyTft* tft, ScreenId id, bool fullClear) {
         const int scopeY = panelWide ? 48 : (h >= 700 ? 50 : 42);
         sparkyDrawVerificationScope(tft, w, scopeY, 2);
       }
-      const int testCount = VerificationSteps_getActiveTestCount();
-      sparkyClampTestSelectScroll(w, h, &s_testSelectScrollPx);
-      int listTopY = 0, listRowH = 0;
-      sparkyTestSelectRowMetrics(w, h, 0, &listTopY, &listRowH);
-      const int listBottomY = h - 28;
-      for (int i = 0; i < testCount; i++) {
-        int y = 0, rh = 0;
-        sparkyTestSelectRowMetrics(w, h, i, &y, &rh);
-        y += s_testSelectScrollPx;
-        const int bh = rh - 2;
-        if (y + bh < listTopY || y > listBottomY) continue;
-        tft->fillRoundRect(20, y, w - 40, bh, 6, kBtn);
-        tft->drawRoundRect(20, y, w - 40, bh, 6, kWhite);
-        tft->setTextColor(kWhite, kBtn);
-        {
-          uint8_t ts = panelWide ? (uint8_t)2 : (readable ? (uint8_t)2 : (uint8_t)1);
-          sparkyDrawBtnLabel(tft, 20, y, w - 40, bh, sparkyDeviceTestLabel(VerificationSteps_getTestName((VerifyTestId)i)), ts);
-        }
-      }
+      sparkyDrawTestSelectPagedList(tft, w, h);
       tft->setTextWrap(true);
       break;
     }
@@ -1270,7 +1704,7 @@ static void screens_draw_impl(SparkyTft* tft, ScreenId id, bool fullClear) {
         tft->fillRoundRect(20, btnY, w - 40, 48, 8, kAccent);
         tft->drawRoundRect(20, btnY, w - 40, 48, 8, kWhite);
         tft->setTextColor(kWhite, kAccent);
-        sparkyDrawBtnLabel(tft, 20, btnY, w - 40, 48, "End session", 2);
+        sparkyDrawBtnLabel(tft, 20, btnY, w - 40, 48, "Save & end session", 2);
         break;
       }
       int count = VerificationSteps_getStepCount((VerifyTestId)s_selectedTestType);
@@ -1417,7 +1851,7 @@ static void screens_draw_impl(SparkyTft* tft, ScreenId id, bool fullClear) {
       tft->setCursor(20, 70);
       tft->print(s_reportSavedBasename);
       tft->setCursor(20, 90);
-      tft->print("(.csv and .html on storage)");
+      tft->print(".csv + .html saved — View reports from menu.");
       int btnY = h - 56;
       tft->fillRoundRect(w/2 - 50, btnY, 100, 44, 8, kBtn);
       tft->drawRoundRect(w/2 - 50, btnY, 100, 44, 8, kWhite);
@@ -1431,32 +1865,159 @@ static void screens_draw_impl(SparkyTft* tft, ScreenId id, bool fullClear) {
       tft->setTextSize(2);
       tft->setCursor(20, 16);
       tft->print("Reports");
-      static char listBuf[384];  /* Enough for ~20 report names; avoids large BSS */
-      int n = ReportGenerator_listReports(listBuf, sizeof(listBuf));
+      sparkyRefreshReportListCache();
+      const bool fieldReports = AppState_isFieldMode();
+      ReportListLayout rl;
+      sparkyReportListComputeLayout(w, h, fieldReports, &rl);
       tft->setTextSize(1);
-      tft->setCursor(20, 50);
-      if (n == 0)
+      tft->setTextColor((uint16_t)0xBDF7, kBg);
+      tft->setCursor(20, 38);
+      tft->print(fieldReports ? "Tap name to view  |  box = delete" : "Tap a report to view (CSV)");
+      if (s_reportListCount == 0) {
+        tft->setTextSize(1);
+        tft->setTextColor(kWhite, kBg);
+        tft->setCursor(20, 56);
         tft->print("(No reports yet)");
-      else {
-        int y = 50;
-        char* p = listBuf;
-        for (int i = 0; i < n && y < h - 60; i++) {
-          tft->setCursor(20, y);
-          tft->print(p);
-          while (*p && *p != '\n') p++;
-          if (*p) p++;
-          y += 18;
+      } else {
+        int first = s_reportListPage * kReportListPerPage;
+        const uint8_t rowTs = sparkyReadableUi(w, h) ? (uint8_t)2 : (uint8_t)1;
+        const int rowMainX = fieldReports ? (20 + kReportCheckCol) : 20;
+        const int rowMainW = fieldReports ? (w - 40 - kReportCheckCol) : (w - 40);
+        for (int slot = 0; slot < kReportListPerPage; slot++) {
+          int idx = first + slot;
+          int ry = rl.rowY[slot];
+          int bh = rl.rowH - 2;
+          if (idx >= s_reportListCount) {
+            tft->fillRoundRect(20, ry, w - 40, bh, 6, kBg);
+            tft->drawRoundRect(20, ry, w - 40, bh, 6, (uint16_t)0x4A69);
+          } else {
+            tft->fillRoundRect(rowMainX, ry, rowMainW, bh, 6, kBtn);
+            tft->drawRoundRect(rowMainX, ry, rowMainW, bh, 6, kWhite);
+            tft->setTextColor(kWhite, kBtn);
+            sparkyDrawBtnLabel(tft, rowMainX, ry, rowMainW, bh, s_reportListNames[idx], rowTs);
+            if (fieldReports) {
+              const int cs = 20;
+              const int cx = 24;
+              const int cy = ry + (bh - cs) / 2;
+              tft->drawRect(cx, cy, cs, cs, kWhite);
+              if (s_reportDeleteMask & (1u << (unsigned)idx)) tft->fillRect(cx + 4, cy + 4, cs - 8, cs - 8, kGreen);
+            }
+          }
         }
       }
-      int btnY = h - 52;
-      tft->fillRoundRect(20, btnY, 100, 40, 8, kBtn);
-      tft->drawRoundRect(20, btnY, 100, 40, 8, kWhite);
+      bool prevEn = (s_reportListPage > 0);
+      bool nextEn = (s_reportListPage < rl.pages - 1);
+      uint16_t prevBg = prevEn ? kBtn : (uint16_t)0x18C3;
+      uint16_t nextBg = nextEn ? kBtn : (uint16_t)0x18C3;
+      if (rl.showPager) {
+        tft->fillRoundRect(rl.prevX, rl.navY, rl.prevW, rl.navH, 6, prevBg);
+        tft->drawRoundRect(rl.prevX, rl.navY, rl.prevW, rl.navH, 6, kWhite);
+        tft->setTextColor(kWhite, prevBg);
+        sparkyDrawBtnLabel(tft, rl.prevX, rl.navY, rl.prevW, rl.navH, "PREV", 2);
+        tft->fillRect(rl.midX, rl.navY, rl.midW, rl.navH, kBg);
+        char pg[12];
+        snprintf(pg, sizeof(pg), "%d/%d", s_reportListPage + 1, rl.pages);
+        tft->setTextSize(2);
+        tft->setTextColor(kWhite, kBg);
+        int ptw = (int)strlen(pg) * 12;
+        tft->setCursor(rl.midX + (rl.midW - ptw) / 2, rl.navY + (rl.navH - 14) / 2);
+        tft->print(pg);
+        tft->fillRoundRect(rl.nextX, rl.navY, rl.nextW, rl.navH, 6, nextBg);
+        tft->drawRoundRect(rl.nextX, rl.navY, rl.nextW, rl.navH, 6, kWhite);
+        tft->setTextColor(kWhite, nextBg);
+        sparkyDrawBtnLabel(tft, rl.nextX, rl.navY, rl.nextW, rl.navH, "NEXT", 2);
+      }
+      tft->fillRoundRect(rl.backX, rl.backY, rl.backW, rl.backH, 6, kBtn);
+      tft->drawRoundRect(rl.backX, rl.backY, rl.backW, rl.backH, 6, kWhite);
       tft->setTextColor(kWhite, kBtn);
-      tft->setCursor(44, btnY + 10);
-      tft->print("Back");
+      sparkyDrawBtnLabel(tft, rl.backX, rl.backY, rl.backW, rl.backH, "Back", 2);
+      if (rl.delW > 0) {
+        bool canDel = (s_reportDeleteMask != 0);
+        uint16_t delBg = canDel ? kAccent : (uint16_t)0x3186;
+        tft->fillRoundRect(rl.delX, rl.delY, rl.delW, rl.delH, 6, delBg);
+        tft->drawRoundRect(rl.delX, rl.delY, rl.delW, rl.delH, 6, kWhite);
+        tft->setTextColor(kWhite, delBg);
+        sparkyDrawBtnLabel(tft, rl.delX, rl.delY, rl.delW, rl.delH, "Delete", 2);
+      }
+      break;
+    }
+    case SCREEN_REPORT_VIEW: {
+      const int bodyTop = 56;
+      tft->setTextColor(kWhite, kBg);
+      tft->setTextSize(2);
+      tft->setTextWrap(false);
+      {
+        char title[72];
+        strncpy(title, s_reportViewBasename, sizeof(title) - 1);
+        title[sizeof(title) - 1] = '\0';
+        int maxCh = (w - 40) / 12;
+        if (maxCh < 8) maxCh = 8;
+        int tl = (int)strlen(title);
+        if (tl > maxCh && maxCh > 3) {
+          snprintf(title, sizeof(title), "%.*s...", maxCh - 3, s_reportViewBasename);
+        }
+        int tw = (int)strlen(title) * 12;
+        tft->setCursor((w - tw) / 2, 26);
+        tft->print(title);
+      }
+      const int navY = h - 44;
+      const int lineStep = 12;
+      int maxVis = (navY - 8 - bodyTop) / lineStep;
+      if (maxVis < 1) maxVis = 1;
+      int maxScroll = s_reportViewLineCount - maxVis;
+      if (maxScroll < 0) maxScroll = 0;
+      if (s_reportViewScrollLine > maxScroll) s_reportViewScrollLine = maxScroll;
+      tft->setTextSize(1);
+      tft->setTextColor(kWhite, kBg);
+      if (s_reportViewLineCount <= 0) {
+        tft->setCursor(20, bodyTop);
+        tft->print("(Empty or unreadable report.)");
+      } else {
+        const int maxChars = (w - 36) / 6;
+        for (int v = 0; v < maxVis; v++) {
+          int li = s_reportViewScrollLine + v;
+          if (li >= s_reportViewLineCount) break;
+          const char* ln = s_reportViewCsv + s_reportViewLineOff[li];
+          tft->setCursor(20, bodyTop + v * lineStep);
+          tft->setTextWrap(false);
+          size_t len = strlen(ln);
+          if ((int)len > maxChars && maxChars > 3) {
+            char cut[96];
+            snprintf(cut, sizeof(cut), "%.*s...", maxChars - 3, ln);
+            tft->print(cut);
+          } else
+            tft->print(ln);
+        }
+      }
+      if (maxScroll > 0) {
+        tft->setTextColor((uint16_t)0xBDF7, kBg);
+        tft->setCursor(20, navY - 14);
+        tft->print("More below - use Down");
+      }
+      tft->fillRoundRect(20, navY, 88, 36, 6, kBtn);
+      tft->drawRoundRect(20, navY, 88, 36, 6, kWhite);
+      tft->setTextColor(kWhite, kBtn);
+      tft->setTextSize(2);
+      sparkyDrawBtnLabel(tft, 20, navY, 88, 36, "Back", 2);
+      if (s_reportViewLineCount > maxVis) {
+        bool upEn = (s_reportViewScrollLine > 0);
+        bool dnEn = (s_reportViewScrollLine < maxScroll);
+        int upX = w / 2 - 84;
+        int dnX = w / 2 + 4;
+        int sbW = 76;
+        tft->fillRoundRect(upX, navY, sbW, 36, 6, upEn ? kBtn : (uint16_t)0x18C3);
+        tft->drawRoundRect(upX, navY, sbW, 36, 6, kWhite);
+        tft->setTextColor(kWhite, upEn ? kBtn : (uint16_t)0x18C3);
+        sparkyDrawBtnLabel(tft, upX, navY, sbW, 36, "Up", 2);
+        tft->fillRoundRect(dnX, navY, sbW, 36, 6, dnEn ? kBtn : (uint16_t)0x18C3);
+        tft->drawRoundRect(dnX, navY, sbW, 36, 6, kWhite);
+        tft->setTextColor(kWhite, dnEn ? kBtn : (uint16_t)0x18C3);
+        sparkyDrawBtnLabel(tft, dnX, navY, sbW, 36, "Down", 2);
+      }
       break;
     }
     case SCREEN_SETTINGS: {
+      bool panelWide = (w >= 700);
       tft->setTextColor(kWhite, kBg);
       tft->setTextSize(2);
       {
@@ -1465,67 +2026,21 @@ static void screens_draw_impl(SparkyTft* tft, ScreenId id, bool fullClear) {
         tft->setCursor((w - tw) / 2, 10);
         tft->print(t);
       }
-      int y = 0, btnH = 0, gap = 0, nRows = 0, backY = 0;
-      bool field = AppState_isFieldMode();
-      sparkySettingsLayout(w, h, field, &y, &btnH, &gap, &nRows, &backY);
-      const int btnW = w - 40;
-      const uint8_t lblTs = sparkyReadableUi(w, h) ? (uint8_t)2 : (uint8_t)1;
-      for (int i = 0; i < nRows; i++) {
-        const char* label = "";
-        if (field) {
-          if (i == 0) label = "Screen rotation";
-          else if (i == 1) label = "WiFi connection";
-          else if (i == 2) label = "Buzzer (sound)";
-          else if (i == 3) label = "About";
-          else if (i == 4) label = "Firmware updates";
-          else if (i == 5) label = "Email settings";
-          else if (i == 6) label = "Mode change (boot hold)";
-          else label = "Restart device";
-        } else {
-          if (i == 0) label = "Screen rotation";
-          else if (i == 1) label = "WiFi connection";
-          else if (i == 2) label = "Buzzer (sound)";
-          else if (i == 3) label = "About";
-          else if (i == 4) label = "Firmware updates";
-          else if (i == 5) label = "Training sync (PIN)";
-          else if (i == 6) label = "Email settings";
-          else if (i == 7) label = "Mode change (boot hold)";
-          else if (i == 8) label = "Restart device";
-          else label = "Change PIN";
-        }
-        tft->fillRoundRect(20, y, btnW, btnH, 6, kBtn);
-        tft->drawRoundRect(20, y, btnW, btnH, 6, kWhite);
-        tft->setTextColor(kWhite, kBtn);
-        if (i == 1) {
-          tft->setTextSize(lblTs);
-          tft->setCursor(28, y + 4);
-          tft->print("WiFi connection");
-          tft->setTextSize(1);
-          tft->setCursor(28, y + 4 + (lblTs == 2 ? 16 : 14));
-          if (WifiManager_isConnected()) {
-            char ip[20];
-            WifiManager_getIpString(ip, sizeof(ip));
-            tft->print(ip);
-          } else
-            tft->print("Not connected");
-        } else if (i == 2) {
-          tft->setTextSize(lblTs);
-          tft->setCursor(28, y + 4);
-          tft->print("Buzzer (sound)");
-          tft->setTextSize(1);
-          tft->setCursor(28, y + 4 + (lblTs == 2 ? 16 : 14));
-          tft->print(AppState_getBuzzerEnabled() ? "On" : "Off");
-        } else
-          sparkyDrawBtnLabel(tft, 20, y, btnW, btnH, label, lblTs);
-        y += btnH + gap;
-      }
       {
-        const int backH = 40;
-        tft->fillRoundRect(20, backY, btnW, backH, 6, kBtn);
-        tft->drawRoundRect(20, backY, btnW, backH, 6, kWhite);
+        int backW = panelWide ? 96 : 92;
+        int backH = 36;
+        int backX = w - backW - 12;
+        int backY = panelWide ? 10 : 8;
+        tft->fillRoundRect(backX, backY, backW, backH, 6, kBtn);
+        tft->drawRoundRect(backX, backY, backW, backH, 6, kWhite);
+        tft->setTextSize(2);
         tft->setTextColor(kWhite, kBtn);
-        sparkyDrawBtnLabel(tft, 20, backY, btnW, backH, "Back", 2);
+        int tx = 0, ty = 0;
+        sparkyBackLabelCoords(backW, backH, backX, backY, &tx, &ty);
+        tft->setCursor(tx, ty);
+        tft->print("Back");
       }
+      sparkyDrawSettingsPagedList(tft, w, h);
       break;
     }
     case SCREEN_EMAIL_SETTINGS: {
@@ -1680,6 +2195,113 @@ static void screens_draw_impl(SparkyTft* tft, ScreenId id, bool fullClear) {
         tft->drawRoundRect(20, by, btnW, backH, 6, kWhite);
         sparkyDrawBtnLabel(tft, 20, by, btnW, backH, "Back", 2);
       }
+      break;
+    }
+    case SCREEN_DATE_TIME: {
+      tft->setTextColor(kWhite, kBg);
+      tft->setTextSize(2);
+      {
+        const char* t = "Date & time";
+        int tw = (int)strlen(t) * 6 * 2;
+        tft->setCursor((w - tw) / 2, 10);
+        tft->print(t);
+      }
+      char ts[48];
+      SparkyTime_formatPreferred(ts, sizeof(ts));
+      tft->setTextSize(2);
+      tft->setTextColor(kAccent, kBg);
+      tft->setCursor(20, 36);
+      tft->print(ts);
+      tft->setTextColor(kWhite, kBg);
+      tft->setTextSize(1);
+      tft->setCursor(20, 58);
+      tft->print(SparkyRtc_isPresent() ? "RTC: detected (PCF85063 / I2C)" : "RTC: not detected (re-open to re-scan)");
+      const int btnW = w - 40;
+      int y = 74;
+      const int btnH = sparkyReadableUi(w, h) ? 32 : 28;
+      const int gap = 4;
+      char line[56];
+      snprintf(line, sizeof(line), "12-hour display: %s", AppState_getClock12Hour() ? "On" : "Off");
+      tft->fillRoundRect(20, y, btnW, btnH, 6, kBtn);
+      tft->drawRoundRect(20, y, btnW, btnH, 6, kWhite);
+      tft->setTextColor(kWhite, kBtn);
+      sparkyDrawBtnLabel(tft, 20, y, btnW, btnH, line, 2);
+      y += btnH + gap;
+      tft->fillRoundRect(20, y, btnW, btnH, 6, kBtn);
+      tft->drawRoundRect(20, y, btnW, btnH, 6, kWhite);
+      sparkyDrawBtnLabel(tft, 20, y, btnW, btnH, "Set device from RTC chip", 2);
+      y += btnH + gap;
+      tft->fillRoundRect(20, y, btnW, btnH, 6, kBtn);
+      tft->drawRoundRect(20, y, btnW, btnH, 6, kWhite);
+      sparkyDrawBtnLabel(tft, 20, y, btnW, btnH, "Set date & time (dd/mm/yyyy…)", 2);
+      y += btnH + gap;
+      {
+        int half = (btnW - 8) / 2;
+        tft->fillRoundRect(20, y, half, btnH, 6, kBtn);
+        tft->drawRoundRect(20, y, half, btnH, 6, kWhite);
+        sparkyDrawBtnLabel(tft, 20, y, half, btnH, "-1 min", 2);
+        tft->fillRoundRect(28 + half, y, half, btnH, 6, kBtn);
+        tft->drawRoundRect(28 + half, y, half, btnH, 6, kWhite);
+        sparkyDrawBtnLabel(tft, 28 + half, y, half, btnH, "+1 min", 2);
+      }
+      y += btnH + gap;
+      tft->fillRoundRect(20, y, btnW, btnH, 6, kBtn);
+      tft->drawRoundRect(20, y, btnW, btnH, 6, kWhite);
+      sparkyDrawBtnLabel(tft, 20, y, btnW, btnH, "Write clock to RTC chip", 2);
+      y += btnH + gap;
+      tft->fillRoundRect(20, y, btnW, 36, 6, kBtn);
+      tft->drawRoundRect(20, y, btnW, 36, 6, kWhite);
+      tft->setTextColor(kWhite, kBtn);
+      sparkyDrawBtnLabel(tft, 20, y, btnW, 36, "Back", 2);
+      break;
+    }
+    case SCREEN_CLOCK_SET: {
+      tft->setTextColor(kWhite, kBg);
+      tft->setTextSize(2);
+      {
+        const char* t = "Set date & time";
+        int tw = (int)strlen(t) * 6 * 2;
+        tft->setCursor((w - tw) / 2, 10);
+        tft->print(t);
+      }
+      tft->setTextSize(1);
+      tft->setTextColor(kAccent, kBg);
+      char st[40];
+      snprintf(st, sizeof(st), "Step %d of 6 — %s", s_clockWizardStep + 1, clockWizardFieldTitle(s_clockWizardStep));
+      tft->setCursor(20, 38);
+      tft->print(st);
+      tft->setTextColor(kWhite, kBg);
+      tft->setCursor(20, 54);
+      tft->print(s_clockWizInputLen > 0 ? s_clockWizInput : "(tap digits, Next to continue)");
+      PinKeypadLayout pk;
+      layoutNumericKeypad3x4(w, h, 88, &pk);
+      const char* keys = "123456789D0E";
+      for (int row = 0; row < 4; row++) {
+        for (int col = 0; col < 3; col++) {
+          int idx = row * 3 + col;
+          int kx = pk.kx + col * (pk.cellW + pk.gap);
+          int ky = pk.ky + row * (pk.cellH + pk.gap);
+          uint16_t cellBg = kBtn;
+          if (keys[idx] == 'D') cellBg = kAccent;
+          else if (keys[idx] == 'E') cellBg = kGreen;
+          tft->fillRoundRect(kx, ky, pk.cellW, pk.cellH, 8, cellBg);
+          tft->drawRoundRect(kx, ky, pk.cellW, pk.cellH, 8, kWhite);
+          tft->setTextColor(kWhite, cellBg);
+          if (keys[idx] == 'D')
+            sparkyDrawBtnLabel(tft, kx, ky, pk.cellW, pk.cellH, "Del", pk.keypadTs);
+          else if (keys[idx] == 'E')
+            sparkyDrawBtnLabel(tft, kx, ky, pk.cellW, pk.cellH, "Next", pk.keypadTs);
+          else {
+            char ds[2] = { keys[idx], '\0' };
+            sparkyDrawBtnLabel(tft, kx, ky, pk.cellW, pk.cellH, ds, pk.keypadTs);
+          }
+        }
+      }
+      tft->fillRoundRect(w - 62, 6, 48, 24, 6, kBtn);
+      tft->drawRoundRect(w - 62, 6, 48, 24, 6, kWhite);
+      tft->setTextColor(kWhite, kBtn);
+      tft->setCursor(w - 56, 10);
+      tft->print("Back");
       break;
     }
     case SCREEN_WIFI_LIST: {
@@ -2298,9 +2920,63 @@ static void screens_draw_impl(SparkyTft* tft, ScreenId id, bool fullClear) {
     default:
       break;
   }
-  drawWifiConnectedIcon(tft);
-  drawBatteryStatusIcon(tft);
+  Screens_drawStatusBar(tft);
   sparkyDisplayFlush(tft);
+}
+
+static bool statusBarLeftPeriodicRefreshOk(ScreenId id) {
+  switch (id) {
+    case SCREEN_STUDENT_ID:
+    case SCREEN_TEST_FLOW:
+    case SCREEN_REPORT_SAVED:
+    case SCREEN_REPORT_LIST:
+    case SCREEN_REPORT_VIEW:
+    case SCREEN_PIN_ENTER:
+    case SCREEN_CHANGE_PIN:
+    case SCREEN_EMAIL_FIELD_EDIT:
+    case SCREEN_WIFI_PASSWORD:
+    case SCREEN_TRAINING_SYNC_EDIT:
+    case SCREEN_DATE_TIME:
+    case SCREEN_CLOCK_SET:
+      return false;
+    default:
+      return true;
+  }
+}
+
+void Screens_refreshLiveStatus(SparkyTft* tft, ScreenId currentScreen) {
+  if (!tft) return;
+  static unsigned long s_lastClockPollMs = 0;
+  static unsigned long s_lastLeftPollMs = 0;
+  static char s_prevClock[16] = "";
+
+  unsigned long now = millis();
+  if (now - s_lastClockPollMs >= 1000) {
+    s_lastClockPollMs = now;
+    char tb[16];
+    SparkyTime_formatStatusBar12(tb, sizeof(tb));
+    if (strcmp(tb, s_prevClock) != 0) {
+      strncpy(s_prevClock, tb, sizeof(s_prevClock) - 1);
+      s_prevClock[sizeof(s_prevClock) - 1] = '\0';
+      int tw = (int)strlen(tb) * 6;
+      int x = statusBarTimeCursorX(tft, tb);
+      tft->fillRect(x - 2, 8, tw + 8, 14, kBg);
+      tft->setTextWrap(false);
+      tft->setTextSize(1);
+      tft->setTextColor(kWhite, kBg);
+      tft->setCursor(x, 10);
+      tft->print(tb);
+      sparkyDisplayFlush(tft);
+    }
+  }
+
+  if (now - s_lastLeftPollMs >= 10000 && statusBarLeftPeriodicRefreshOk(currentScreen)) {
+    s_lastLeftPollMs = now;
+    tft->fillRect(6, 4, 64, 22, kBg);
+    drawBatteryStatusIcon(tft);
+    drawWifiConnectedIcon(tft);
+    sparkyDisplayFlush(tft);
+  }
 }
 
 extern "C" void Screens_draw(SparkyTft* tft, ScreenId id) {
@@ -2333,8 +3009,15 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
       sparkyMainMenuLayout(w, h, &y0, &btnH, &gap);
       int y1 = y0 + btnH + gap;
       int y2 = y1 + btnH + gap;
-      if (inRect(ix, iy, 20, y0, w - 40, btnH)) return handled(SCREEN_TEST_SELECT);
-      if (inRect(ix, iy, 20, y1, w - 40, btnH)) return handled(SCREEN_REPORT_LIST);
+      if (inRect(ix, iy, 20, y0, w - 40, btnH)) {
+        s_testSelectPage = 0;
+        return handled(SCREEN_TEST_SELECT);
+      }
+      if (inRect(ix, iy, 20, y1, w - 40, btnH)) {
+        s_reportListPage = 0;
+        s_reportDeleteMask = 0;
+        return handled(SCREEN_REPORT_LIST);
+      }
       if (inRect(ix, iy, 20, y2, w - 40, btnH)) {
         if (AppState_getMode() == APP_MODE_TRAINING && !s_trainingSettingsUnlocked) {
           Screens_resetPinEntry();
@@ -2342,6 +3025,7 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
           Screens_setPinCancelTarget(SCREEN_MAIN_MENU);
           return handled(SCREEN_PIN_ENTER);
         }
+        s_settingsPage = 0;
         return handled(SCREEN_SETTINGS);
       }
       break;
@@ -2352,32 +3036,47 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
       int backH = 36;
       int backX = w - backW - 12;
       int backY = panelWide ? 10 : 8;
-      if (inRect(ix, iy, backX, backY, backW, backH)) {
-        sparkyResetTestSelectGesture();
-        return handled(SCREEN_MAIN_MENU);
-      }
-      unsigned long now = millis();
-      if (s_testSelectTouchActive && (long)(now - s_testSelectLastTouchMs) > 300) {
-        sparkyResetTestSelectGesture();
-      }
+      if (inRect(ix, iy, backX, backY, backW, backH)) return handled(SCREEN_MAIN_MENU);
       const int testCount = VerificationSteps_getActiveTestCount();
       if (testCount <= 0) break;
-      int listTopY = 0, listRowH = 0;
-      sparkyTestSelectRowMetrics(w, h, 0, &listTopY, &listRowH);
-      int listBottomY = h - 28;
-      if (inRect(ix, iy, 20, listTopY, w - 40, listBottomY - listTopY)) {
-        /*
-         * main.cpp only calls handleTouch on touch-down edge. Drag + release are handled by
-         * Screens_handleTouchDrag / Screens_handleTouchEnd so a tap completes on finger-up.
-         * Always (re)start the gesture on each down edge so a missed touch-up cannot strand state.
-         */
-        s_testSelectTouchActive = true;
-        s_testSelectLastY = iy;
-        s_testSelectAccumDy = 0;
-        s_testSelectLastTouchMs = now;
-        s_testSelectTapCandidate = sparkyTestSelectHitIndex(w, h, iy, s_testSelectScrollPx);
-        s_testSelectTapCandidateMs = now;
-        return handled(current);
+      sparkyTestSelectClampPage(testCount);
+      const int pages = sparkyTestSelectNumPages(testCount);
+      SparkyTestSelectPagedLayout L;
+      sparkyTestSelectComputePagedLayout(w, h, &L);
+      if (inRect(ix, iy, L.prevX, L.navY, L.prevW, L.navH)) {
+        if (s_testSelectPage > 0) {
+          s_testSelectPage--;
+#if defined(SPARKYCHECK_EEZ_MOCKUP_UI)
+          EezMockupUi_draw(tft, current);
+#else
+          Screens_draw(tft, current);
+#endif
+          return handled(current);
+        }
+        return current;
+      }
+      if (inRect(ix, iy, L.nextX, L.navY, L.nextW, L.navH)) {
+        if (s_testSelectPage < pages - 1) {
+          s_testSelectPage++;
+#if defined(SPARKYCHECK_EEZ_MOCKUP_UI)
+          EezMockupUi_draw(tft, current);
+#else
+          Screens_draw(tft, current);
+#endif
+          return handled(current);
+        }
+        return current;
+      }
+      int first = s_testSelectPage * kTestSelectPerPage;
+      for (int slot = 0; slot < kTestSelectPerPage; slot++) {
+        int idx = first + slot;
+        int y = L.rowY[slot];
+        int bh = L.rowH - 2;
+        if (!inRect(ix, iy, 20, y, w - 40, bh)) continue;
+        if (idx >= testCount) return current;
+        ScreenId next = sparkyCommitTestSelectRow(idx);
+        if (next != current) s_handledButton = true;
+        return next;
       }
       break;
     }
@@ -2439,12 +3138,13 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
         }
         syncTrainingFlowEvent("test_cancelled", false, nullptr);
         resetResultEntryInput();
+        s_testSelectPage = 0;
         return handled(SCREEN_TEST_SELECT);
       }
       if (s_flowPhase == 1) {
         if (inRect(ix, iy, 20, h - 56, w - 40, 48)) {
           ReportGenerator_setStudentId(AppState_getMode() == APP_MODE_TRAINING ? s_studentId : "");
-          ReportGenerator_begin(nullptr);
+          ReportGenerator_begin(nullptr, VerificationSteps_getTestName((VerifyTestId)s_selectedTestType));
           char valBuf[24];
           if (s_resultUnit && s_resultUnit[0])
             snprintf(valBuf, sizeof(valBuf), "%.3f", (double)s_resultValue);
@@ -2452,7 +3152,7 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
             snprintf(valBuf, sizeof(valBuf), "Verified");
           ReportGenerator_addResult(s_resultLabel ? s_resultLabel : "Test", valBuf, s_resultUnit ? s_resultUnit : "", s_resultPass, s_resultClause ? s_resultClause : "");
           ReportGenerator_end();
-          char base[48];
+          char base[64];
           ReportGenerator_getLastBasename(base, sizeof(base));
           syncTrainingFlowEvent("session_saved", true, base);
           Screens_setReportSavedBasename(base);
@@ -2585,7 +3285,8 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
 
         if (inRect(ix, iy, rel.delX, rel.delY, rel.delW, rel.delH)) {
           if (s_resultInputLen > 0) s_resultInput[--s_resultInputLen] = '\0';
-          Screens_draw(tft, current, false);
+          /* Partial redraw skips the Del control; full redraw keeps keypad/Del in sync. */
+          Screens_draw(tft, current, true);
           return handled(current);
         }
 
@@ -2686,11 +3387,129 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
       break;
     }
     case SCREEN_REPORT_SAVED:
-      if (inRect(ix, iy, w/2 - 50, h - 56, 100, 44)) return handled(SCREEN_MAIN_MENU);
+      if (inRect(ix, iy, w / 2 - 50, h - 56, 100, 44)) {
+        s_testSelectPage = 0;
+        return handled(SCREEN_TEST_SELECT);
+      }
       break;
-    case SCREEN_REPORT_LIST:
-      if (inRect(ix, iy, 20, h - 52, 100, 40)) return handled(SCREEN_MAIN_MENU);
+    case SCREEN_REPORT_LIST: {
+      sparkyRefreshReportListCache();
+      const bool fieldReports = AppState_isFieldMode();
+      ReportListLayout rl;
+      sparkyReportListComputeLayout(w, h, fieldReports, &rl);
+      if (inRect(ix, iy, rl.backX, rl.backY, rl.backW, rl.backH)) {
+        s_reportDeleteMask = 0;
+        return handled(SCREEN_MAIN_MENU);
+      }
+      if (fieldReports && rl.delW > 0 && inRect(ix, iy, rl.delX, rl.delY, rl.delW, rl.delH)) {
+        if (s_reportDeleteMask) {
+          for (int i = 0; i < s_reportListCount; i++) {
+            if (s_reportDeleteMask & (1u << (unsigned)i)) ReportGenerator_deleteReportBasename(s_reportListNames[i]);
+          }
+          s_reportDeleteMask = 0;
+          sparkyRefreshReportListCache();
+#if defined(SPARKYCHECK_EEZ_MOCKUP_UI)
+          EezMockupUi_draw(tft, current);
+#else
+          Screens_draw(tft, current);
+#endif
+          return handled(current);
+        }
+        return current;
+      }
+      if (rl.showPager) {
+        if (inRect(ix, iy, rl.prevX, rl.navY, rl.prevW, rl.navH)) {
+          if (s_reportListPage > 0) {
+            s_reportListPage--;
+#if defined(SPARKYCHECK_EEZ_MOCKUP_UI)
+            EezMockupUi_draw(tft, current);
+#else
+            Screens_draw(tft, current);
+#endif
+            return handled(current);
+          }
+          return current;
+        }
+        if (inRect(ix, iy, rl.nextX, rl.navY, rl.nextW, rl.navH)) {
+          if (s_reportListPage < rl.pages - 1) {
+            s_reportListPage++;
+#if defined(SPARKYCHECK_EEZ_MOCKUP_UI)
+            EezMockupUi_draw(tft, current);
+#else
+            Screens_draw(tft, current);
+#endif
+            return handled(current);
+          }
+          return current;
+        }
+      }
+      int first = s_reportListPage * kReportListPerPage;
+      const int rowMainX = fieldReports ? (20 + kReportCheckCol) : 20;
+      const int rowMainW = fieldReports ? (w - 40 - kReportCheckCol) : (w - 40);
+      for (int slot = 0; slot < kReportListPerPage; slot++) {
+        int idx = first + slot;
+        if (idx >= s_reportListCount) break;
+        int y = rl.rowY[slot];
+        int bh = rl.rowH - 2;
+        if (fieldReports) {
+          if (inRect(ix, iy, 20, y, kReportCheckCol, bh)) {
+            s_reportDeleteMask ^= (1u << (unsigned)idx);
+#if defined(SPARKYCHECK_EEZ_MOCKUP_UI)
+            EezMockupUi_draw(tft, current);
+#else
+            Screens_draw(tft, current);
+#endif
+            return handled(current);
+          }
+        }
+        if (inRect(ix, iy, rowMainX, y, rowMainW, bh)) {
+          strncpy(s_reportViewBasename, s_reportListNames[idx], sizeof(s_reportViewBasename) - 1);
+          s_reportViewBasename[sizeof(s_reportViewBasename) - 1] = '\0';
+          if (!ReportGenerator_readReportCsv(s_reportViewBasename, s_reportViewCsv, (unsigned)sizeof(s_reportViewCsv), nullptr)) {
+            strncpy(s_reportViewCsv, "(No CSV for this report.)", sizeof(s_reportViewCsv) - 1);
+            s_reportViewCsv[sizeof(s_reportViewCsv) - 1] = '\0';
+          }
+          buildReportViewLineIndex(s_reportViewCsv);
+          s_reportViewScrollLine = 0;
+          return handled(SCREEN_REPORT_VIEW);
+        }
+      }
       break;
+    }
+    case SCREEN_REPORT_VIEW: {
+      const int navY = h - 44;
+      const int bodyTop = 56;
+      const int lineStep = 12;
+      int maxVis = (navY - 8 - bodyTop) / lineStep;
+      if (maxVis < 1) maxVis = 1;
+      int maxScroll = s_reportViewLineCount - maxVis;
+      if (maxScroll < 0) maxScroll = 0;
+      if (inRect(ix, iy, 20, navY, 88, 36)) return handled(SCREEN_REPORT_LIST);
+      if (s_reportViewLineCount > maxVis) {
+        int upX = w / 2 - 84;
+        int dnX = w / 2 + 4;
+        int sbW = 76;
+        if (inRect(ix, iy, upX, navY, sbW, 36) && s_reportViewScrollLine > 0) {
+          s_reportViewScrollLine--;
+#if defined(SPARKYCHECK_EEZ_MOCKUP_UI)
+          EezMockupUi_draw(tft, current);
+#else
+          Screens_draw(tft, current);
+#endif
+          return handled(current);
+        }
+        if (inRect(ix, iy, dnX, navY, sbW, 36) && s_reportViewScrollLine < maxScroll) {
+          s_reportViewScrollLine++;
+#if defined(SPARKYCHECK_EEZ_MOCKUP_UI)
+          EezMockupUi_draw(tft, current);
+#else
+          Screens_draw(tft, current);
+#endif
+          return handled(current);
+        }
+      }
+      break;
+    }
     case SCREEN_SETTINGS: {
       if (AppState_getMode() == APP_MODE_TRAINING && !s_trainingSettingsUnlocked) {
         Screens_resetPinEntry();
@@ -2698,53 +3517,62 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
         Screens_setPinCancelTarget(SCREEN_MAIN_MENU);
         return handled(SCREEN_PIN_ENTER);
       }
-      int y = 0, btnH = 0, gap = 0, nRows = 0, backY = 0;
       bool field = AppState_isFieldMode();
-      sparkySettingsLayout(w, h, field, &y, &btnH, &gap, &nRows, &backY);
-      if (inRect(ix, iy, 20, y, w - 40, btnH)) return handled(SCREEN_ROTATION);
-      y += btnH + gap;
-      if (inRect(ix, iy, 20, y, w - 40, btnH)) return handled(SCREEN_WIFI_LIST);
-      y += btnH + gap;
-      if (inRect(ix, iy, 20, y, w - 40, btnH)) {
-        bool enabled = !AppState_getBuzzerEnabled();
-        AppState_setBuzzerEnabled(enabled);
-        /* Keep toggle lightweight: redraw settings immediately without modal prompt. */
-        Screens_draw(tft, current, false);
-        return handled(current);
-      }
-      y += btnH + gap;
-      if (inRect(ix, iy, 20, y, w - 40, btnH)) return handled(SCREEN_ABOUT);
-      y += btnH + gap;
-      if (inRect(ix, iy, 20, y, w - 40, btnH)) return handled(SCREEN_UPDATES);
-      y += btnH + gap;
-      if (!field) {
-        if (inRect(ix, iy, 20, y, w - 40, btnH)) {
-          Screens_resetPinEntry();
-          Screens_setPinSuccessTarget(SCREEN_TRAINING_SYNC);
-          Screens_setPinCancelTarget(SCREEN_SETTINGS);
-          return handled(SCREEN_PIN_ENTER);
-        }
-        y += btnH + gap;
-      }
-      if (inRect(ix, iy, 20, y, w - 40, btnH)) return handled(SCREEN_EMAIL_SETTINGS);
-      y += btnH + gap;
-      /* Mode change (boot hold): same destination as long-press on boot logo — PIN then Training/Field. */
-      if (inRect(ix, iy, 20, y, w - 40, btnH)) {
-        Screens_resetPinEntry();
-        Screens_setPinSuccessTarget(SCREEN_MODE_SELECT);
-        Screens_setPinCancelTarget(SCREEN_SETTINGS);
-        return handled(SCREEN_PIN_ENTER);
-      }
-      y += btnH + gap;
-      if (inRect(ix, iy, 20, y, w - 40, btnH)) {
-        ESP.restart();
-        return handled(current);
-      }
-      y += btnH + gap;
-      if (!field && inRect(ix, iy, 20, y, w - 40, btnH)) return handled(SCREEN_CHANGE_PIN);
-      if (inRect(ix, iy, 20, backY, w - 40, 40)) {
+      settingsClampPage(field);
+      const int n = settingsRowCount(field);
+      const int pages = settingsNumPages(field);
+      bool panelWide = (w >= 700);
+      int backW = panelWide ? 96 : 92;
+      int backH = 36;
+      int backX = w - backW - 12;
+      int backY = panelWide ? 10 : 8;
+      if (inRect(ix, iy, backX, backY, backW, backH)) {
         s_trainingSettingsUnlocked = false;
         return handled(SCREEN_MAIN_MENU);
+      }
+      SparkyTestSelectPagedLayout L;
+      sparkyTestSelectComputePagedLayout(w, h, &L);
+      if (inRect(ix, iy, L.prevX, L.navY, L.prevW, L.navH)) {
+        if (s_settingsPage > 0) {
+          s_settingsPage--;
+#if defined(SPARKYCHECK_EEZ_MOCKUP_UI)
+          EezMockupUi_draw(tft, current);
+#else
+          Screens_draw(tft, current);
+#endif
+          return handled(current);
+        }
+        return current;
+      }
+      if (inRect(ix, iy, L.nextX, L.navY, L.nextW, L.navH)) {
+        if (s_settingsPage < pages - 1) {
+          s_settingsPage++;
+#if defined(SPARKYCHECK_EEZ_MOCKUP_UI)
+          EezMockupUi_draw(tft, current);
+#else
+          Screens_draw(tft, current);
+#endif
+          return handled(current);
+        }
+        return current;
+      }
+      int first = s_settingsPage * kTestSelectPerPage;
+      for (int slot = 0; slot < kTestSelectPerPage; slot++) {
+        int idx = first + slot;
+        int rowY = L.rowY[slot];
+        int bh = L.rowH - 2;
+        if (!inRect(ix, iy, 20, rowY, w - 40, bh)) continue;
+        if (idx >= n) return current;
+        ScreenId dest = settingsRowNavigate(tft, field, idx);
+        if (dest == SCREEN_SETTINGS) {
+#if defined(SPARKYCHECK_EEZ_MOCKUP_UI)
+          EezMockupUi_draw(tft, current);
+#else
+          Screens_draw(tft, current, false);
+#endif
+          return handled(current);
+        }
+        return handled(dest);
       }
       break;
     }
@@ -2761,6 +3589,111 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
       }
       if (inRect(ix, iy, 20, h - 52, w - 40, 44)) return handled(SCREEN_SETTINGS);
       break;
+    case SCREEN_DATE_TIME: {
+      const int btnW = w - 40;
+      int y = 74;
+      const int btnH = sparkyReadableUi(w, h) ? 32 : 28;
+      const int gap = 4;
+      if (inRect(ix, iy, 20, y, btnW, btnH)) {
+        AppState_setClock12Hour(!AppState_getClock12Hour());
+        Screens_draw(tft, current);
+        return handled(current);
+      }
+      y += btnH + gap;
+      if (inRect(ix, iy, 20, y, btnW, btnH)) {
+        SparkyRtc_refreshPresence();
+        if (SparkyRtc_syncSystemFromRtc()) showSavedPrompt(tft, "Time from RTC");
+        else showSavedPrompt(tft, "RTC read failed");
+        return handled(current);
+      }
+      y += btnH + gap;
+      if (inRect(ix, iy, 20, y, btnW, btnH)) {
+        clockWizardBegin();
+        return handled(SCREEN_CLOCK_SET);
+      }
+      y += btnH + gap;
+      {
+        int half = (btnW - 8) / 2;
+        if (inRect(ix, iy, 20, y, half, btnH)) {
+          SparkyTime_addSeconds(-60);
+          Screens_draw(tft, current);
+          return handled(current);
+        }
+        if (inRect(ix, iy, 28 + half, y, half, btnH)) {
+          SparkyTime_addSeconds(60);
+          Screens_draw(tft, current);
+          return handled(current);
+        }
+      }
+      y += btnH + gap;
+      if (inRect(ix, iy, 20, y, btnW, btnH)) {
+        SparkyRtc_refreshPresence();
+        if (SparkyRtc_writeFromSystemClock()) showSavedPrompt(tft, "Saved to RTC");
+        else showSavedPrompt(tft, "RTC write failed");
+        return handled(current);
+      }
+      y += btnH + gap;
+      if (inRect(ix, iy, 20, y, btnW, 36)) return handled(SCREEN_SETTINGS);
+      break;
+    }
+    case SCREEN_CLOCK_SET: {
+      if (inRect(ix, iy, w - 62, 6, 48, 24)) return handled(SCREEN_DATE_TIME);
+      PinKeypadLayout pk;
+      layoutNumericKeypad3x4(w, h, 88, &pk);
+      const char* keys = "123456789D0E";
+      int maxDig = (s_clockWizardStep == 2) ? 4 : 2;
+      for (int row = 0; row < 4; row++) {
+        for (int col = 0; col < 3; col++) {
+          int idx = row * 3 + col;
+          int kx = pk.kx + col * (pk.cellW + pk.gap);
+          int ky = pk.ky + row * (pk.cellH + pk.gap);
+          if (!inRect(ix, iy, kx, ky, pk.cellW, pk.cellH)) continue;
+          char k = keys[idx];
+          if (k == 'D') {
+            if (s_clockWizInputLen > 0) s_clockWizInput[--s_clockWizInputLen] = '\0';
+            Screens_draw(tft, current, false);
+            return handled(current);
+          }
+          if (k == 'E') {
+            int v = 0;
+            if (!clockWizardCommitStep(&v)) {
+              Buzzer_beepFail();
+              Screens_draw(tft, current, false);
+              return handled(current);
+            }
+            switch (s_clockWizardStep) {
+              case 0: s_clockWizDay = v; break;
+              case 1: s_clockWizMon = v; break;
+              case 2: s_clockWizYear = v; break;
+              case 3: s_clockWizHour = v; break;
+              case 4: s_clockWizMin = v; break;
+              case 5: s_clockWizSec = v; break;
+              default: break;
+            }
+            if (s_clockWizardStep >= 5) {
+              if (SparkyTime_setLocalDateTime(s_clockWizDay, s_clockWizMon, s_clockWizYear, s_clockWizHour, s_clockWizMin,
+                                              s_clockWizSec, true))
+                showSavedPrompt(tft, "Clock updated");
+              else
+                showSavedPrompt(tft, "Invalid date/time");
+              return handled(SCREEN_DATE_TIME);
+            }
+            s_clockWizardStep++;
+            clockWizardPrefillInput();
+            Screens_draw(tft, current);
+            return handled(current);
+          }
+          if (k >= '0' && k <= '9' && s_clockWizInputLen < maxDig) {
+            s_clockWizInput[s_clockWizInputLen++] = k;
+            s_clockWizInput[s_clockWizInputLen] = '\0';
+            Screens_draw(tft, current, false);
+            return handled(current);
+          }
+          return handled(current);
+        }
+      }
+      break;
+    }
     case SCREEN_WIFI_LIST: {
       if (s_wifiPortalAssist) {
         if (inRect(ix, iy, 176, 144, w - 196, 34)) {
@@ -3225,7 +4158,10 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
               pin = pin * 10 + (s_pinDigits[i] - '0');
             if (AppState_checkPin(pin)) {
               Screens_resetPinEntry();
-              if (s_pinSuccessTarget == SCREEN_SETTINGS) s_trainingSettingsUnlocked = true;
+              if (s_pinSuccessTarget == SCREEN_SETTINGS) {
+                s_trainingSettingsUnlocked = true;
+                s_settingsPage = 0;
+              }
               if (s_pinSuccessTarget == SCREEN_MODE_SELECT)
                 Screens_setModeSelectChoice(AppState_getMode() == APP_MODE_FIELD ? 1 : 0);
               return handled(s_pinSuccessTarget);
@@ -3329,45 +4265,17 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
 }
 
 ScreenId Screens_handleTouchDrag(SparkyTft* tft, ScreenId current, uint16_t x, uint16_t y) {
+  (void)tft;
   (void)x;
+  (void)y;
   s_handledButton = false;
-  if (!tft || current != SCREEN_TEST_SELECT || !s_testSelectTouchActive) return current;
-  int w = getW(tft);
-  int h = getH(tft);
-  int iy = (int)y;
-  unsigned long now = millis();
-  if ((long)(now - s_testSelectLastTouchMs) > 3000) {
-    sparkyResetTestSelectGesture();
-    return current;
-  }
-  int dy = iy - s_testSelectLastY;
-  s_testSelectLastY = iy;
-  s_testSelectAccumDy += dy;
-  s_testSelectLastTouchMs = now;
-  if (abs(s_testSelectAccumDy) >= 10 || abs(dy) >= 6) {
-    s_testSelectScrollPx += dy;
-    sparkyClampTestSelectScroll(w, h, &s_testSelectScrollPx);
-    s_testSelectTapCandidate = -1;
-    Screens_draw(tft, current, false);
-  }
   return current;
 }
 
 ScreenId Screens_handleTouchEnd(SparkyTft* tft, ScreenId current, uint16_t x, uint16_t y) {
+  (void)tft;
   (void)x;
   (void)y;
   s_handledButton = false;
-  if (!tft || current != SCREEN_TEST_SELECT || !s_testSelectTouchActive) return current;
-  unsigned long now = millis();
-  /* Use row from touch-down (not lift), so EEZ synthetic press coords + real finger release stay consistent. */
-  bool tapped = (s_testSelectTapCandidate >= 0 && abs(s_testSelectAccumDy) < 10 &&
-                 (long)(now - s_testSelectTapCandidateMs) <= 800);
-  if (!tapped) {
-    sparkyResetTestSelectGesture();
-    return current;
-  }
-  int row = s_testSelectTapCandidate;
-  ScreenId next = sparkyCommitTestSelectRow(row);
-  if (next != current) s_handledButton = true;
-  return next;
+  return current;
 }

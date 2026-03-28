@@ -44,6 +44,9 @@ void GoogleSync_getLastStatus(char* buf, unsigned size);
 /** Send one training sync event to configured endpoint. */
 bool GoogleSync_sendResult(const GoogleSyncResult* result);
 
+/** Queue one event to LittleFS (no HTTP on this call). Same validation as send; for heavy UI paths. */
+bool GoogleSync_queueResult(const GoogleSyncResult* result);
+
 /** Send a connectivity test row to verify endpoint settings. */
 bool GoogleSync_sendPing(void);
 

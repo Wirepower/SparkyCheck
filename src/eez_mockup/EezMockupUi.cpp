@@ -6,11 +6,7 @@
 #include "AppState.h"
 #include "EezMockupData.h"
 #include "Screens.h"
-#include "VerificationSteps.h"
 #include "Standards.h"
-#include "WifiManager.h"
-#include "AdminPortal.h"
-#include "BatteryStatus.h"
 
 namespace {
 
@@ -52,9 +48,9 @@ static void settingsLayoutDims(int W, int H, bool field, int* y0, int* btnH, int
   *gap = 6;
   *btnH = r ? 38 : 32;
   *y0 = 56;
-  *nRows = field ? 8 : 10;
+  *nRows = field ? 9 : 11;
   *backY = *y0 + *nRows * (*btnH + *gap) + 8;
-  if (!field && *nRows >= 10 && H <= 500) {
+  if (!field && *nRows >= 11 && H <= 500) {
     *gap = 4;
     if (r && *btnH > 32) *btnH = 34;
     *backY = *y0 + *nRows * (*btnH + *gap) + 8;
@@ -67,11 +63,12 @@ static int settingsRowFromLabelField(const char* lbl) {
   if (strcmp(lbl, "Screen rotation") == 0) return 0;
   if (strcmp(lbl, "WiFi connection") == 0) return 1;
   if (strcmp(lbl, "Buzzer (sound)") == 0) return 2;
-  if (strcmp(lbl, "About") == 0) return 3;
-  if (strcmp(lbl, "Firmware updates") == 0) return 4;
-  if (strcmp(lbl, "Email settings") == 0) return 5;
-  if (strcmp(lbl, "Mode change (boot hold)") == 0) return 6;
-  if (strcmp(lbl, "Restart device") == 0) return 7;
+  if (strcmp(lbl, "Date & time") == 0) return 3;
+  if (strcmp(lbl, "About") == 0) return 4;
+  if (strcmp(lbl, "Firmware updates") == 0) return 5;
+  if (strcmp(lbl, "Email settings") == 0) return 6;
+  if (strcmp(lbl, "Mode change (boot hold)") == 0) return 7;
+  if (strcmp(lbl, "Restart device") == 0) return 8;
   return -1;
 }
 
@@ -80,39 +77,15 @@ static int settingsRowFromLabelTraining(const char* lbl) {
   if (strcmp(lbl, "Screen rotation") == 0) return 0;
   if (strcmp(lbl, "WiFi connection") == 0) return 1;
   if (strcmp(lbl, "Buzzer (sound)") == 0) return 2;
-  if (strcmp(lbl, "About") == 0) return 3;
-  if (strcmp(lbl, "Firmware updates") == 0) return 4;
-  if (strcmp(lbl, "Training sync (PIN)") == 0) return 5;
-  if (strcmp(lbl, "Email settings") == 0) return 6;
-  if (strcmp(lbl, "Mode change (boot hold)") == 0) return 7;
-  if (strcmp(lbl, "Restart device") == 0) return 8;
-  if (strcmp(lbl, "Change PIN") == 0) return 9;
+  if (strcmp(lbl, "Date & time") == 0) return 3;
+  if (strcmp(lbl, "About") == 0) return 4;
+  if (strcmp(lbl, "Firmware updates") == 0) return 5;
+  if (strcmp(lbl, "Training sync (PIN)") == 0) return 6;
+  if (strcmp(lbl, "Email settings") == 0) return 7;
+  if (strcmp(lbl, "Mode change (boot hold)") == 0) return 8;
+  if (strcmp(lbl, "Restart device") == 0) return 9;
+  if (strcmp(lbl, "Change PIN") == 0) return 10;
   return -1;
-}
-
-/** Vertical distribution for test list (shared by draw rects and Screens_handleTouch delegates). */
-static void testSelectRowGeometryDims(int W, int H, int row, int* outMidY, int* outRowH) {
-  const int n = VerificationSteps_getActiveTestCount();
-  const int gap = 10;
-  /* Leave room for title + wrapped scope line above the list */
-  const int top = (W >= 700) ? 114 : ((H >= 700) ? 106 : 90);
-  if (n <= 0) {
-    *outMidY = top + 14;
-    *outRowH = 28;
-    return;
-  }
-  int usable = H - top - 28;
-  if (usable < n * 28) usable = n * 28;
-  int rowH = (usable - (n - 1) * gap) / n;
-  if (rowH < 28) rowH = 28;
-  if (rowH > 54) rowH = 54;
-  const int y = top + row * (rowH + gap);
-  *outMidY = y + rowH / 2;
-  *outRowH = rowH;
-}
-
-static void testSelectRowGeometry(SparkyTft* tft, int row, int* outMidY, int* outRowH) {
-  testSelectRowGeometryDims(tft->width(), tft->height(), row, outMidY, outRowH);
 }
 
 static void backButtonSizeDims(int W, int* bw, int* bh) {
@@ -165,6 +138,9 @@ static bool isLegacyOnlyScreen(ScreenId id) {
   switch (id) {
     case SCREEN_STUDENT_ID:
     case SCREEN_TEST_FLOW:
+    case SCREEN_REPORT_SAVED:
+    case SCREEN_REPORT_LIST:
+    case SCREEN_REPORT_VIEW:
     /* Real Wi-Fi list + scan lives in Screens.cpp; EEZ mockup would overwrite scan results. */
     case SCREEN_WIFI_LIST:
     case SCREEN_WIFI_PASSWORD:
@@ -172,6 +148,8 @@ static bool isLegacyOnlyScreen(ScreenId id) {
     case SCREEN_EMAIL_FIELD_EDIT:
     case SCREEN_CHANGE_PIN:
     case SCREEN_PIN_ENTER:
+    case SCREEN_DATE_TIME:
+    case SCREEN_CLOCK_SET:
       return true;
     default:
       return false;
@@ -293,17 +271,8 @@ static void getButtonRect(SparkyTft* tft, const EezMockupScreen* screen, size_t 
   }
 
   if (sid == SCREEN_TEST_SELECT) {
-    const int nAct = VerificationSteps_getActiveTestCount();
-    if (nAct > 0 && index < (size_t)nAct) {
-      int midY = 0, rowH = 0;
-      testSelectRowGeometry(tft, (int)index, &midY, &rowH);
-      *outX = 20;
-      *outY = midY - rowH / 2;
-      *outW = w - 40;
-      *outH = rowH;
-      return;
-    }
-    if (nAct >= 0 && index == (size_t)nAct) {
+    /* Paginated list is drawn by Screens_drawTestSelectPagedContent; only Back stays in mockup data. */
+    if (index == 0) {
       int bw = 0, bh = 0;
       backButtonSize(tft, &bw, &bh);
       *outX = w - bw - 12;
@@ -312,6 +281,11 @@ static void getButtonRect(SparkyTft* tft, const EezMockupScreen* screen, size_t 
       *outH = bh;
       return;
     }
+    *outX = 0;
+    *outY = -100;
+    *outW = 0;
+    *outH = 0;
+    return;
   }
 
   if (sid == SCREEN_SETTINGS) {
@@ -471,7 +445,7 @@ static uint8_t eeButtonTextSize(SparkyTft* tft, ScreenId sid, const char* text) 
     return 2;
   }
   if (sid == SCREEN_SETTINGS || sid == SCREEN_ROTATION || sid == SCREEN_WIFI_LIST || sid == SCREEN_REPORT_LIST ||
-      sid == SCREEN_REPORT_SAVED || sid == SCREEN_ABOUT)
+      sid == SCREEN_REPORT_VIEW || sid == SCREEN_REPORT_SAVED || sid == SCREEN_ABOUT)
     return r ? 2 : 1;
   return mockupButtonTextSize(tft);
 }
@@ -500,39 +474,6 @@ static void drawButton(SparkyTft* tft, int x, int y, int w, int h, const char* t
   if (ty + fh > y + h - 1) ty = y + h - fh - 1;
   tft->setCursor(tx, ty);
   tft->print(t);
-}
-
-static void drawWifiStatusIcon(SparkyTft* tft) {
-  if (!tft) return;
-  if (!WifiManager_isConnected() && !AdminPortal_isApActive()) return;
-  const int cx = tft->width() - 50;
-  const int cy = 16;
-  const int radii[3] = {4, 7, 10};
-  for (int i = 0; i < 3; i++) {
-    const int r = radii[i];
-    tft->drawCircle(cx, cy, r, kWhite);
-    tft->fillRect(cx - r - 1, cy, 2 * r + 2, r + 2, kBg);
-  }
-  tft->fillCircle(cx, cy + 4, 2, kWhite);
-}
-
-static void drawBatteryStatusIcon(SparkyTft* tft) {
-  if (!tft) return;
-  const int x = tft->width() - 26;
-  const int y = 7;
-  const int bw = 18;
-  const int bh = 10;
-  tft->drawRect(x, y, bw, bh, kWhite);
-  tft->fillRect(x + bw, y + 3, 2, 4, kWhite);
-  int pct = 0;
-  if (!BatteryStatus_getPercent(&pct)) {
-    tft->drawLine(x + 3, y + 2, x + bw - 4, y + bh - 3, kAccent);
-    tft->drawLine(x + 3, y + bh - 3, x + bw - 4, y + 2, kAccent);
-    return;
-  }
-  int fillW = (pct * (bw - 4)) / 100;
-  uint16_t fill = pct > 50 ? kWhite : (pct > 20 ? kAccent : kRed);
-  tft->fillRect(x + 2, y + 2, fillW, bh - 4, fill);
 }
 
 static bool screenButtonCenterLegacy(ScreenId screen, const char* label, int w, int h, int* outX, int* outY) {
@@ -582,26 +523,6 @@ static bool screenButtonCenterLegacy(ScreenId screen, const char* label, int w, 
   }
 
   if (screen == SCREEN_TEST_SELECT) {
-    int row = -1;
-    if (strcmp(label, "Earth continuity (conductors)") == 0) row = 0;
-    else if (strcmp(label, "Insulation resistance") == 0) row = 1;
-    else if (strcmp(label, "Polarity") == 0) row = 2;
-    else if (strcmp(label, "Earth continuity (CPC)") == 0) row = 3;
-    else if (strcmp(label, "Correct circuit connections") == 0) row = 4;
-    else if (strcmp(label, "Earth fault loop impedance") == 0) row = 5;
-    else if (strcmp(label, "RCD operation") == 0) row = 6;
-    else if (strcmp(label, "SWP D/R (motor)") == 0) row = 7;
-    else if (strcmp(label, "SWP D/R (appliance)") == 0) row = 8;
-    else if (strcmp(label, "SWP D/R (heater/sheathed)") == 0) row = 9;
-
-    if (row >= 0) {
-      int midY = 0, rowH = 0;
-      testSelectRowGeometryDims(w, h, row, &midY, &rowH);
-      *outX = w / 2;
-      *outY = midY;
-      return true;
-    }
-
     if (strcmp(label, "Back") == 0) {
       int bw = 0, bh = 0;
       backButtonSizeDims(w, &bw, &bh);
@@ -640,13 +561,14 @@ static bool screenButtonCenterLegacy(ScreenId screen, const char* label, int w, 
     if (strcmp(label, "Screen rotation") == 0) row = 0;
     else if (strcmp(label, "WiFi connection") == 0) row = 1;
     else if (strcmp(label, "Buzzer (sound)") == 0) row = 2;
-    else if (strcmp(label, "About") == 0) row = 3;
-    else if (strcmp(label, "Firmware updates") == 0) row = 4;
-    else if (!field && strcmp(label, "Training sync (PIN)") == 0) row = 5;
-    else if (strcmp(label, "Email settings") == 0) row = field ? 5 : 6;
-    else if (strcmp(label, "Mode change (boot hold)") == 0) row = field ? 6 : 7;
-    else if (strcmp(label, "Restart device") == 0) row = field ? 7 : 8;
-    else if (!field && strcmp(label, "Change PIN") == 0) row = 9;
+    else if (strcmp(label, "Date & time") == 0) row = 3;
+    else if (strcmp(label, "About") == 0) row = 4;
+    else if (strcmp(label, "Firmware updates") == 0) row = 5;
+    else if (!field && strcmp(label, "Training sync (PIN)") == 0) row = 6;
+    else if (strcmp(label, "Email settings") == 0) row = field ? 6 : 7;
+    else if (strcmp(label, "Mode change (boot hold)") == 0) row = field ? 7 : 8;
+    else if (strcmp(label, "Restart device") == 0) row = field ? 8 : 9;
+    else if (!field && strcmp(label, "Change PIN") == 0) row = 10;
 
     if (row >= 0) {
       *outX = w / 2;
@@ -881,15 +803,7 @@ static bool screenButtonCenterByIndex(ScreenId screen, size_t index, int w, int 
       return true;
     }
     case SCREEN_TEST_SELECT: {
-      const int nAct = VerificationSteps_getActiveTestCount();
-      if (nAct > 0 && index < (size_t)nAct) {
-        int midY = 0, rowH = 0;
-        testSelectRowGeometryDims(w, h, (int)index, &midY, &rowH);
-        *outX = w / 2;
-        *outY = midY;
-        return true;
-      }
-      if (nAct >= 0 && index == (size_t)nAct) {
+      if (index == 0) {
         int bw = 0, bh = 0;
         backButtonSizeDims(w, &bw, &bh);
         const int backX = w - bw - 12;
@@ -957,6 +871,24 @@ void EezMockupUi_draw(SparkyTft* tft, ScreenId id) {
     tft->print(mode);
   }
 
+  if (screen->id == SCREEN_SETTINGS) {
+    const int W = tft->width();
+    const bool panelWide = W >= 700;
+    const int backW = panelWide ? 96 : 92;
+    const int backH = 36;
+    const int backX = W - backW - 12;
+    const int backY = panelWide ? 10 : 8;
+    tft->fillRoundRect(backX, backY, backW, backH, 6, kBtn);
+    tft->drawRoundRect(backX, backY, backW, backH, 6, kWhite);
+    tft->setTextSize(2);
+    tft->setTextColor(kWhite, kBtn);
+    const char* b = "Back";
+    int twb = (int)strlen(b) * 6 * 2;
+    tft->setCursor(backX + (backW - twb) / 2, backY + (backH - 14) / 2);
+    tft->print(b);
+    Screens_drawSettingsPagedContent(tft);
+  }
+
   if (screen->id == SCREEN_TEST_SELECT) {
     const int ts = layoutLandWide(tft) ? 2 : (readableUi(tft) ? 2 : 1);
     tft->setTextSize(ts);
@@ -981,13 +913,11 @@ void EezMockupUi_draw(SparkyTft* tft, ScreenId id) {
       tft->print(scope);
       tft->setTextWrap(false);
     }
+    Screens_drawTestSelectPagedContent(tft);
   }
 
   for (size_t i = 0; i < screen->buttonCount; i++) {
-    if (screen->id == SCREEN_SETTINGS && AppState_isFieldMode() && screen->buttons[i].text &&
-        (strcmp(screen->buttons[i].text, "Change PIN") == 0 ||
-         strcmp(screen->buttons[i].text, "Training sync (PIN)") == 0))
-      continue;
+    if (screen->id == SCREEN_SETTINGS) continue;
     int x = 0;
     int y = 0;
     int w = 0;
@@ -1000,8 +930,7 @@ void EezMockupUi_draw(SparkyTft* tft, ScreenId id) {
     drawButton(tft, x, y, w, h, screen->buttons[i].text, accent, btnTs);
   }
 
-  drawWifiStatusIcon(tft);
-  drawBatteryStatusIcon(tft);
+  Screens_drawStatusBar(tft);
   sparkyDisplayFlush(tft);
 }
 
@@ -1017,6 +946,18 @@ ScreenId EezMockupUi_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, u
 
   const EezMockupScreen* screen = EezMockupData_findScreen(current);
   if (!screen) {
+    ScreenId next = Screens_handleTouch(tft, current, x, y);
+    s_handledButton = Screens_didHandleButton();
+    return next;
+  }
+
+  if (current == SCREEN_TEST_SELECT) {
+    ScreenId next = Screens_handleTouch(tft, current, x, y);
+    s_handledButton = Screens_didHandleButton();
+    return next;
+  }
+
+  if (current == SCREEN_SETTINGS) {
     ScreenId next = Screens_handleTouch(tft, current, x, y);
     s_handledButton = Screens_didHandleButton();
     return next;
@@ -1056,7 +997,9 @@ ScreenId EezMockupUi_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, u
       haveLegacy = screenButtonCenterByIndex(current, i, tft->width(), tft->height(), &lx, &ly);
     }
     if (haveLegacy) {
-      ScreenId next = Screens_handleTouch(tft, current, (uint16_t)lx, (uint16_t)ly);
+      uint16_t tx = (uint16_t)lx;
+      uint16_t ty = (uint16_t)ly;
+      ScreenId next = Screens_handleTouch(tft, current, tx, ty);
       if (next == current && EezMockupData_findScreen(current)) {
         EezMockupUi_draw(tft, current);
       }
