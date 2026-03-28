@@ -10,6 +10,8 @@ static const char* NVS_KEY_PIN    = "pin";
 static const char* NVS_KEY_ROT    = "rot";
 static const char* NVS_KEY_BUZZ   = "buzz";
 static const char* NVS_KEY_CLK12  = "clk_12";
+static const char* NVS_KEY_CLK_TZ = "clk_tz";
+static const char* NVS_KEY_CLK_DST = "clk_dst";
 static const char* NVS_KEY_WALL_UTC = "wall_utc";
 static const char* NVS_KEY_WIFI_SSID   = "wifi_ssid";
 static const char* NVS_KEY_WIFI_PASS   = "wifi_pass";
@@ -35,6 +37,8 @@ static AppMode s_mode = APP_MODE_FIELD;
 static int s_rotation = 1;   /* 0=portrait, 1=landscape; default landscape */
 static bool s_buzzer = true;
 static bool s_clock12 = true;
+static int16_t s_clockTzOffsetMin = 0;
+static bool s_clockDstExtra = false;
 static bool s_loaded = false;
 
 void AppState_load(void) {
@@ -135,6 +139,36 @@ void AppState_setClock12Hour(bool on) {
   Preferences prefs;
   if (prefs.begin(NVS_NAMESPACE, false)) {
     prefs.putBool(NVS_KEY_CLK12, on);
+    prefs.end();
+  }
+}
+
+int16_t AppState_getClockTzOffsetMinutes(void) {
+  if (!s_loaded) AppState_load();
+  return s_clockTzOffsetMin;
+}
+
+void AppState_setClockTzOffsetMinutes(int16_t minutes) {
+  if (minutes < -900) minutes = -900;
+  if (minutes > 900) minutes = 900;
+  s_clockTzOffsetMin = minutes;
+  Preferences prefs;
+  if (prefs.begin(NVS_NAMESPACE, false)) {
+    prefs.putInt(NVS_KEY_CLK_TZ, (int)minutes);
+    prefs.end();
+  }
+}
+
+bool AppState_getClockDstExtraHour(void) {
+  if (!s_loaded) AppState_load();
+  return s_clockDstExtra;
+}
+
+void AppState_setClockDstExtraHour(bool on) {
+  s_clockDstExtra = on;
+  Preferences prefs;
+  if (prefs.begin(NVS_NAMESPACE, false)) {
+    prefs.putBool(NVS_KEY_CLK_DST, on);
     prefs.end();
   }
 }

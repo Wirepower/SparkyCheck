@@ -57,6 +57,17 @@ void AppState_setBuzzerEnabled(bool on);
 bool AppState_getClock12Hour(void);
 void AppState_setClock12Hour(bool on);
 
+/**
+ * Minutes east of UTC for display (same sign as JavaScript -Date.getTimezoneOffset()).
+ * PC sync sets this from the browser; used when formatting time on screen and in admin.
+ */
+int16_t AppState_getClockTzOffsetMinutes(void);
+void AppState_setClockTzOffsetMinutes(int16_t minutes);
+
+/** Extra +1 hour for daylight saving on top of the offset above (manual). Persisted in NVS. */
+bool AppState_getClockDstExtraHour(void);
+void AppState_setClockDstExtraHour(bool on);
+
 /** Persist last known wall time (UTC epoch) when user or admin sets the clock; restored on boot if RTC missing. */
 void AppState_saveWallClockUtc(time_t utc);
 void AppState_applySavedWallClockIfInvalid(void);

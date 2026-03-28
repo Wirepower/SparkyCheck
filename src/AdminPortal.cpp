@@ -466,12 +466,20 @@ static String settingsPage(void) {
     b += ">On</option><option value='0'";
     b += boolSelected(!AppState_getClock12Hour());
     b += ">Off (24-hour)</option></select>";
+    b += "<div class='row' style='margin-top:10px'><div><label>UTC offset (minutes east)</label><input type='number' name='clock_tz' min='-900' max='900' value='";
+    b += String((int)AppState_getClockTzOffsetMinutes());
+    b += "'/><p class='small'>PC sync fills this from your browser. Eastern Australia winter ≈ +600, summer ≈ +660.</p></div>";
+    b += "<div><label>Extra +1 h (daylight saving)</label><select name='clock_dst'><option value='0'";
+    b += boolSelected(!AppState_getClockDstExtraHour());
+    b += ">Off</option><option value='1'";
+    b += boolSelected(AppState_getClockDstExtraHour());
+    b += ">On</option></select><p class='small'>Adds one hour on top of the offset (if sync already includes DST, leave Off).</p></div></div>";
     b += "<p class='small'>Timestamps in emails and reports use dd/mm/yyyy with AM/PM when 12-hour is on.</p>";
     b += "<button class='btn' type='submit'>Save date &amp; time</button></form>";
-    b += "<p class='small' style='margin-top:12px'>Sync the device clock to this computer’s current time (browser sends UTC Unix time).</p>";
+    b += "<p class='small' style='margin-top:12px'>Sync sets true UTC from this PC and stores the browser’s timezone offset. Use DST only if the clock still looks wrong after sync.</p>";
     b += "<button class='btn btn2' type='button' id='syncPcTimeBtn'>Sync to PC time</button>";
     b += "<p class='small' id='syncPcTimeMsg'></p>";
-    b += "<script>(function(){const b=document.getElementById('syncPcTimeBtn');const m=document.getElementById('syncPcTimeMsg');if(!b)return;b.addEventListener('click',async function(){m.textContent='Setting…';b.disabled=true;try{const u=Math.floor(Date.now()/1000);const r=await fetch('/admin/clock/sync-pc',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'unix='+encodeURIComponent(String(u)),credentials:'same-origin',redirect:'manual'});if(r.type==='opaqueredirect'||r.status===302||r.status===301){window.location.href='/admin';return;}if(r.ok)window.location.href='/admin';else m.textContent='Failed ('+r.status+').';}catch(e){m.textContent='Network error.';}finally{b.disabled=false;}});})();</script></div>";
+    b += "<script>(function(){const b=document.getElementById('syncPcTimeBtn');const m=document.getElementById('syncPcTimeMsg');if(!b)return;function dstVal(){const s=document.querySelector('select[name=clock_dst]');return s&&s.value==='1'?'1':'0';}b.addEventListener('click',async function(){m.textContent='Setting…';b.disabled=true;try{const u=Math.floor(Date.now()/1000);const tzo=-(new Date().getTimezoneOffset());const body='unix='+encodeURIComponent(String(u))+'&tzo='+encodeURIComponent(String(tzo))+'&dst='+encodeURIComponent(dstVal());const r=await fetch('/admin/clock/sync-pc',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:body,credentials:'same-origin',redirect:'manual'});if(r.type==='opaqueredirect'||r.status===302||r.status===301){window.location.href='/admin';return;}if(r.ok)window.location.href='/admin';else m.textContent='Failed ('+r.status+').';}catch(e){m.textContent='Network error.';}finally{b.disabled=false;}});})();</script></div>";
   }
 
   b += "<div class='card'><h2>Email / SMTP</h2><form method='post' action='/admin/save'>";
@@ -1519,13 +1527,19 @@ void AdminPortal_init(void) {
       req->redirect("/admin");
       return;
     }
+    {
+      const String tzoS = postValue(req, "tzo");
+      int tzo = tzoS.toInt();
+      if (tzo >= -900 && tzo <= 900) AppState_setClockTzOffsetMinutes((int16_t)tzo);
+      if (req->hasParam("dst", true)) AppState_setClockDstExtraHour(postValue(req, "dst").toInt() != 0);
+    }
     struct timeval tv;
     tv.tv_sec = (time_t)u;
     tv.tv_usec = 0;
     if (settimeofday(&tv, nullptr) == 0) {
       AppState_saveWallClockUtc((time_t)u);
       SparkyRtc_writeFromSystemClock();
-      strncpy(s_flashMsg, "Clock synced from this computer (UTC).", sizeof(s_flashMsg) - 1);
+      strncpy(s_flashMsg, "Clock synced (UTC) and browser timezone offset saved.", sizeof(s_flashMsg) - 1);
       s_flashMsg[sizeof(s_flashMsg) - 1] = '\0';
       s_flashErr = false;
     } else {
@@ -2089,24 +2103,16 @@ void AdminPortal_init(void) {
       int mi = postValue(req, "clock_min").toInt();
       int se = postValue(req, "clock_sec").toInt();
       AppState_setClock12Hour(postValue(req, "clock_12").toInt() != 0);
-      struct tm tt;
-      memset(&tt, 0, sizeof(tt));
-      tt.tm_mday = d;
-      tt.tm_mon = mo - 1;
-      tt.tm_year = y - 1900;
-      tt.tm_hour = hh;
-      tt.tm_min = mi;
-      tt.tm_sec = se;
-      tt.tm_isdst = -1;
-      time_t sec = mktime(&tt);
-      if (sec != (time_t)-1 && d >= 1 && d <= 31 && mo >= 1 && mo <= 12 && y >= 2000 && y <= 2099 && hh >= 0 && hh <= 23 &&
-          mi >= 0 && mi <= 59 && se >= 0 && se <= 59) {
-        struct timeval tv;
-        tv.tv_sec = sec;
-        tv.tv_usec = 0;
-        if (settimeofday(&tv, nullptr) == 0) {
-          AppState_saveWallClockUtc(sec);
-          SparkyRtc_writeFromSystemClock();
+      {
+        int tz = postValue(req, "clock_tz").toInt();
+        if (tz < -900) tz = -900;
+        if (tz > 900) tz = 900;
+        AppState_setClockTzOffsetMinutes((int16_t)tz);
+      }
+      AppState_setClockDstExtraHour(postValue(req, "clock_dst").toInt() != 0);
+      if (d >= 1 && d <= 31 && mo >= 1 && mo <= 12 && y >= 2000 && y <= 2099 && hh >= 0 && hh <= 23 && mi >= 0 && mi <= 59 &&
+          se >= 0 && se <= 59) {
+        if (SparkyTime_setSystemUtcFromWallFields(d, mo, y, hh, mi, se, true)) {
           strncpy(s_flashMsg, "Date and time saved.", sizeof(s_flashMsg) - 1);
           s_flashMsg[sizeof(s_flashMsg) - 1] = '\0';
           s_flashErr = false;

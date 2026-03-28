@@ -638,6 +638,8 @@ static void layoutResultEntry(int w, int h, int yAfterInstr, bool showRcdReq, in
   L->kx = marginX;
   L->ky = L->uy + L->uh + L->gap;
 
+  /* Keep the numeric keypad out from under the Del button (same row band as value). */
+  const int keypadRight = L->delX - 10;
   int availH = h - bottomPad - L->ky;
   if (availH < 4 * 44 + 3 * L->gap) {
     L->uh = 36;
@@ -645,7 +647,10 @@ static void layoutResultEntry(int w, int h, int yAfterInstr, bool showRcdReq, in
     availH = h - bottomPad - L->ky;
   }
   if (availH < 0) availH = 0;
-  L->cellW = (w - 2 * marginX - 2 * L->gap) / 3;
+  if (keypadRight > marginX + 2 * L->gap + 60)
+    L->cellW = (keypadRight - marginX - 2 * L->gap) / 3;
+  else
+    L->cellW = (w - 2 * marginX - 2 * L->gap) / 3;
   if (availH > 3 * L->gap) {
     L->cellH = (availH - 3 * L->gap) / 4;
   } else {
@@ -895,8 +900,8 @@ typedef struct {
 static void sparkyReportListComputeLayout(int w, int h, bool fieldMode, ReportListLayout* L) {
   L->pages = (s_reportListCount + kReportListPerPage - 1) / kReportListPerPage;
   if (L->pages < 1) L->pages = 1;
-  /* Below status bar + centered title and hint (see SCREEN_REPORT_LIST draw). */
-  const int listTop = 68;
+  /* Below status bar + title row (see SCREEN_REPORT_LIST draw). */
+  const int listTop = 88;
   L->navH = 40;
   L->navY = h - 8 - L->navH;
   const int listBottom = L->navY - 12;
@@ -1178,24 +1183,31 @@ static void drawOskRowSyncLetters(SparkyTft* tft, const QwertyKeyboardLayout* qk
   }
 }
 
-/** Right-aligned, left of typical top-right Back button, so titles on the left are not covered. */
-static int statusBarTimeCursorX(SparkyTft* tft, const char* tb) {
-  if (!tft || !tb || !tb[0]) return 72;
+/* Fixed-width slot at top-right so the clock does not drift when digits change. */
+static const int kStatusClockSlotW = 96;
+
+static int statusBarTimeDrawX(SparkyTft* tft, const char* tb) {
+  if (!tft || !tb || !tb[0]) return getW(tft) - 20;
   int w = getW(tft);
   int tw = (int)strlen(tb) * 6;
-  int backReserve = (w >= 400) ? 108 : 72;
-  int x = w - 8 - backReserve - tw;
-  if (x < 70) x = 70;
+  int boxR = w - 12;
+  int x = boxR - tw;
+  int boxL = boxR - kStatusClockSlotW;
+  if (x < boxL + 2) x = boxL + 2;
   return x;
 }
 
 static void drawStatusBarTime(SparkyTft* tft) {
-  char tb[16];
-  SparkyTime_formatStatusBar12(tb, sizeof(tb));
+  char tb[20];
+  SparkyTime_formatStatusBar(tb, sizeof(tb));
+  int w = getW(tft);
+  int boxR = w - 12;
+  int boxL = boxR - kStatusClockSlotW;
+  tft->fillRect(boxL, 8, kStatusClockSlotW, 14, kBg);
   tft->setTextWrap(false);
   tft->setTextSize(1);
   tft->setTextColor(kWhite, kBg);
-  tft->setCursor(statusBarTimeCursorX(tft, tb), 10);
+  tft->setCursor(statusBarTimeDrawX(tft, tb), 10);
   tft->print(tb);
 }
 
@@ -1738,8 +1750,14 @@ static void screens_draw_impl(SparkyTft* tft, ScreenId id, bool fullClear) {
         tft->setTextSize(titleTs);
         tft->setTextColor(step.type == STEP_SAFETY ? kAccent : kWhite, kBg);
         {
+          const int clockReserve = 112;
+          const int leftReserve = 24;
           int tw = (int)strlen(step.title) * 6 * titleTs;
-          tft->setCursor((w - tw) / 2, 14);
+          int cx = (w - tw) / 2;
+          int maxRight = w - clockReserve;
+          if (cx + tw > maxRight) cx = maxRight - tw;
+          if (cx < leftReserve) cx = leftReserve;
+          tft->setCursor(cx, 14);
           tft->print(step.title);
         }
         stepProgY = 48;
@@ -1863,7 +1881,8 @@ static void screens_draw_impl(SparkyTft* tft, ScreenId id, bool fullClear) {
     case SCREEN_REPORT_LIST: {
       tft->setTextColor(kWhite, kBg);
       tft->setTextSize(2);
-      tft->setCursor(20, 16);
+      /* Title below status bar (battery/Wi‑Fi ~0–64) so it does not collide. */
+      tft->setCursor(20, 32);
       tft->print("Reports");
       sparkyRefreshReportListCache();
       const bool fieldReports = AppState_isFieldMode();
@@ -1871,12 +1890,12 @@ static void screens_draw_impl(SparkyTft* tft, ScreenId id, bool fullClear) {
       sparkyReportListComputeLayout(w, h, fieldReports, &rl);
       tft->setTextSize(1);
       tft->setTextColor((uint16_t)0xBDF7, kBg);
-      tft->setCursor(20, 38);
+      tft->setCursor(20, 56);
       tft->print(fieldReports ? "Tap name to view  |  box = delete" : "Tap a report to view (CSV)");
       if (s_reportListCount == 0) {
         tft->setTextSize(1);
         tft->setTextColor(kWhite, kBg);
-        tft->setCursor(20, 56);
+        tft->setCursor(20, 74);
         tft->print("(No reports yet)");
       } else {
         int first = s_reportListPage * kReportListPerPage;
@@ -1942,7 +1961,7 @@ static void screens_draw_impl(SparkyTft* tft, ScreenId id, bool fullClear) {
       break;
     }
     case SCREEN_REPORT_VIEW: {
-      const int bodyTop = 56;
+      const int bodyTop = 62;
       tft->setTextColor(kWhite, kBg);
       tft->setTextSize(2);
       tft->setTextWrap(false);
@@ -1957,23 +1976,23 @@ static void screens_draw_impl(SparkyTft* tft, ScreenId id, bool fullClear) {
           snprintf(title, sizeof(title), "%.*s...", maxCh - 3, s_reportViewBasename);
         }
         int tw = (int)strlen(title) * 12;
-        tft->setCursor((w - tw) / 2, 26);
+        tft->setCursor((w - tw) / 2, 28);
         tft->print(title);
       }
       const int navY = h - 44;
-      const int lineStep = 12;
+      const int lineStep = 18;
+      tft->setTextSize(2);
       int maxVis = (navY - 8 - bodyTop) / lineStep;
       if (maxVis < 1) maxVis = 1;
       int maxScroll = s_reportViewLineCount - maxVis;
       if (maxScroll < 0) maxScroll = 0;
       if (s_reportViewScrollLine > maxScroll) s_reportViewScrollLine = maxScroll;
-      tft->setTextSize(1);
       tft->setTextColor(kWhite, kBg);
       if (s_reportViewLineCount <= 0) {
         tft->setCursor(20, bodyTop);
         tft->print("(Empty or unreadable report.)");
       } else {
-        const int maxChars = (w - 36) / 6;
+        const int maxChars = (w - 44) / 12;
         for (int v = 0; v < maxVis; v++) {
           int li = s_reportViewScrollLine + v;
           if (li >= s_reportViewLineCount) break;
@@ -1990,6 +2009,7 @@ static void screens_draw_impl(SparkyTft* tft, ScreenId id, bool fullClear) {
         }
       }
       if (maxScroll > 0) {
+        tft->setTextSize(1);
         tft->setTextColor((uint16_t)0xBDF7, kBg);
         tft->setCursor(20, navY - 14);
         tft->print("More below - use Down");
@@ -2953,18 +2973,19 @@ void Screens_refreshLiveStatus(SparkyTft* tft, ScreenId currentScreen) {
   unsigned long now = millis();
   if (now - s_lastClockPollMs >= 1000) {
     s_lastClockPollMs = now;
-    char tb[16];
-    SparkyTime_formatStatusBar12(tb, sizeof(tb));
+    char tb[20];
+    SparkyTime_formatStatusBar(tb, sizeof(tb));
     if (strcmp(tb, s_prevClock) != 0) {
       strncpy(s_prevClock, tb, sizeof(s_prevClock) - 1);
       s_prevClock[sizeof(s_prevClock) - 1] = '\0';
-      int tw = (int)strlen(tb) * 6;
-      int x = statusBarTimeCursorX(tft, tb);
-      tft->fillRect(x - 2, 8, tw + 8, 14, kBg);
+      int w = getW(tft);
+      int boxR = w - 12;
+      int boxL = boxR - kStatusClockSlotW;
+      tft->fillRect(boxL, 8, kStatusClockSlotW, 14, kBg);
       tft->setTextWrap(false);
       tft->setTextSize(1);
       tft->setTextColor(kWhite, kBg);
-      tft->setCursor(x, 10);
+      tft->setCursor(statusBarTimeDrawX(tft, tb), 10);
       tft->print(tb);
       sparkyDisplayFlush(tft);
     }
@@ -3478,8 +3499,8 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
     }
     case SCREEN_REPORT_VIEW: {
       const int navY = h - 44;
-      const int bodyTop = 56;
-      const int lineStep = 12;
+      const int bodyTop = 62;
+      const int lineStep = 18;
       int maxVis = (navY - 8 - bodyTop) / lineStep;
       if (maxVis < 1) maxVis = 1;
       int maxScroll = s_reportViewLineCount - maxVis;
