@@ -893,7 +893,7 @@ static const char* stepTypeFriendly(const char* type) {
   if (strcmp(type, "safety") == 0) return "Safety check";
   if (strcmp(type, "verify_yesno") == 0) return "Question (Yes/No)";
   if (strcmp(type, "result_entry") == 0) return "Enter reading/value";
-  return "Info message";
+  return type;
 }
 
 static const char* ruleOpOrDefault(const char* op) {
@@ -1095,7 +1095,8 @@ static String testsPage(AsyncWebServerRequest* req) {
     tests = doc["tests"].as<JsonArray>();
   }
   String b;
-  b.reserve(42000);
+  /* SWP tests have many steps; HTML per step is large — avoid fragmenting heap on small reserve. */
+  b.reserve(131072);
   b += "<h1>Tests & Questions</h1><p><a href='/admin' style='color:#93c5fd'>Back to admin</a></p>";
   b += "<div class='card'><h2>Easy editor (no coding)</h2>";
   b += "<p class='small'>Use this page to build and maintain tests. You do not need JSON or IT knowledge.</p>";
@@ -1151,7 +1152,7 @@ static String testsPage(AsyncWebServerRequest* req) {
       b += "<div class='small' style='margin-top:4px'>Tip: Add at least one step per test.</div>";
       JsonArray steps = t["steps"].as<JsonArray>();
       if (!steps.isNull() && steps.size() > 0) {
-        b += "<div style='margin-top:8px;padding:8px;border:1px solid #334155;border-radius:8px'>";
+        b += "<div style='margin-top:8px;padding:8px;border:1px solid #334155;border-radius:8px;max-height:min(80vh,720px);overflow-y:auto;overflow-x:hidden'>";
         b += "<div class='small' style='font-weight:600;margin-bottom:6px'>Steps in this test</div>";
         int stepIdx = 0;
         for (JsonObject st : steps) {

@@ -1183,47 +1183,37 @@ static void drawOskRowSyncLetters(SparkyTft* tft, const QwertyKeyboardLayout* qk
   }
 }
 
-/* Fixed-width slot at top-right so the clock does not drift when digits change. */
-static const int kStatusClockSlotW = 96;
-
-static int statusBarTimeDrawX(SparkyTft* tft, const char* tb) {
-  if (!tft || !tb || !tb[0]) return getW(tft) - 20;
-  int w = getW(tft);
-  int tw = (int)strlen(tb) * 6;
-  int boxR = w - 12;
-  int x = boxR - tw;
-  int boxL = boxR - kStatusClockSlotW;
-  if (x < boxL + 2) x = boxL + 2;
-  return x;
-}
+/* Clock sits top-left after battery + Wi‑Fi; clear to just before top-right Back. */
+static const int kStatusTimeX = 68;
+static const int kStatusRightReserve = 112;
 
 static void drawStatusBarTime(SparkyTft* tft) {
   char tb[20];
   SparkyTime_formatStatusBar(tb, sizeof(tb));
   int w = getW(tft);
-  int boxR = w - 12;
-  int boxL = boxR - kStatusClockSlotW;
-  tft->fillRect(boxL, 8, kStatusClockSlotW, 14, kBg);
+  int clearW = w - kStatusRightReserve - kStatusTimeX;
+  if (clearW < 40) clearW = 40;
+  tft->fillRect(kStatusTimeX - 2, 8, clearW, 14, kBg);
   tft->setTextWrap(false);
   tft->setTextSize(1);
   tft->setTextColor(kWhite, kBg);
-  tft->setCursor(statusBarTimeDrawX(tft, tb), 10);
+  tft->setCursor(kStatusTimeX, 10);
   tft->print(tb);
 }
 
-/* Small "connected Wi‑Fi" glyph top-left (battery to its left in EEZ; back remains top-right). */
+/* Small "connected Wi‑Fi" glyph beside battery (white, same as battery outline). */
 static void drawWifiConnectedIcon(SparkyTft* tft) {
   if (!WifiManager_isConnected() && !AdminPortal_isApActive()) return;
-  const int cx = 50;
+  const int cx = 42;
   const int cy = 16;
   const int radii[3] = { 4, 7, 10 };
   for (int i = 0; i < 3; i++) {
     int r = radii[i];
-    tft->drawCircle(cx, cy, r, kGreen);
+    tft->drawCircle(cx, cy, r, kWhite);
     /* Keep only the upper arc to resemble Wi‑Fi waves. */
     tft->fillRect(cx - r - 1, cy, 2 * r + 2, r + 2, kBg);
   }
-  tft->fillCircle(cx, cy + 4, 2, kGreen);
+  tft->fillCircle(cx, cy + 4, 2, kWhite);
 }
 
 static void drawBatteryStatusIcon(SparkyTft* tft) {
@@ -1476,7 +1466,13 @@ static bool screens_try_partial_redraw(SparkyTft* tft, ScreenId id, int w, int h
       const bool showRcdReq = (step.resultKind == RESULT_RCD_MS && s_rcdRequiredMaxMs > 0.0f);
       ResultEntryLayout rel;
       layoutResultEntry(w, h, s_resultEntryYAfterInstr, showRcdReq, unitCount, &rel);
-      tft->fillRect(18, rel.valueRowY - 2, w - 36, 48, kBg);
+      /* Only clear the value column — full width erase was wiping the Del button. */
+      {
+        int clearW = rel.delX - 28 - 18;
+        if (clearW < 80) clearW = rel.delX - 22 - 18;
+        if (clearW < 40) clearW = 40;
+        tft->fillRect(18, rel.valueRowY - 2, clearW, 52, kBg);
+      }
       tft->setTextColor(kWhite, kBg);
       tft->setTextSize(2);
       tft->setCursor(20, rel.valueRowY);
@@ -1485,6 +1481,10 @@ static bool screens_try_partial_redraw(SparkyTft* tft, ScreenId id, int w, int h
       tft->print(s_resultInputLen > 0 ? s_resultInput : "(none)");
       tft->print(" ");
       tft->print(units[s_resultInputUnitIdx].label);
+      tft->fillRoundRect(rel.delX, rel.delY, rel.delW, rel.delH, 8, kAccent);
+      tft->drawRoundRect(rel.delX, rel.delY, rel.delW, rel.delH, 8, kWhite);
+      tft->setTextColor(kWhite, kAccent);
+      sparkyDrawBtnLabel(tft, rel.delX, rel.delY, rel.delW, rel.delH, "Del", 2);
       sparkyDisplayFlush(tft);
       return true;
     }
@@ -1860,22 +1860,24 @@ static void screens_draw_impl(SparkyTft* tft, ScreenId id, bool fullClear) {
       break;
     }
     case SCREEN_REPORT_SAVED: {
+      const int okW = 160;
+      const int okH = 56;
+      const int okY = h - 68;
+      const int okX = w / 2 - okW / 2;
       tft->setTextColor(kGreen, kBg);
-      tft->setTextSize(2);
-      tft->setCursor(20, 30);
+      tft->setTextSize(3);
+      tft->setCursor(20, 28);
       tft->print("Report saved");
       tft->setTextColor(kWhite, kBg);
-      tft->setTextSize(1);
-      tft->setCursor(20, 70);
+      tft->setTextSize(2);
+      tft->setCursor(20, 64);
       tft->print(s_reportSavedBasename);
-      tft->setCursor(20, 90);
+      tft->setCursor(20, 92);
       tft->print(".csv + .html saved — View reports from menu.");
-      int btnY = h - 56;
-      tft->fillRoundRect(w/2 - 50, btnY, 100, 44, 8, kBtn);
-      tft->drawRoundRect(w/2 - 50, btnY, 100, 44, 8, kWhite);
+      tft->fillRoundRect(okX, okY, okW, okH, 8, kBtn);
+      tft->drawRoundRect(okX, okY, okW, okH, 8, kWhite);
       tft->setTextColor(kWhite, kBtn);
-      tft->setCursor(w/2 - 18, btnY + 12);
-      tft->print("OK");
+      sparkyDrawBtnLabel(tft, okX, okY, okW, okH, "OK", 3);
       break;
     }
     case SCREEN_REPORT_LIST: {
@@ -2979,13 +2981,13 @@ void Screens_refreshLiveStatus(SparkyTft* tft, ScreenId currentScreen) {
       strncpy(s_prevClock, tb, sizeof(s_prevClock) - 1);
       s_prevClock[sizeof(s_prevClock) - 1] = '\0';
       int w = getW(tft);
-      int boxR = w - 12;
-      int boxL = boxR - kStatusClockSlotW;
-      tft->fillRect(boxL, 8, kStatusClockSlotW, 14, kBg);
+      int clearW = w - kStatusRightReserve - kStatusTimeX;
+      if (clearW < 40) clearW = 40;
+      tft->fillRect(kStatusTimeX - 2, 8, clearW, 14, kBg);
       tft->setTextWrap(false);
       tft->setTextSize(1);
       tft->setTextColor(kWhite, kBg);
-      tft->setCursor(statusBarTimeDrawX(tft, tb), 10);
+      tft->setCursor(kStatusTimeX, 10);
       tft->print(tb);
       sparkyDisplayFlush(tft);
     }
@@ -2993,7 +2995,8 @@ void Screens_refreshLiveStatus(SparkyTft* tft, ScreenId currentScreen) {
 
   if (now - s_lastLeftPollMs >= 10000 && statusBarLeftPeriodicRefreshOk(currentScreen)) {
     s_lastLeftPollMs = now;
-    tft->fillRect(6, 4, 64, 22, kBg);
+    /* Only battery + Wi‑Fi (do not clear the clock band at x ≥ 66). */
+    tft->fillRect(4, 4, 58, 22, kBg);
     drawBatteryStatusIcon(tft);
     drawWifiConnectedIcon(tft);
     sparkyDisplayFlush(tft);
@@ -3407,12 +3410,17 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
       }
       break;
     }
-    case SCREEN_REPORT_SAVED:
-      if (inRect(ix, iy, w / 2 - 50, h - 56, 100, 44)) {
+    case SCREEN_REPORT_SAVED: {
+      const int okW = 160;
+      const int okH = 56;
+      const int okY = h - 68;
+      const int okX = w / 2 - okW / 2;
+      if (inRect(ix, iy, okX, okY, okW, okH)) {
         s_testSelectPage = 0;
         return handled(SCREEN_TEST_SELECT);
       }
       break;
+    }
     case SCREEN_REPORT_LIST: {
       sparkyRefreshReportListCache();
       const bool fieldReports = AppState_isFieldMode();
