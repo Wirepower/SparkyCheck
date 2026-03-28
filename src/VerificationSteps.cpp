@@ -356,9 +356,74 @@ bool VerificationSteps_validateResult(VerifyResultKind kind, float value, bool i
   }
 }
 
+void VerificationSteps_appendRulesJsonArray(JsonArray rules) {
+  for (int k = 0; k < RESULT_NONE; k++) {
+    VerifyResultKind kind = (VerifyResultKind)k;
+    if (s_customOps[k] != CMP_DEFAULT) {
+      JsonObject r = rules.createNestedObject();
+      r["kind"] = resultKindToStr(kind);
+      r["op"] = cmpOpToStr(s_customOps[k]);
+      if (s_customOps[k] == CMP_BETWEEN) {
+        r["min"] = s_customVals[k];
+        r["max"] = s_customValsMax[k];
+      } else {
+        r["value"] = s_customVals[k];
+      }
+      continue;
+    }
+    /* Factory defaults: same limits as AdminPortal ensureDefaultRulesInDoc / TestLimits. */
+    switch (kind) {
+      case RESULT_CONTINUITY_OHM: {
+        JsonObject r = rules.createNestedObject();
+        r["kind"] = resultKindToStr(kind);
+        r["op"] = "<=";
+        r["value"] = TestLimits_continuityMaxOhms();
+        break;
+      }
+      case RESULT_IR_MOHM: {
+        JsonObject r = rules.createNestedObject();
+        r["kind"] = resultKindToStr(kind);
+        r["op"] = ">=";
+        r["value"] = TestLimits_insulationMinMOhms();
+        break;
+      }
+      case RESULT_IR_MOHM_SHEATHED: {
+        JsonObject r = rules.createNestedObject();
+        r["kind"] = resultKindToStr(kind);
+        r["op"] = ">=";
+        r["value"] = TestLimits_insulationMinMOhmsSheathedHeating();
+        break;
+      }
+      case RESULT_EFLI_OHM: {
+        JsonObject r = rules.createNestedObject();
+        r["kind"] = resultKindToStr(kind);
+        r["op"] = "<=";
+        r["value"] = TestLimits_efliMaxOhms();
+        break;
+      }
+      case RESULT_RCD_REQUIRED_MAX_MS: {
+        JsonObject r = rules.createNestedObject();
+        r["kind"] = resultKindToStr(kind);
+        r["op"] = "<=";
+        r["value"] = TestLimits_rcdTripTimeMaxMs();
+        break;
+      }
+      case RESULT_RCD_MS: {
+        JsonObject r = rules.createNestedObject();
+        r["kind"] = resultKindToStr(kind);
+        r["op"] = "<=";
+        r["value"] = TestLimits_rcdTripTimeMaxMs();
+        break;
+      }
+      default:
+        break;
+    }
+  }
+}
+
 bool VerificationSteps_getConfigJson(char* buf, unsigned buf_size) {
   if (!buf || buf_size < 64) return false;
-  DynamicJsonDocument doc(131072);
+  DynamicJsonDocument doc(524288);
   JsonArray tests = doc.createNestedArray("tests");
   for (int i = 0; i < VerificationSteps_getActiveTestCount(); i++) {
     JsonObject t = tests.createNestedObject();
@@ -383,18 +448,7 @@ bool VerificationSteps_getConfigJson(char* buf, unsigned buf_size) {
     }
   }
   JsonArray rules = doc.createNestedArray("rules");
-  for (int k = 0; k < RESULT_NONE; k++) {
-    if (s_customOps[k] == CMP_DEFAULT) continue;
-    JsonObject r = rules.createNestedObject();
-    r["kind"] = resultKindToStr((VerifyResultKind)k);
-    r["op"] = cmpOpToStr(s_customOps[k]);
-    if (s_customOps[k] == CMP_BETWEEN) {
-      r["min"] = s_customVals[k];
-      r["max"] = s_customValsMax[k];
-    } else {
-      r["value"] = s_customVals[k];
-    }
-  }
+  VerificationSteps_appendRulesJsonArray(rules);
   size_t n = serializeJsonPretty(doc, buf, buf_size);
   return n > 0 && n < buf_size;
 }
@@ -405,7 +459,8 @@ bool VerificationSteps_activateConfigJson(const char* json, char* err, unsigned 
     if (err && err_size) snprintf(err, err_size, "JSON is empty");
     return false;
   }
-  DynamicJsonDocument doc(196608);
+  /* Large embedded tests.json (many steps) needs a big pool; keep in sync with AdminPortal kTestsJsonDocCap. */
+  DynamicJsonDocument doc(720896);
   auto de = deserializeJson(doc, json);
   if (de) {
     if (err && err_size) snprintf(err, err_size, "JSON parse error: %s", de.c_str());

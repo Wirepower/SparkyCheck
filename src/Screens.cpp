@@ -623,6 +623,39 @@ static void resetResultEntryInput(void) {
   s_rcdRequiredMaxMs = 0.0f;
 }
 
+static void sparkyResetTestSelectGesture(void) {
+  s_testSelectTouchActive = false;
+  s_testSelectAccumDy = 0;
+  s_testSelectTapCandidate = -1;
+}
+
+/** Begin verification for test index `rowIndex`; clears list gesture state. */
+static ScreenId sparkyCommitTestSelectRow(int rowIndex) {
+  const int n = VerificationSteps_getActiveTestCount();
+  if (rowIndex < 0 || rowIndex >= n) {
+    sparkyResetTestSelectGesture();
+    return SCREEN_TEST_SELECT;
+  }
+  s_selectedTestType = rowIndex;
+  s_stepIndex = 0;
+  s_flowPhase = 0;
+  s_resultValue = 0.0f;
+  s_resultIsSheathedHeating = false;
+  s_resultLabel = NULL;
+  s_resultUnit = NULL;
+  s_resultClause = NULL;
+  resetResultEntryInput();
+  s_testStartedMs = 0;
+  s_testCompletedMs = 0;
+  sparkyResetTestSelectGesture();
+  if (AppState_getMode() == APP_MODE_TRAINING) {
+    s_studentInputLen = 0;
+    s_studentInput[0] = '\0';
+    return SCREEN_STUDENT_ID;
+  }
+  return SCREEN_TEST_FLOW;
+}
+
 static void ensureResultEntryInputState(VerifyResultKind kind) {
   const ResultUnitOption* units = nullptr;
   int unitCount = 0;
@@ -2319,12 +2352,13 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
       int backH = 36;
       int backX = w - backW - 12;
       int backY = panelWide ? 10 : 8;
-      if (inRect(ix, iy, backX, backY, backW, backH)) return handled(SCREEN_MAIN_MENU);
+      if (inRect(ix, iy, backX, backY, backW, backH)) {
+        sparkyResetTestSelectGesture();
+        return handled(SCREEN_MAIN_MENU);
+      }
       unsigned long now = millis();
       if (s_testSelectTouchActive && (long)(now - s_testSelectLastTouchMs) > 300) {
-        s_testSelectTouchActive = false;
-        s_testSelectAccumDy = 0;
-        s_testSelectTapCandidate = -1;
+        sparkyResetTestSelectGesture();
       }
       const int testCount = VerificationSteps_getActiveTestCount();
       if (testCount <= 0) break;
@@ -2332,52 +2366,17 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
       sparkyTestSelectRowMetrics(w, h, 0, &listTopY, &listRowH);
       int listBottomY = h - 28;
       if (inRect(ix, iy, 20, listTopY, w - 40, listBottomY - listTopY)) {
-        if (!s_testSelectTouchActive) {
-          s_testSelectTouchActive = true;
-          s_testSelectLastY = iy;
-          s_testSelectAccumDy = 0;
-          s_testSelectLastTouchMs = now;
-          s_testSelectTapCandidate = sparkyTestSelectHitIndex(w, h, iy, s_testSelectScrollPx);
-          s_testSelectTapCandidateMs = now;
-          return handled(current);
-        }
-        int dy = iy - s_testSelectLastY;
+        /*
+         * main.cpp only calls handleTouch on touch-down edge. Drag + release are handled by
+         * Screens_handleTouchDrag / Screens_handleTouchEnd so a tap completes on finger-up.
+         * Always (re)start the gesture on each down edge so a missed touch-up cannot strand state.
+         */
+        s_testSelectTouchActive = true;
         s_testSelectLastY = iy;
-        s_testSelectAccumDy += dy;
+        s_testSelectAccumDy = 0;
         s_testSelectLastTouchMs = now;
-        if (abs(s_testSelectAccumDy) >= 10 || abs(dy) >= 6) {
-          s_testSelectScrollPx += dy;
-          sparkyClampTestSelectScroll(w, h, &s_testSelectScrollPx);
-          s_testSelectTapCandidate = -1;
-          Screens_draw(tft, current, false);
-          return handled(current);
-        }
-        int hit = sparkyTestSelectHitIndex(w, h, iy, s_testSelectScrollPx);
-        if (s_testSelectTapCandidate >= 0 &&
-            hit == s_testSelectTapCandidate &&
-            (long)(now - s_testSelectTapCandidateMs) <= 500) {
-          int i = hit;
-          s_testSelectTouchActive = false;
-          s_testSelectAccumDy = 0;
-          s_testSelectTapCandidate = -1;
-          s_selectedTestType = i;
-          s_stepIndex = 0;
-          s_flowPhase = 0;
-          s_resultValue = 0.0f;
-          s_resultIsSheathedHeating = false;
-          s_resultLabel = NULL;
-          s_resultUnit = NULL;
-          s_resultClause = NULL;
-          resetResultEntryInput();
-          s_testStartedMs = 0;
-          s_testCompletedMs = 0;
-          if (AppState_getMode() == APP_MODE_TRAINING) {
-            s_studentInputLen = 0;
-            s_studentInput[0] = '\0';
-            return handled(SCREEN_STUDENT_ID);
-          }
-          return handled(SCREEN_TEST_FLOW);
-        }
+        s_testSelectTapCandidate = sparkyTestSelectHitIndex(w, h, iy, s_testSelectScrollPx);
+        s_testSelectTapCandidateMs = now;
         return handled(current);
       }
       break;
@@ -3327,4 +3326,48 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
   }
   /* No button hit – do not set s_handledButton */
   return current;
+}
+
+ScreenId Screens_handleTouchDrag(SparkyTft* tft, ScreenId current, uint16_t x, uint16_t y) {
+  (void)x;
+  s_handledButton = false;
+  if (!tft || current != SCREEN_TEST_SELECT || !s_testSelectTouchActive) return current;
+  int w = getW(tft);
+  int h = getH(tft);
+  int iy = (int)y;
+  unsigned long now = millis();
+  if ((long)(now - s_testSelectLastTouchMs) > 3000) {
+    sparkyResetTestSelectGesture();
+    return current;
+  }
+  int dy = iy - s_testSelectLastY;
+  s_testSelectLastY = iy;
+  s_testSelectAccumDy += dy;
+  s_testSelectLastTouchMs = now;
+  if (abs(s_testSelectAccumDy) >= 10 || abs(dy) >= 6) {
+    s_testSelectScrollPx += dy;
+    sparkyClampTestSelectScroll(w, h, &s_testSelectScrollPx);
+    s_testSelectTapCandidate = -1;
+    Screens_draw(tft, current, false);
+  }
+  return current;
+}
+
+ScreenId Screens_handleTouchEnd(SparkyTft* tft, ScreenId current, uint16_t x, uint16_t y) {
+  (void)x;
+  (void)y;
+  s_handledButton = false;
+  if (!tft || current != SCREEN_TEST_SELECT || !s_testSelectTouchActive) return current;
+  unsigned long now = millis();
+  /* Use row from touch-down (not lift), so EEZ synthetic press coords + real finger release stay consistent. */
+  bool tapped = (s_testSelectTapCandidate >= 0 && abs(s_testSelectAccumDy) < 10 &&
+                 (long)(now - s_testSelectTapCandidateMs) <= 800);
+  if (!tapped) {
+    sparkyResetTestSelectGesture();
+    return current;
+  }
+  int row = s_testSelectTapCandidate;
+  ScreenId next = sparkyCommitTestSelectRow(row);
+  if (next != current) s_handledButton = true;
+  return next;
 }

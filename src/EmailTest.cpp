@@ -136,8 +136,6 @@ void EmailTest_buildBrandedHtml(const char* heading, const char* body_html, char
     "<img src=\"sparky_logo.bmp\" width='120' height='45' style='display:block;max-width:120px;height:auto;border:0;margin:0 0 10px 0;' alt='SparkyCheck logo'/>"
     "<div style='font-size:22px;line-height:1.1;font-weight:700;color:#ffffff;'>SparkyCheck</div>"
     "<div style='font-size:12px;line-height:1.2;color:#cbd5e1;margin-top:2px;'>Professional Electrical Verification Companion</div>"
-    "<div style='font-size:20px;font-weight:700;letter-spacing:0.2px;'>SparkyCheck</div>"
-    "<div style='font-size:12px;opacity:0.9;'>Professional Electrical Verification Companion</div>"
     "</td></tr>"
     "<tr><td style='padding:20px;'>"
     "<h2 style='margin:0 0 12px 0;font-size:20px;color:#0f172a;'>%s</h2>"

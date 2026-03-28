@@ -40,6 +40,18 @@ void Screens_draw(SparkyTft* tft, ScreenId id);
 /** Handle touch; returns next screen or same if no action. */
 ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint16_t y);
 
+/**
+ * While the panel reports touch down, call with each new (x,y) so scrollable lists can track drag.
+ * Call after Screens_handleTouch on the initial press edge.
+ */
+ScreenId Screens_handleTouchDrag(SparkyTft* tft, ScreenId current, uint16_t x, uint16_t y);
+
+/**
+ * Call once when touch goes from down to up (last x/y from the final down sample).
+ * Completes tap-to-select on the test list when the gesture was a tap, not a scroll.
+ */
+ScreenId Screens_handleTouchEnd(SparkyTft* tft, ScreenId current, uint16_t x, uint16_t y);
+
 /** Set data for report-saved screen (basename). */
 void Screens_setReportSavedBasename(const char* basename);
 

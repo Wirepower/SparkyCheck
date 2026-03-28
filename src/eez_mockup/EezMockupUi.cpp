@@ -92,10 +92,15 @@ static int settingsRowFromLabelTraining(const char* lbl) {
 
 /** Vertical distribution for test list (shared by draw rects and Screens_handleTouch delegates). */
 static void testSelectRowGeometryDims(int W, int H, int row, int* outMidY, int* outRowH) {
-  const int n = VERIFY_TEST_COUNT;
+  const int n = VerificationSteps_getActiveTestCount();
   const int gap = 10;
   /* Leave room for title + wrapped scope line above the list */
   const int top = (W >= 700) ? 114 : ((H >= 700) ? 106 : 90);
+  if (n <= 0) {
+    *outMidY = top + 14;
+    *outRowH = 28;
+    return;
+  }
   int usable = H - top - 28;
   if (usable < n * 28) usable = n * 28;
   int rowH = (usable - (n - 1) * gap) / n;
@@ -288,7 +293,8 @@ static void getButtonRect(SparkyTft* tft, const EezMockupScreen* screen, size_t 
   }
 
   if (sid == SCREEN_TEST_SELECT) {
-    if (index < (size_t)VERIFY_TEST_COUNT) {
+    const int nAct = VerificationSteps_getActiveTestCount();
+    if (nAct > 0 && index < (size_t)nAct) {
       int midY = 0, rowH = 0;
       testSelectRowGeometry(tft, (int)index, &midY, &rowH);
       *outX = 20;
@@ -297,7 +303,7 @@ static void getButtonRect(SparkyTft* tft, const EezMockupScreen* screen, size_t 
       *outH = rowH;
       return;
     }
-    if (index == (size_t)VERIFY_TEST_COUNT) {
+    if (nAct >= 0 && index == (size_t)nAct) {
       int bw = 0, bh = 0;
       backButtonSize(tft, &bw, &bh);
       *outX = w - bw - 12;
@@ -874,15 +880,16 @@ static bool screenButtonCenterByIndex(ScreenId screen, size_t index, int w, int 
       *outY = yc[index];
       return true;
     }
-    case SCREEN_TEST_SELECT:
-      if (index < (size_t)VERIFY_TEST_COUNT) {
+    case SCREEN_TEST_SELECT: {
+      const int nAct = VerificationSteps_getActiveTestCount();
+      if (nAct > 0 && index < (size_t)nAct) {
         int midY = 0, rowH = 0;
         testSelectRowGeometryDims(w, h, (int)index, &midY, &rowH);
         *outX = w / 2;
         *outY = midY;
         return true;
       }
-      if (index == (size_t)VERIFY_TEST_COUNT) {
+      if (nAct >= 0 && index == (size_t)nAct) {
         int bw = 0, bh = 0;
         backButtonSizeDims(w, &bw, &bh);
         const int backX = w - bw - 12;
@@ -892,6 +899,7 @@ static bool screenButtonCenterByIndex(ScreenId screen, size_t index, int w, int 
         return true;
       }
       return false;
+    }
     default:
       return false;
   }
@@ -1070,6 +1078,14 @@ ScreenId EezMockupUi_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, u
   }
 
   return current;
+}
+
+ScreenId EezMockupUi_handleTouchDrag(SparkyTft* tft, ScreenId current, uint16_t x, uint16_t y) {
+  return Screens_handleTouchDrag(tft, current, x, y);
+}
+
+ScreenId EezMockupUi_handleTouchEnd(SparkyTft* tft, ScreenId current, uint16_t x, uint16_t y) {
+  return Screens_handleTouchEnd(tft, current, x, y);
 }
 
 bool EezMockupUi_didHandleButton(void) {

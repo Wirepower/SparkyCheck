@@ -92,4 +92,10 @@ void VerificationSteps_useFactoryDefaults(void);
 
 #ifdef __cplusplus
 }
+
+#include <ArduinoJson.h>
+
+/** Fill `rules` with comparator rules for export (custom overrides + firmware defaults). */
+void VerificationSteps_appendRulesJsonArray(JsonArray rules);
+
 #endif

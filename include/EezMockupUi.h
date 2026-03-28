@@ -13,4 +13,6 @@
  */
 void EezMockupUi_draw(SparkyTft* tft, ScreenId id);
 ScreenId EezMockupUi_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint16_t y);
+ScreenId EezMockupUi_handleTouchDrag(SparkyTft* tft, ScreenId current, uint16_t x, uint16_t y);
+ScreenId EezMockupUi_handleTouchEnd(SparkyTft* tft, ScreenId current, uint16_t x, uint16_t y);
 bool EezMockupUi_didHandleButton(void);

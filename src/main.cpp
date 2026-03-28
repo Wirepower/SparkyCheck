@@ -98,20 +98,60 @@ void loop() {
   }
 
   static bool s_touchWasDown = false;
+  static uint16_t s_lastTouchX = 0, s_lastTouchY = 0;
   uint16_t x = 0, y = 0;
   bool touchDown = tft.getTouch(&x, &y);
-  if (touchDown && !s_touchWasDown) {
+
+  if (touchDown) {
+    if (!s_touchWasDown) {
+      ScreenId next = s_currentScreen;
 #if defined(SPARKYCHECK_EEZ_MOCKUP_UI)
-    ScreenId next = EezMockupUi_handleTouch(&tft, s_currentScreen, x, y);
-    if (EezMockupUi_didHandleButton() && AppState_getBuzzerEnabled())
-      Buzzer_beepClick();
+      next = EezMockupUi_handleTouch(&tft, s_currentScreen, x, y);
+      if (EezMockupUi_didHandleButton() && AppState_getBuzzerEnabled()) Buzzer_beepClick();
 #else
-    ScreenId next = Screens_handleTouch(&tft, s_currentScreen, x, y);
-    if (Screens_didHandleButton() && AppState_getBuzzerEnabled())
-      Buzzer_beepClick();
+      next = Screens_handleTouch(&tft, s_currentScreen, x, y);
+      if (Screens_didHandleButton() && AppState_getBuzzerEnabled()) Buzzer_beepClick();
 #endif
-    if (next != s_currentScreen) {
-      s_currentScreen = next;
+      if (next != s_currentScreen) {
+        s_currentScreen = next;
+        tft.setRotation(sparkyGfxRotationFromApp(AppState_getRotation()));
+#if defined(SPARKYCHECK_EEZ_MOCKUP_UI)
+        EezMockupUi_draw(&tft, s_currentScreen);
+#else
+        Screens_draw(&tft, s_currentScreen);
+#endif
+        sparkyDisplayFlush(&tft);
+      }
+      delay(90);
+    } else {
+      ScreenId nd = s_currentScreen;
+#if defined(SPARKYCHECK_EEZ_MOCKUP_UI)
+      nd = EezMockupUi_handleTouchDrag(&tft, s_currentScreen, x, y);
+#else
+      nd = Screens_handleTouchDrag(&tft, s_currentScreen, x, y);
+#endif
+      if (nd != s_currentScreen) {
+        s_currentScreen = nd;
+        tft.setRotation(sparkyGfxRotationFromApp(AppState_getRotation()));
+#if defined(SPARKYCHECK_EEZ_MOCKUP_UI)
+        EezMockupUi_draw(&tft, s_currentScreen);
+#else
+        Screens_draw(&tft, s_currentScreen);
+#endif
+        sparkyDisplayFlush(&tft);
+      }
+    }
+    s_lastTouchX = x;
+    s_lastTouchY = y;
+  } else if (s_touchWasDown) {
+    ScreenId nu = s_currentScreen;
+#if defined(SPARKYCHECK_EEZ_MOCKUP_UI)
+    nu = EezMockupUi_handleTouchEnd(&tft, s_currentScreen, s_lastTouchX, s_lastTouchY);
+#else
+    nu = Screens_handleTouchEnd(&tft, s_currentScreen, s_lastTouchX, s_lastTouchY);
+#endif
+    if (nu != s_currentScreen) {
+      s_currentScreen = nu;
       tft.setRotation(sparkyGfxRotationFromApp(AppState_getRotation()));
 #if defined(SPARKYCHECK_EEZ_MOCKUP_UI)
       EezMockupUi_draw(&tft, s_currentScreen);
@@ -120,9 +160,8 @@ void loop() {
 #endif
       sparkyDisplayFlush(&tft);
     }
-    // Small debounce for tap transitions; held touches won't retrigger.
-    delay(90);
   }
+
   s_touchWasDown = touchDown;
   delay(50);
 }

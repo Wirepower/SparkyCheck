@@ -12,18 +12,13 @@
 #include <esp_system.h>
 #include <esp_heap_caps.h>
 #include <LittleFS.h>
-#include <SD_MMC.h>
 #include <ArduinoJson.h>
-#include <Wire.h>
-#include <esp_vfs_fat.h>
-#include <sdmmc_cmd.h>
-#include <driver/spi_master.h>
-#include <driver/i2c.h>
 #include "boot_logo_web_embedded.h"
 
 #include <stdio.h>
 #include <string.h>
 #include <memory>
+#include <atomic>
 
 static AsyncWebServer s_server(80);
 static bool s_started = false;
@@ -32,8 +27,8 @@ static uint32_t s_sessionToken = 0;
 static unsigned long s_sessionExpiresMs = 0;
 static unsigned long s_nextPortalTickMs = 0;
 static bool s_apActive = false;
-static bool s_emailTestPending = false;
-static bool s_emailTestRunning = false;
+static std::atomic<bool> s_emailTestPending{false};
+static std::atomic<bool> s_emailTestRunning{false};
 static uint32_t s_emailTestActiveJobId = 0;
 static unsigned long s_emailTestStartMs = 0;
 static char s_emailTestStatus[180] = "Idle";
@@ -43,7 +38,10 @@ static char s_flashMsg[120] = "";
 static bool s_flashErr = false;
 static WifiNetwork s_scanResults[WIFI_MAX_SSIDS];
 static int s_scanCount = 0;
-static constexpr size_t kTestsJsonCap = 131072;
+/* Full tests.json (many tests/steps) exceeds 128 KiB; keep in PSRAM. */
+static constexpr size_t kTestsJsonCap = 524288;
+/* ArduinoJson pool must hold nested tree — typically > raw file size for large configs. */
+static constexpr size_t kTestsJsonDocCap = 720896;
 static char* s_testsJson = nullptr;
 
 static bool ensureTestsJsonBuf(void) {
@@ -57,9 +55,14 @@ static bool ensureTestsJsonBuf(void) {
 static String s_uploadTestsJson;
 static const char* kTestsPath = "/config/tests.json";
 static const char* kTestsPrevPath = "/config/tests_prev.json";
+static const char kWebLogoBmpPath[] = "/config/web_logo.bmp";
 static bool buildTestsJsonFromActive(char* out, unsigned outSize);
 static void upsertRuleForKind(DynamicJsonDocument& doc, const char* kind, const char* op, float val, float valMax);
 static bool ensureDefaultRulesInDoc(DynamicJsonDocument& doc);
+static bool writeWebLogoBmpToFile(void);
+static void handleTestsImportUploadDone(AsyncWebServerRequest* req);
+static void handleTestsImportUploadChunk(AsyncWebServerRequest* req, const String& filename, size_t index, uint8_t* data,
+                                         size_t len, bool final);
 
 static const unsigned long kSessionTtlMs = 15UL * 60UL * 1000UL;
 static const unsigned long kPortalTickMs = 5000UL;
@@ -70,12 +73,6 @@ static void tryStartServer(void) {
   s_server.begin();
   Serial.println("[Admin] web server listen on :80");
 }
-#if defined(SPARKYCHECK_PANEL_43B)
-static sdmmc_card_t* s_sd43bCard = nullptr;
-static sdmmc_host_t s_sd43bHost = SDSPI_HOST_DEFAULT();
-static bool s_sd43bMounted = false;
-#endif
-
 static const char* kCss =
   "body{font-family:Arial,sans-serif;background:#102030;color:#fff;margin:0;padding:16px;}"
   ".brand{position:fixed;top:10px;right:12px;text-align:center;z-index:2;pointer-events:auto;}"
@@ -214,7 +211,8 @@ static void logoEffectiveDims(int* outW, int* outH, size_t* outWords) {
   if (outWords) *outWords = words;
 }
 
-static void streamBootLogoBmp(AsyncWebServerRequest* req) {
+/* Serve logo from LittleFS: AsyncResponseStream/String paths mishandle embedded NULs in BMP data. */
+static bool writeWebLogoBmpToFile(void) {
   int srcW = 0, srcH = 0;
   size_t srcWords = 0;
   logoEffectiveDims(&srcW, &srcH, &srcWords);
@@ -225,20 +223,25 @@ static void streamBootLogoBmp(AsyncWebServerRequest* req) {
   const int imgBytes = (rowBytes + pad) * outH;
   const int fileSize = 54 + imgBytes;
 
-  AsyncResponseStream* rs = req->beginResponseStream("image/bmp");
-  rs->addHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
-  uint8_t h[54] = {0};
-  h[0] = 'B'; h[1] = 'M';
-  h[2] = (uint8_t)(fileSize & 0xFF); h[3] = (uint8_t)((fileSize >> 8) & 0xFF);
-  h[4] = (uint8_t)((fileSize >> 16) & 0xFF); h[5] = (uint8_t)((fileSize >> 24) & 0xFF);
-  h[10] = 54;
-  h[14] = 40;
-  h[18] = (uint8_t)(outW & 0xFF); h[19] = (uint8_t)((outW >> 8) & 0xFF);
-  h[22] = (uint8_t)(outH & 0xFF); h[23] = (uint8_t)((outH >> 8) & 0xFF);
-  h[26] = 1; h[28] = 24;
-  h[34] = (uint8_t)(imgBytes & 0xFF); h[35] = (uint8_t)((imgBytes >> 8) & 0xFF);
-  h[36] = (uint8_t)((imgBytes >> 16) & 0xFF); h[37] = (uint8_t)((imgBytes >> 24) & 0xFF);
-  rs->write(h, sizeof(h));
+  if (!LittleFS.exists("/config")) LittleFS.mkdir("/config");
+  File f = LittleFS.open(kWebLogoBmpPath, "w");
+  if (!f) return false;
+
+  uint8_t hdr[54] = {0};
+  hdr[0] = 'B'; hdr[1] = 'M';
+  hdr[2] = (uint8_t)(fileSize & 0xFF); hdr[3] = (uint8_t)((fileSize >> 8) & 0xFF);
+  hdr[4] = (uint8_t)((fileSize >> 16) & 0xFF); hdr[5] = (uint8_t)((fileSize >> 24) & 0xFF);
+  hdr[10] = 54;
+  hdr[14] = 40;
+  hdr[18] = (uint8_t)(outW & 0xFF); hdr[19] = (uint8_t)((outW >> 8) & 0xFF);
+  hdr[22] = (uint8_t)(outH & 0xFF); hdr[23] = (uint8_t)((outH >> 8) & 0xFF);
+  hdr[26] = 1; hdr[28] = 24;
+  hdr[34] = (uint8_t)(imgBytes & 0xFF); hdr[35] = (uint8_t)((imgBytes >> 8) & 0xFF);
+  hdr[36] = (uint8_t)((imgBytes >> 16) & 0xFF); hdr[37] = (uint8_t)((imgBytes >> 24) & 0xFF);
+  if (f.write(hdr, sizeof(hdr)) != (int)sizeof(hdr)) {
+    f.close();
+    return false;
+  }
 
   uint8_t pix[3];
   for (int y = outH - 1; y >= 0; y--) {
@@ -255,11 +258,30 @@ static void streamBootLogoBmp(AsyncWebServerRequest* req) {
       uint8_t g = (uint8_t)((g6 * 255) / 63);
       uint8_t b = (uint8_t)((b5 * 255) / 31);
       pix[0] = b; pix[1] = g; pix[2] = r;
-      rs->write(pix, 3);
+      if (f.write(pix, 3) != 3) {
+        f.close();
+        return false;
+      }
     }
-    for (int p = 0; p < pad; p++) rs->write((uint8_t)0);
+    for (int p = 0; p < pad; p++) {
+      if (f.write((uint8_t)0) != 1) {
+        f.close();
+        return false;
+      }
+    }
   }
-  req->send(rs);
+  f.close();
+  return true;
+}
+
+static void streamBootLogoBmp(AsyncWebServerRequest* req) {
+  if (!LittleFS.exists(kWebLogoBmpPath) && !writeWebLogoBmpToFile()) {
+    req->send(500, "text/plain", "Logo file write failed");
+    return;
+  }
+  AsyncWebServerResponse* resp = req->beginResponse(LittleFS, kWebLogoBmpPath, "image/bmp", false);
+  resp->addHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+  req->send(resp);
 }
 
 static void streamBootLogo565(AsyncWebServerRequest* req) {
@@ -483,14 +505,30 @@ static bool isSafeReportName(const String& s) {
   return true;
 }
 
+/* LittleFS file.name() may be "foo.html", "/reports/foo.html", or "reports/foo.html". */
+static String reportBasenameFromFsName(const String& name) {
+  String n = name;
+  if (n.startsWith("/reports/")) return n.substring(9);
+  if (n.startsWith("reports/")) return n.substring(8);
+  return n;
+}
+
+static bool isReportListEntry(const String& rawName) {
+  String base = reportBasenameFromFsName(rawName);
+  if (!base.length() || base.indexOf('/') >= 0) return false;
+  if (!(base.endsWith(".html") || base.endsWith(".csv"))) return false;
+  return isSafeReportName(base);
+}
+
 static String filesPage(void) {
   String b;
   b.reserve(10000);
   b += "<h1>Report Files</h1><p><a href='/admin' style='color:#93c5fd'>Back to admin</a></p>";
   b += "<div class='card'><h2>LittleFS /reports</h2>";
+  if (!LittleFS.exists("/reports")) LittleFS.mkdir("/reports");
   File root = LittleFS.open("/reports");
   if (!root || !root.isDirectory()) {
-    b += "<p class='small'>No reports directory found.</p></div>";
+    b += "<p class='small'>Could not open reports folder (LittleFS).</p></div>";
     return htmlPage("SparkyCheck Reports", b);
   }
   b += "<table style='width:100%;border-collapse:collapse;'><tr><th style='text-align:left'>File</th><th>Size</th><th>Actions</th></tr>";
@@ -498,8 +536,8 @@ static String filesPage(void) {
   int count = 0;
   while (f) {
     String name = f.name();
-    if (name.startsWith("/reports/") && (name.endsWith(".html") || name.endsWith(".csv"))) {
-      String base = name.substring(9);
+    if (isReportListEntry(name)) {
+      String base = reportBasenameFromFsName(name);
       b += "<tr><td>";
       b += esc(base.c_str());
       b += "</td><td style='text-align:right'>";
@@ -524,96 +562,83 @@ static String filesPage(void) {
 
 static void ensureTestsJsonLoaded(void) {
   if (!ensureTestsJsonBuf() || !s_testsJson) return;
-  if (s_testsJson[0]) return;
-  if (!VerificationSteps_getConfigJson(s_testsJson, kTestsJsonCap)) {
-    VerificationSteps_useFactoryDefaults();
+  if (!s_testsJson[0]) {
     if (!VerificationSteps_getConfigJson(s_testsJson, kTestsJsonCap)) {
-      if (!buildTestsJsonFromActive(s_testsJson, kTestsJsonCap)) {
-        strncpy(s_testsJson, "{\"tests\":[],\"rules\":[]}", kTestsJsonCap - 1);
+      VerificationSteps_useFactoryDefaults();
+      if (!VerificationSteps_getConfigJson(s_testsJson, kTestsJsonCap)) {
+        if (!buildTestsJsonFromActive(s_testsJson, kTestsJsonCap)) {
+          strncpy(s_testsJson, "{\"tests\":[],\"rules\":[]}", kTestsJsonCap - 1);
+        }
       }
     }
     s_testsJson[kTestsJsonCap - 1] = '\0';
   }
-  DynamicJsonDocument doc(131072);
-  if (deserializeJson(doc, s_testsJson) == DeserializationError::Ok) {
-    if (ensureDefaultRulesInDoc(doc)) {
-      String fixed;
-      serializeJsonPretty(doc, fixed);
-      strncpy(s_testsJson, fixed.c_str(), kTestsJsonCap - 1);
-      s_testsJson[kTestsJsonCap - 1] = '\0';
-      if (!LittleFS.exists("/config")) LittleFS.mkdir("/config");
-      File fw = LittleFS.open(kTestsPath, "w");
-      if (fw) {
-        fw.print(fixed);
-        fw.close();
-      }
+  /* Always merge default rules when missing/empty — do not skip when buffer was filled earlier. */
+  DynamicJsonDocument doc(kTestsJsonDocCap);
+  DeserializationError derr = deserializeJson(doc, s_testsJson);
+  if (derr) {
+    Serial.printf("[Admin] ensureTestsJsonLoaded parse error: %s\n", derr.c_str());
+    return;
+  }
+  if (doc.overflowed()) {
+    Serial.println("[Admin] ensureTestsJsonLoaded: JSON too large for pool (raise kTestsJsonDocCap)");
+    return;
+  }
+  if (ensureDefaultRulesInDoc(doc)) {
+    String fixed;
+    serializeJsonPretty(doc, fixed);
+    if (fixed.length() >= kTestsJsonCap) {
+      Serial.printf("[Admin] merged tests.json length %u exceeds kTestsJsonCap\n", (unsigned)fixed.length());
+      return;
+    }
+    strncpy(s_testsJson, fixed.c_str(), kTestsJsonCap - 1);
+    s_testsJson[kTestsJsonCap - 1] = '\0';
+    if (!LittleFS.exists("/config")) LittleFS.mkdir("/config");
+    File fw = LittleFS.open(kTestsPath, "w");
+    if (fw) {
+      fw.print(fixed);
+      fw.close();
     }
   }
 }
 
-static bool mountSdCard(void) {
-#if defined(SPARKYCHECK_PANEL_43B)
-  if (s_sd43bMounted) return true;
-  /* Mirrors Waveshare demo: TF over SPI with CS through CH422G (EXIO4). */
-  uint8_t write_buf = 0x01;
-  if (i2c_master_write_to_device((i2c_port_t)0, 0x24, &write_buf, 1, 1000 / portTICK_PERIOD_MS) != ESP_OK) return false;
-  write_buf = 0x0A;
-  if (i2c_master_write_to_device((i2c_port_t)0, 0x38, &write_buf, 1, 1000 / portTICK_PERIOD_MS) != ESP_OK) return false;
-
-  spi_bus_config_t bus_cfg = {};
-  bus_cfg.mosi_io_num = 11;
-  bus_cfg.miso_io_num = 13;
-  bus_cfg.sclk_io_num = 12;
-  bus_cfg.quadwp_io_num = -1;
-  bus_cfg.quadhd_io_num = -1;
-  bus_cfg.max_transfer_sz = 4000;
-  esp_err_t ret = spi_bus_initialize((spi_host_device_t)s_sd43bHost.slot, &bus_cfg, SDSPI_DEFAULT_DMA);
-  if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE) return false;
-
-  sdspi_device_config_t slot_config = SDSPI_DEVICE_CONFIG_DEFAULT();
-  slot_config.gpio_cs = (gpio_num_t)-1;
-  slot_config.host_id = (spi_host_device_t)s_sd43bHost.slot;
-  esp_vfs_fat_sdmmc_mount_config_t mount_config = {};
-  mount_config.format_if_mount_failed = false;
-  mount_config.max_files = 5;
-  mount_config.allocation_unit_size = 16 * 1024;
-  ret = esp_vfs_fat_sdspi_mount("/sdcard", &s_sd43bHost, &slot_config, &mount_config, &s_sd43bCard);
-  if (ret != ESP_OK) return false;
-  s_sd43bMounted = true;
-  return true;
-#else
-  if (SD_MMC.begin("/sdcard", true, false)) return true;
-  SD_MMC.end();
-  if (SD_MMC.begin()) return true;
-  SD_MMC.end();
+static bool docHasRuleKind(DynamicJsonDocument& doc, const char* kind) {
+  if (!kind || !kind[0]) return false;
+  JsonArray rules = doc["rules"].as<JsonArray>();
+  if (rules.isNull()) return false;
+  for (JsonObject r : rules) {
+    if (strcmp(r["kind"] | "", kind) == 0) return true;
+  }
   return false;
-#endif
 }
-
-#if defined(SPARKYCHECK_PANEL_43B)
-static void unmountSdCard43b(void) {
-  if (!s_sd43bMounted || !s_sd43bCard) return;
-  esp_vfs_fat_sdcard_unmount("/sdcard", s_sd43bCard);
-  s_sd43bCard = nullptr;
-  s_sd43bMounted = false;
-}
-#endif
 
 static bool ensureDefaultRulesInDoc(DynamicJsonDocument& doc) {
+  if (doc.containsKey("rules") && !doc["rules"].is<JsonArray>()) {
+    doc.remove("rules");
+  }
   JsonArray rules = doc["rules"].as<JsonArray>();
-  if (!rules.isNull() && rules.size() > 0) return false;
-  upsertRuleForKind(doc, "continuity_ohm", "<=", TestLimits_continuityMaxOhms(), 0.0f);
-  upsertRuleForKind(doc, "ir_mohm", ">=", TestLimits_insulationMinMOhms(), 0.0f);
-  upsertRuleForKind(doc, "ir_mohm_sheathed", ">=", TestLimits_insulationMinMOhmsSheathedHeating(), 0.0f);
-  upsertRuleForKind(doc, "efli_ohm", "<=", TestLimits_efliMaxOhms(), 0.0f);
-  upsertRuleForKind(doc, "rcd_required_max_ms", "<=", TestLimits_rcdTripTimeMaxMs(), 0.0f);
-  upsertRuleForKind(doc, "rcd_ms", "<=", TestLimits_rcdTripTimeMaxMs(), 0.0f);
-  return true;
+  if (rules.isNull()) {
+    doc.createNestedArray("rules");
+  }
+  bool changed = false;
+  auto addIfMissing = [&](const char* k, const char* op, float v1, float v2) {
+    if (!docHasRuleKind(doc, k)) {
+      upsertRuleForKind(doc, k, op, v1, v2);
+      changed = true;
+    }
+  };
+  addIfMissing("continuity_ohm", "<=", TestLimits_continuityMaxOhms(), 0.0f);
+  addIfMissing("ir_mohm", ">=", TestLimits_insulationMinMOhms(), 0.0f);
+  addIfMissing("ir_mohm_sheathed", ">=", TestLimits_insulationMinMOhmsSheathedHeating(), 0.0f);
+  addIfMissing("efli_ohm", "<=", TestLimits_efliMaxOhms(), 0.0f);
+  addIfMissing("rcd_required_max_ms", "<=", TestLimits_rcdTripTimeMaxMs(), 0.0f);
+  addIfMissing("rcd_ms", "<=", TestLimits_rcdTripTimeMaxMs(), 0.0f);
+  return changed;
 }
 
 static bool activateAndPersistTestsJson(const String& json, String* outErr) {
   String jsonFixed = json;
-  DynamicJsonDocument doc(131072);
+  DynamicJsonDocument doc(kTestsJsonDocCap);
   if (deserializeJson(doc, jsonFixed) == DeserializationError::Ok) {
     if (ensureDefaultRulesInDoc(doc)) {
       jsonFixed = "";
@@ -718,7 +743,14 @@ static bool buildTestsJsonFromActive(char* out, unsigned outSize) {
     }
     j += "]}";
   }
-  j += "],\"rules\":[]}";
+  j += "],\"rules\":";
+  {
+    DynamicJsonDocument ruleDoc(6144);
+    JsonArray rules = ruleDoc.createNestedArray("rules");
+    VerificationSteps_appendRulesJsonArray(rules);
+    serializeJson(rules, j);
+  }
+  j += "}";
   if (j.length() + 1 >= outSize) return false;
   strncpy(out, j.c_str(), outSize - 1);
   out[outSize - 1] = '\0';
@@ -729,9 +761,9 @@ static bool getFactoryTestsJson(String* outJson) {
   if (!outJson) return false;
   outJson->remove(0);
   VerificationSteps_useFactoryDefaults();
-  std::unique_ptr<char[]> buf(new char[131072]);
+  std::unique_ptr<char[]> buf(new char[kTestsJsonCap]);
   if (!buf) return false;
-  if (VerificationSteps_getConfigJson(buf.get(), 131072) || buildTestsJsonFromActive(buf.get(), 131072)) {
+  if (VerificationSteps_getConfigJson(buf.get(), kTestsJsonCap) || buildTestsJsonFromActive(buf.get(), kTestsJsonCap)) {
     *outJson = String(buf.get());
     return outJson->length() > 0;
   }
@@ -889,11 +921,12 @@ static String testsPage(AsyncWebServerRequest* req) {
         strncpy(s_testsJson, fromFs.c_str(), kTestsJsonCap - 1);
         s_testsJson[kTestsJsonCap - 1] = '\0';
         /* If rules are empty/missing, repair and persist so the editor shows rule controls. */
-        DynamicJsonDocument docFix(131072);
-        if (deserializeJson(docFix, s_testsJson) == DeserializationError::Ok) {
-          if (ensureDefaultRulesInDoc(docFix)) {
-            String fixed;
-            serializeJsonPretty(docFix, fixed);
+        DynamicJsonDocument docFix(kTestsJsonDocCap);
+        DeserializationError dfix = deserializeJson(docFix, s_testsJson);
+        if (!dfix && !docFix.overflowed() && ensureDefaultRulesInDoc(docFix)) {
+          String fixed;
+          serializeJsonPretty(docFix, fixed);
+          if (fixed.length() < kTestsJsonCap) {
             strncpy(s_testsJson, fixed.c_str(), kTestsJsonCap - 1);
             s_testsJson[kTestsJsonCap - 1] = '\0';
             if (!LittleFS.exists("/config")) LittleFS.mkdir("/config");
@@ -905,8 +938,11 @@ static String testsPage(AsyncWebServerRequest* req) {
     }
   }
   ensureTestsJsonLoaded();
-  DynamicJsonDocument doc(131072);
+  DynamicJsonDocument doc(kTestsJsonDocCap);
   auto de = deserializeJson(doc, s_testsJson);
+  if (!de && doc.overflowed()) {
+    de = DeserializationError::NoMemory;
+  }
   if (de) {
     /* Repair rules inside the currently loaded JSON (even if the JSON came in large/truncated). */
     if (ensureDefaultRulesInDoc(doc)) {
@@ -924,14 +960,16 @@ static String testsPage(AsyncWebServerRequest* req) {
     doc.clear();
     deserializeJson(doc, s_testsJson);
   }
-  if (!doc.isNull() && ensureDefaultRulesInDoc(doc)) {
+  if (!doc.overflowed() && !doc.isNull() && ensureDefaultRulesInDoc(doc)) {
     String fixed;
     serializeJsonPretty(doc, fixed);
-    strncpy(s_testsJson, fixed.c_str(), kTestsJsonCap - 1);
-    s_testsJson[kTestsJsonCap - 1] = '\0';
-    if (!LittleFS.exists("/config")) LittleFS.mkdir("/config");
-    File fw = LittleFS.open(kTestsPath, "w");
-    if (fw) { fw.print(fixed); fw.close(); }
+    if (fixed.length() < kTestsJsonCap) {
+      strncpy(s_testsJson, fixed.c_str(), kTestsJsonCap - 1);
+      s_testsJson[kTestsJsonCap - 1] = '\0';
+      if (!LittleFS.exists("/config")) LittleFS.mkdir("/config");
+      File fw = LittleFS.open(kTestsPath, "w");
+      if (fw) { fw.print(fixed); fw.close(); }
+    }
   }
   JsonArray tests = doc["tests"].as<JsonArray>();
   if (tests.isNull() || tests.size() == 0) {
@@ -1150,12 +1188,11 @@ static String testsPage(AsyncWebServerRequest* req) {
   b += "</details>";
   b += "<form method='post' action='/admin/tests/rollback'><button class='btn btn2' type='submit'>Undo to previous saved version</button></form>";
   b += "<form method='get' action='/tests-download-live'><button class='btn btn2' type='submit'>Download tests.json</button></form>";
-  b += "<form method='post' action='/tests-export-sd'><button class='btn btn2' type='submit'>Export tests to SD (/tests.json)</button></form>";
   b += "<form method='post' action='/tests-import-upload' enctype='multipart/form-data'>";
-  b += "<label>Import tests.json from this computer</label>";
+  b += "<label>Import tests.json from this computer (saved to device flash, not SD card)</label>";
   b += "<input type='file' name='tests_file' accept='.json,application/json' required/>";
-  b += "<button class='btn btn2' type='submit'>Import tests from file</button></form>";
-  b += "<form method='post' action='/tests-import-sd'><button class='btn btn2' type='submit'>Import tests from SD (/tests.json)</button></form>";
+  b += "<button class='btn btn2' type='submit'>Choose file & import</button></form>";
+  b += "<p class='small'>“Choose file” uploads from your PC/browser to the ESP32 LittleFS file system (same as editing on the device). It does not read the microSD slot.</p>";
   b += "<form method='post' action='/admin/tests/factory'><button class='btn btn2' type='submit' onclick='return confirm(\"Restore factory tests and remove custom tests?\")'>Restore factory defaults</button></form>";
   b += "</div>";
   return htmlPage("SparkyCheck Tests", b);
@@ -1182,9 +1219,52 @@ static void adminEmailTestTask(void* arg) {
     snprintf(s_emailTestStatus, sizeof(s_emailTestStatus), "Failed: %s", err[0] ? err : "unknown");
     s_flashErr = true;
   }
-  s_emailTestRunning = false;
-  s_emailTestPending = false;
+  std::atomic_thread_fence(std::memory_order_release);
+  s_emailTestRunning.store(false, std::memory_order_relaxed);
+  s_emailTestPending.store(false, std::memory_order_relaxed);
   vTaskDelete(nullptr);
+}
+
+static void handleTestsImportUploadDone(AsyncWebServerRequest* req) {
+  if (!isAuthorized(req)) {
+    req->send(403, "text/plain", "Forbidden");
+    return;
+  }
+  if (s_uploadTestsJson.length() == 0) {
+    strncpy(s_flashMsg, "Import failed: no file uploaded.", sizeof(s_flashMsg) - 1);
+    s_flashMsg[sizeof(s_flashMsg) - 1] = '\0';
+    s_flashErr = true;
+    req->redirect("/admin/tests-page");
+    return;
+  }
+  String err;
+  if (!activateAndPersistTestsJson(s_uploadTestsJson, &err)) {
+    snprintf(s_flashMsg, sizeof(s_flashMsg), "Import failed: %s", err.length() ? err.c_str() : "invalid JSON");
+    s_flashErr = true;
+    s_uploadTestsJson = "";
+    req->redirect("/admin/tests-page");
+    return;
+  }
+  strncpy(s_flashMsg, "Imported tests.json from uploaded file.", sizeof(s_flashMsg) - 1);
+  s_flashMsg[sizeof(s_flashMsg) - 1] = '\0';
+  s_flashErr = false;
+  s_uploadTestsJson = "";
+  req->redirect("/admin/tests-page");
+}
+
+static void handleTestsImportUploadChunk(AsyncWebServerRequest* req, const String& filename, size_t index, uint8_t* data,
+                                         size_t len, bool final) {
+  (void)final;
+  (void)filename;
+  if (!isAuthorized(req)) return;
+  if (index == 0) {
+    s_uploadTestsJson = "";
+  }
+  if (s_uploadTestsJson.length() + len > kTestsJsonCap - 1) {
+    s_uploadTestsJson = "";
+    return;
+  }
+  for (size_t i = 0; i < len; i++) s_uploadTestsJson += (char)data[i];
 }
 
 void AdminPortal_init(void) {
@@ -1193,20 +1273,6 @@ void AdminPortal_init(void) {
     Serial.println("[Admin] FATAL: tests JSON buffer (PSRAM) alloc failed");
     return;
   }
-
-  s_server.on("/admin", HTTP_GET, [](AsyncWebServerRequest* req) {
-    if (req->url() == "/admin/tests" || req->url() == "/admin/tests/" || req->url() == "/admin/tests-page") {
-      if (!isAuthorized(req)) { req->redirect("/admin/login"); return; }
-      Serial.println("[Admin] /admin/tests-page GET via /admin handler");
-      sendHtmlNoCache(req, testsPage(req));
-      return;
-    }
-    if (!isAuthorized(req)) {
-      sendHtmlNoCache(req, loginPage(""));
-      return;
-    }
-    sendHtmlNoCache(req, settingsPage());
-  });
 
   s_server.on("/admin/login", HTTP_GET, [](AsyncWebServerRequest* req) {
     sendHtmlNoCache(req, loginPage(""));
@@ -1389,19 +1455,8 @@ void AdminPortal_init(void) {
 
   s_server.on("/tests-json-live", HTTP_GET, [](AsyncWebServerRequest* req) {
     if (!isAuthorized(req)) { req->send(403, "text/plain", "Forbidden"); return; }
-    String json;
-    if (LittleFS.exists(kTestsPath)) {
-      File f = LittleFS.open(kTestsPath, "r");
-      if (f) {
-        json = f.readString();
-        f.close();
-      }
-    }
-    if (!json.length()) {
-      ensureTestsJsonLoaded();
-      json = String(s_testsJson);
-    }
-    AsyncWebServerResponse* resp = req->beginResponse(200, "application/json", json);
+    ensureTestsJsonLoaded();
+    AsyncWebServerResponse* resp = req->beginResponse(200, "application/json", String(s_testsJson));
     resp->addHeader("Cache-Control", "no-store");
     req->send(resp);
   });
@@ -1411,19 +1466,8 @@ void AdminPortal_init(void) {
       req->send(200, "application/json", "{\"tests\":[],\"rules\":[]}");
       return;
     }
-    String json;
-    if (LittleFS.exists(kTestsPath)) {
-      File f = LittleFS.open(kTestsPath, "r");
-      if (f) {
-        json = f.readString();
-        f.close();
-      }
-    }
-    if (!json.length()) {
-      ensureTestsJsonLoaded();
-      json = String(s_testsJson);
-    }
-    AsyncWebServerResponse* resp = req->beginResponse(200, "application/json", json);
+    ensureTestsJsonLoaded();
+    AsyncWebServerResponse* resp = req->beginResponse(200, "application/json", String(s_testsJson));
     resp->addHeader("Cache-Control", "no-store");
     req->send(resp);
   });
@@ -1431,160 +1475,14 @@ void AdminPortal_init(void) {
     req->redirect("/tests-download-live");
   });
 
-  s_server.on("/tests-import-sd", HTTP_POST, [](AsyncWebServerRequest* req) {
-    if (!isAuthorized(req)) { req->send(403, "text/plain", "Forbidden"); return; }
-    if (!mountSdCard()) {
-      strncpy(s_flashMsg, "SD import failed: SD not mounted.", sizeof(s_flashMsg) - 1);
-      s_flashMsg[sizeof(s_flashMsg) - 1] = '\0';
-      s_flashErr = true;
-      req->redirect("/admin/tests-page");
-      return;
-    }
-#if defined(SPARKYCHECK_PANEL_43B)
-    FILE* fsd = fopen("/sdcard/tests.json", "r");
-    if (!fsd) {
-      strncpy(s_flashMsg, "SD import failed: /tests.json not found.", sizeof(s_flashMsg) - 1);
-      s_flashMsg[sizeof(s_flashMsg) - 1] = '\0';
-      s_flashErr = true;
-      req->redirect("/admin/tests-page");
-      return;
-    }
-    String json;
-    char buf[512];
-    size_t n = 0;
-    while ((n = fread(buf, 1, sizeof(buf), fsd)) > 0) json.concat(buf, (unsigned)n);
-    fclose(fsd);
-    unmountSdCard43b();
-#else
-    File fsd = SD_MMC.open("/tests.json", "r");
-    if (!fsd) {
-      strncpy(s_flashMsg, "SD import failed: /tests.json not found.", sizeof(s_flashMsg) - 1);
-      s_flashMsg[sizeof(s_flashMsg) - 1] = '\0';
-      s_flashErr = true;
-      req->redirect("/admin/tests-page");
-      return;
-    }
-    String json = fsd.readString();
-    fsd.close();
-    SD_MMC.end();
-#endif
-    String err;
-    if (!activateAndPersistTestsJson(json, &err)) {
-      snprintf(s_flashMsg, sizeof(s_flashMsg), "SD import failed: %s", err.c_str());
-      s_flashErr = true;
-      req->redirect("/admin/tests-page");
-      return;
-    }
-    strncpy(s_flashMsg, "Imported tests.json from SD.", sizeof(s_flashMsg) - 1);
-    s_flashMsg[sizeof(s_flashMsg) - 1] = '\0';
-    s_flashErr = false;
-    req->redirect("/admin/tests-page");
-  });
-  s_server.on("/admin/tests-import-sd", HTTP_POST, [](AsyncWebServerRequest* req) {
-    req->redirect("/tests-import-sd");
-  });
-  s_server.on("/admin/tests/import/sd", HTTP_POST, [](AsyncWebServerRequest* req) {
-    req->redirect("/admin/tests-page");
-  });
-
-  s_server.on("/tests-export-sd", HTTP_POST, [](AsyncWebServerRequest* req) {
-    if (!isAuthorized(req)) { req->send(403, "text/plain", "Forbidden"); return; }
-    if (!mountSdCard()) {
-      strncpy(s_flashMsg, "SD export failed: SD not mounted.", sizeof(s_flashMsg) - 1);
-      s_flashMsg[sizeof(s_flashMsg) - 1] = '\0';
-      s_flashErr = true;
-      req->redirect("/admin/tests-page");
-      return;
-    }
-    ensureTestsJsonLoaded();
-#if defined(SPARKYCHECK_PANEL_43B)
-    FILE* fsd = fopen("/sdcard/tests.json", "w");
-    if (!fsd) {
-      strncpy(s_flashMsg, "SD export failed: cannot write /tests.json.", sizeof(s_flashMsg) - 1);
-      s_flashMsg[sizeof(s_flashMsg) - 1] = '\0';
-      s_flashErr = true;
-      req->redirect("/admin/tests-page");
-      return;
-    }
-    fputs(s_testsJson, fsd);
-    fclose(fsd);
-    unmountSdCard43b();
-#else
-    File fsd = SD_MMC.open("/tests.json", "w");
-    if (!fsd) {
-      strncpy(s_flashMsg, "SD export failed: cannot write /tests.json.", sizeof(s_flashMsg) - 1);
-      s_flashMsg[sizeof(s_flashMsg) - 1] = '\0';
-      s_flashErr = true;
-      req->redirect("/admin/tests-page");
-      return;
-    }
-    fsd.print(s_testsJson);
-    fsd.close();
-    SD_MMC.end();
-#endif
-    strncpy(s_flashMsg, "Exported tests to SD: /tests.json", sizeof(s_flashMsg) - 1);
-    s_flashMsg[sizeof(s_flashMsg) - 1] = '\0';
-    s_flashErr = false;
-    req->redirect("/admin/tests-page");
-  });
-  s_server.on("/admin/tests-export-sd", HTTP_POST, [](AsyncWebServerRequest* req) {
-    req->redirect("/tests-export-sd");
-  });
-  s_server.on("/admin/tests/export/sd", HTTP_POST, [](AsyncWebServerRequest* req) {
-    req->redirect("/admin/tests-page");
-  });
-
-  s_server.on("/tests-import-upload", HTTP_POST,
-    [](AsyncWebServerRequest* req) {
-      if (!isAuthorized(req)) { req->send(403, "text/plain", "Forbidden"); return; }
-      if (s_uploadTestsJson.length() == 0) {
-        strncpy(s_flashMsg, "Import failed: no file uploaded.", sizeof(s_flashMsg) - 1);
-        s_flashMsg[sizeof(s_flashMsg) - 1] = '\0';
-        s_flashErr = true;
-        req->redirect("/admin/tests-page");
-        return;
-      }
-      String err;
-      if (!activateAndPersistTestsJson(s_uploadTestsJson, &err)) {
-        snprintf(s_flashMsg, sizeof(s_flashMsg), "Import failed: %s", err.length() ? err.c_str() : "invalid JSON");
-        s_flashErr = true;
-        s_uploadTestsJson = "";
-        req->redirect("/admin/tests-page");
-        return;
-      }
-      strncpy(s_flashMsg, "Imported tests.json from uploaded file.", sizeof(s_flashMsg) - 1);
-      s_flashMsg[sizeof(s_flashMsg) - 1] = '\0';
-      s_flashErr = false;
-      s_uploadTestsJson = "";
-      req->redirect("/admin/tests-page");
-    },
-    [](AsyncWebServerRequest* req, const String& filename, size_t index, uint8_t* data, size_t len, bool final) {
-      (void)filename;
-      if (!isAuthorized(req)) return;
-      if (index == 0) {
-        s_uploadTestsJson = "";
-      }
-      if (s_uploadTestsJson.length() + len > 131072) {
-        s_uploadTestsJson = "";
-        return;
-      }
-      for (size_t i = 0; i < len; i++) s_uploadTestsJson += (char)data[i];
-      if (final) {
-        // handled in POST completion lambda
-      }
-    }
-  );
-  s_server.on("/admin/tests-import-upload", HTTP_POST, [](AsyncWebServerRequest* req) {
-    req->redirect("/admin/tests-page");
-  });
-  s_server.on("/admin/tests/import/upload", HTTP_POST, [](AsyncWebServerRequest* req) {
-    req->redirect("/admin/tests-page");
-  });
+  s_server.on("/tests-import-upload", HTTP_POST, handleTestsImportUploadDone, handleTestsImportUploadChunk);
+  s_server.on("/admin/tests-import-upload", HTTP_POST, handleTestsImportUploadDone, handleTestsImportUploadChunk);
+  s_server.on("/admin/tests/import/upload", HTTP_POST, handleTestsImportUploadDone, handleTestsImportUploadChunk);
 
   s_server.on("/admin/tests/create", HTTP_POST, [](AsyncWebServerRequest* req) {
     if (!isAuthorized(req)) { req->send(403, "text/plain", "Forbidden"); return; }
     ensureTestsJsonLoaded();
-    DynamicJsonDocument doc(131072);
+    DynamicJsonDocument doc(kTestsJsonDocCap);
     deserializeJson(doc, s_testsJson);
     JsonArray tests = doc["tests"].as<JsonArray>();
     if (tests.isNull()) tests = doc.createNestedArray("tests");
@@ -1632,7 +1530,7 @@ void AdminPortal_init(void) {
   s_server.on("/admin/tests/rename", HTTP_POST, [](AsyncWebServerRequest* req) {
     if (!isAuthorized(req)) { req->send(403, "text/plain", "Forbidden"); return; }
     ensureTestsJsonLoaded();
-    DynamicJsonDocument doc(131072);
+    DynamicJsonDocument doc(kTestsJsonDocCap);
     deserializeJson(doc, s_testsJson);
     JsonArray tests = doc["tests"].as<JsonArray>();
     int id = postValue(req, "id").toInt();
@@ -1668,7 +1566,7 @@ void AdminPortal_init(void) {
   s_server.on("/admin/tests/add_step", HTTP_POST, [](AsyncWebServerRequest* req) {
     if (!isAuthorized(req)) { req->send(403, "text/plain", "Forbidden"); return; }
     ensureTestsJsonLoaded();
-    DynamicJsonDocument doc(131072);
+    DynamicJsonDocument doc(kTestsJsonDocCap);
     deserializeJson(doc, s_testsJson);
     JsonArray tests = doc["tests"].as<JsonArray>();
     int id = postValue(req, "id").toInt();
@@ -1716,7 +1614,7 @@ void AdminPortal_init(void) {
   s_server.on("/admin/tests/reorder", HTTP_POST, [](AsyncWebServerRequest* req) {
     if (!isAuthorized(req)) { req->send(403, "text/plain", "Forbidden"); return; }
     ensureTestsJsonLoaded();
-    DynamicJsonDocument doc(131072);
+    DynamicJsonDocument doc(kTestsJsonDocCap);
     deserializeJson(doc, s_testsJson);
     JsonArray tests = doc["tests"].as<JsonArray>();
     int id = postValue(req, "id").toInt();
@@ -1747,7 +1645,7 @@ void AdminPortal_init(void) {
   s_server.on("/admin/tests/delete", HTTP_POST, [](AsyncWebServerRequest* req) {
     if (!isAuthorized(req)) { req->send(403, "text/plain", "Forbidden"); return; }
     ensureTestsJsonLoaded();
-    DynamicJsonDocument doc(131072);
+    DynamicJsonDocument doc(kTestsJsonDocCap);
     deserializeJson(doc, s_testsJson);
     JsonArray tests = doc["tests"].as<JsonArray>();
     int id = postValue(req, "id").toInt();
@@ -1769,7 +1667,7 @@ void AdminPortal_init(void) {
   s_server.on("/admin/tests/step_update", HTTP_POST, [](AsyncWebServerRequest* req) {
     if (!isAuthorized(req)) { req->send(403, "text/plain", "Forbidden"); return; }
     ensureTestsJsonLoaded();
-    DynamicJsonDocument doc(131072);
+    DynamicJsonDocument doc(kTestsJsonDocCap);
     deserializeJson(doc, s_testsJson);
     JsonArray tests = doc["tests"].as<JsonArray>();
     int testId = postValue(req, "test_id").toInt();
@@ -1841,7 +1739,7 @@ void AdminPortal_init(void) {
   s_server.on("/admin/tests/step_reorder", HTTP_POST, [](AsyncWebServerRequest* req) {
     if (!isAuthorized(req)) { req->send(403, "text/plain", "Forbidden"); return; }
     ensureTestsJsonLoaded();
-    DynamicJsonDocument doc(131072);
+    DynamicJsonDocument doc(kTestsJsonDocCap);
     deserializeJson(doc, s_testsJson);
     JsonArray tests = doc["tests"].as<JsonArray>();
     int testId = postValue(req, "test_id").toInt();
@@ -1880,7 +1778,7 @@ void AdminPortal_init(void) {
   s_server.on("/admin/tests/step_delete", HTTP_POST, [](AsyncWebServerRequest* req) {
     if (!isAuthorized(req)) { req->send(403, "text/plain", "Forbidden"); return; }
     ensureTestsJsonLoaded();
-    DynamicJsonDocument doc(131072);
+    DynamicJsonDocument doc(kTestsJsonDocCap);
     deserializeJson(doc, s_testsJson);
     JsonArray tests = doc["tests"].as<JsonArray>();
     int testId = postValue(req, "test_id").toInt();
@@ -1917,7 +1815,7 @@ void AdminPortal_init(void) {
   s_server.on("/admin/tests/step_move", HTTP_POST, [](AsyncWebServerRequest* req) {
     if (!isAuthorized(req)) { req->send(403, "text/plain", "Forbidden"); return; }
     ensureTestsJsonLoaded();
-    DynamicJsonDocument doc(131072);
+    DynamicJsonDocument doc(kTestsJsonDocCap);
     deserializeJson(doc, s_testsJson);
     JsonArray tests = doc["tests"].as<JsonArray>();
     int testId = postValue(req, "test_id").toInt();
@@ -2076,21 +1974,21 @@ void AdminPortal_init(void) {
       req->send(403, "text/plain", "Forbidden");
       return;
     }
-    if (s_emailTestPending || s_emailTestRunning) {
+    if (s_emailTestPending.load() || s_emailTestRunning.load()) {
       snprintf(s_flashMsg, sizeof(s_flashMsg), "Test email already queued...");
       snprintf(s_emailTestStatus, sizeof(s_emailTestStatus), "Queued...");
       s_flashErr = false;
     } else {
-      s_emailTestPending = true;
-      s_emailTestRunning = true;
+      s_emailTestPending.store(true);
+      s_emailTestRunning.store(true);
       s_emailTestStartMs = millis();
       s_emailTestActiveJobId++;
       snprintf(s_flashMsg, sizeof(s_flashMsg), "Test email queued.");
       snprintf(s_emailTestStatus, sizeof(s_emailTestStatus), "Queued...");
       s_flashErr = false;
       if (xTaskCreate(adminEmailTestTask, "email_test_task", 12288, (void*)(uintptr_t)s_emailTestActiveJobId, 1, nullptr) != pdPASS) {
-        s_emailTestRunning = false;
-        s_emailTestPending = false;
+        s_emailTestRunning.store(false);
+        s_emailTestPending.store(false);
         snprintf(s_flashMsg, sizeof(s_flashMsg), "Failed to start email task.");
         snprintf(s_emailTestStatus, sizeof(s_emailTestStatus), "Failed: could not start task.");
         s_flashErr = true;
@@ -2105,13 +2003,28 @@ void AdminPortal_init(void) {
     /* Always return JSON so the polling UI can recover even if session cookies drop. */
     if (!isAuthorized(req)) { req->send(200, "application/json", "{\"pending\":false,\"status\":\"Not authorized\"}"); return; }
     String j = "{\"pending\":";
-    j += s_emailTestPending ? "true" : "false";
+    j += s_emailTestPending.load() ? "true" : "false";
     j += ",\"status\":\"";
     j += jsonEsc(s_emailTestStatus);
     j += "\"}";
     AsyncWebServerResponse* resp = req->beginResponse(200, "application/json", j);
     resp->addHeader("Cache-Control", "no-store");
     req->send(resp);
+  });
+
+  /* Register last: some stacks treat this as a prefix of /admin/... and would otherwise show settings for every admin URL. */
+  s_server.on("/admin", HTTP_GET, [](AsyncWebServerRequest* req) {
+    if (req->url() == "/admin/tests" || req->url() == "/admin/tests/" || req->url() == "/admin/tests-page") {
+      if (!isAuthorized(req)) { req->redirect("/admin/login"); return; }
+      Serial.println("[Admin] /admin/tests-page GET via /admin handler");
+      sendHtmlNoCache(req, testsPage(req));
+      return;
+    }
+    if (!isAuthorized(req)) {
+      sendHtmlNoCache(req, loginPage(""));
+      return;
+    }
+    sendHtmlNoCache(req, settingsPage());
   });
 
   s_server.onNotFound([](AsyncWebServerRequest* req) {
@@ -2130,7 +2043,7 @@ void AdminPortal_init(void) {
     if (fa) {
       String json = fa.readString();
       fa.close();
-      DynamicJsonDocument d(131072);
+      DynamicJsonDocument d(kTestsJsonDocCap);
       if (deserializeJson(d, json) == DeserializationError::Ok && ensureDefaultRulesInDoc(d)) {
         json = "";
         serializeJsonPretty(d, json);
@@ -2167,19 +2080,21 @@ void AdminPortal_init(void) {
   }
   Serial.printf("[Admin] init done (heap=%u)\n", (unsigned)ESP.getFreeHeap());
 
+  (void)writeWebLogoBmpToFile();
+
   s_started = true;
 }
 
 void AdminPortal_tick(void) {
-  if (s_emailTestRunning) {
+  if (s_emailTestRunning.load()) {
     const unsigned long nowMs = millis();
     const unsigned long elapsed = nowMs - s_emailTestStartMs;
     const unsigned long kEmailTimeoutMs = 45000UL;
     if (elapsed > kEmailTimeoutMs) {
       /* Mark this job as timed out and allow user retries immediately. */
       s_emailTestActiveJobId++;
-      s_emailTestRunning = false;
-      s_emailTestPending = false;
+      s_emailTestRunning.store(false);
+      s_emailTestPending.store(false);
       snprintf(s_flashMsg, sizeof(s_flashMsg), "Test email timed out (>45s). Check SMTP credentials/App Password.");
       snprintf(s_emailTestStatus, sizeof(s_emailTestStatus), "Failed: timeout (>45s).");
       s_flashErr = true;
