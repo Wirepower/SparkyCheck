@@ -45,7 +45,11 @@ void OtaUpdate_setInstallDisplay(SparkyTft* tft) {
   s_installTft = tft;
 }
 
-static void otaDrawInstallProgress(SparkyTft* tft, size_t cur, size_t total) {
+/**
+ * statusOverride: non-null replaces the line under the bar (e.g. while HTTP GET + TLS still running;
+ * onProgress is not called until after the response headers are received).
+ */
+static void otaDrawInstallProgress(SparkyTft* tft, size_t cur, size_t total, const char* statusOverride) {
   if (!tft) return;
   const int w = tft->width();
   const int h = tft->height();
@@ -81,6 +85,20 @@ static void otaDrawInstallProgress(SparkyTft* tft, size_t cur, size_t total) {
   tft->setCursor((w - tw) / 2, h / 4 + 26);
   tft->print(sub);
 
+  /* Only while blocked in HTTP GET (no size yet): onProgress does not run until after TLS + headers. */
+  if (cur == 0 && total == 0 && (!statusOverride || !statusOverride[0])) {
+    tft->setTextColor(0xBDF7, TFT_BLACK);
+    const char* waitHint = "HTTPS link can take 1-3 min on Wi-Fi";
+    tw = (int)strlen(waitHint) * 6;
+    if (tw > w - 20) {
+      waitHint = "Wait: TLS + download starting";
+      tw = (int)strlen(waitHint) * 6;
+    }
+    tft->setCursor((w - tw) / 2, h / 4 + 38);
+    tft->print(waitHint);
+  }
+
+  tft->setTextColor(TFT_WHITE, TFT_BLACK);
   tft->drawRoundRect(marginX, barY, barW, barH, 8, TFT_WHITE);
   const int inner = barW - 4;
   const int innerH = barH - 4;
@@ -101,19 +119,26 @@ static void otaDrawInstallProgress(SparkyTft* tft, size_t cur, size_t total) {
   }
 
   tft->setTextSize(2);
-  char pctb[16];
-  if (total > 0) {
+  char pctb[20];
+  if (statusOverride && statusOverride[0]) {
+    strncpy(pctb, statusOverride, sizeof(pctb) - 1);
+    pctb[sizeof(pctb) - 1] = '\0';
+  } else if (total > 0) {
     int pct = (int)((uint64_t)cur * 100 / (uint64_t)total);
     if (pct > 100) pct = 100;
     snprintf(pctb, sizeof(pctb), "%d%%", pct);
   } else if (cur == 0) {
-    strncpy(pctb, "Starting...", sizeof(pctb) - 1);
+    strncpy(pctb, "Connecting...", sizeof(pctb) - 1);
     pctb[sizeof(pctb) - 1] = '\0';
   } else {
     strncpy(pctb, "Downloading", sizeof(pctb) - 1);
     pctb[sizeof(pctb) - 1] = '\0';
   }
   tw = (int)strlen(pctb) * 12;
+  if (tw > w - 16) {
+    tft->setTextSize(1);
+    tw = (int)strlen(pctb) * 6;
+  }
   tft->setTextColor(TFT_WHITE, TFT_BLACK);
   tft->setCursor((w - tw) / 2, barY + barH + 16);
   tft->print(pctb);
@@ -138,7 +163,7 @@ static void otaOnProgress(size_t cur, size_t total) {
 
   s_otaProgressLastPct = pct;
   s_otaProgressLastMs = ms;
-  otaDrawInstallProgress(s_installTft, cur, total);
+  otaDrawInstallProgress(s_installTft, cur, total, nullptr);
   sparkyDisplayFlush(s_installTft);
 }
 
@@ -414,8 +439,13 @@ bool OtaUpdate_installPending(void) {
   s_otaProgressLastPct = -1;
   s_otaProgressLastMs = 0;
   if (s_installTft) {
-    otaDrawInstallProgress(s_installTft, 0, 0);
+    otaDrawInstallProgress(s_installTft, 0, 0, nullptr);
     sparkyDisplayFlush(s_installTft);
+    updater.onStart([]() {
+      if (!s_installTft) return;
+      otaDrawInstallProgress(s_installTft, 0, 0, "Writing to flash...");
+      sparkyDisplayFlush(s_installTft);
+    });
     updater.onProgress([](size_t c, size_t t) { otaOnProgress(c, t); });
   }
 
