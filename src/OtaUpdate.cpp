@@ -64,6 +64,10 @@ static volatile bool s_otaUiRefreshRequest = false;
 static SemaphoreHandle_t s_manifestMutex = nullptr;
 static volatile bool s_manifestUiBusy = false;
 static bool s_otaInstallUiFullClear = true;
+static bool s_otaUiStaticPainted = false;
+static bool s_otaUiHadWaitHint = false;
+static char s_otaUiLastPctb[24] = "";
+static int s_otaUiLastChunkPos = -9999;
 
 /* GitHub/raw.githubusercontent reject or throttle generic clients; mbedTLS needs tight buffers + heap. */
 static const char kOtaHttpUserAgent[] =
@@ -117,9 +121,31 @@ bool OtaUpdate_takeUiRefreshRequest(void) {
   return true;
 }
 
+/** Build the status line under the progress bar (same rules as full redraw). */
+static void otaBuildProgressLabel(char* pctb, size_t pctbSize, size_t cur, size_t total, const char* statusOverride) {
+  if (!pctb || pctbSize == 0) return;
+  if (statusOverride && statusOverride[0]) {
+    strncpy(pctb, statusOverride, pctbSize - 1);
+    pctb[pctbSize - 1] = '\0';
+  } else if (total > 0) {
+    int pct = (int)((uint64_t)cur * 100 / (uint64_t)total);
+    if (pct > 100) pct = 100;
+    snprintf(pctb, pctbSize, "%d%%", pct);
+  } else if (cur == 0) {
+    strncpy(pctb, "Connecting...", pctbSize - 1);
+    pctb[pctbSize - 1] = '\0';
+  } else {
+    strncpy(pctb, "Downloading", pctbSize - 1);
+    pctb[pctbSize - 1] = '\0';
+  }
+}
+
 /**
  * statusOverride: non-null replaces the line under the bar (e.g. while HTTP GET + TLS still running;
  * onProgress is not called until after the response headers are received).
+ *
+ * After the first full-screen paint, only the bar interior and the changing status strip are redrawn
+ * to avoid large black wipes (major source of visible flicker).
  */
 static void otaDrawInstallProgress(SparkyTft* tft, size_t cur, size_t total, const char* statusOverride) {
   if (!tft) return;
@@ -131,104 +157,137 @@ static void otaDrawInstallProgress(SparkyTft* tft, size_t cur, size_t total, con
   const int barW = w - 2 * marginX;
   const uint16_t kTrack = 0x2965;
   const uint16_t kFill = 0x07E0;
-
-  if (s_otaInstallUiFullClear) {
-    tft->fillScreen(TFT_BLACK);
-    s_otaInstallUiFullClear = false;
-  } else {
-    /* From title row down: redraw headline/hint/bar each time (avoids full-screen flash). */
-    const int wipeTop = h / 4;
-    const int wipeBottomPad = 50;
-    const int wipeH = h - wipeTop - wipeBottomPad;
-    if (wipeH > 24) tft->fillRect(0, wipeTop, w, wipeH, TFT_BLACK);
-  }
-  tft->setTextWrap(false);
-  tft->setTextColor(TFT_WHITE, TFT_BLACK);
-  tft->setTextSize(2);
-  const char* headline = "Firmware update";
-  int tw = (int)strlen(headline) * 12;
-  tft->setCursor((w - tw) / 2, h / 4);
-  tft->print(headline);
-
-  char sub[72];
-  if (s_pending.version[0]) {
-    snprintf(sub, sizeof(sub), "Installing v%s", s_pending.version);
-  } else {
-    strncpy(sub, "Installing update", sizeof(sub) - 1);
-    sub[sizeof(sub) - 1] = '\0';
-  }
-  tft->setTextSize(1);
-  tw = (int)strlen(sub) * 6;
-  if (tw > w - 24) {
-    snprintf(sub, sizeof(sub), "v%s", s_pending.version);
-    tw = (int)strlen(sub) * 6;
-  }
-  tft->setCursor((w - tw) / 2, h / 4 + 26);
-  tft->print(sub);
-
-  /* While size unknown (TLS/GET or unknown Content-Length): explain possible wait. */
-  if (cur == 0 && total == 0) {
-    tft->setTextColor(0xBDF7, TFT_BLACK);
-    const char* waitHint = "HTTPS link can take 1-3 min on Wi-Fi";
-    tw = (int)strlen(waitHint) * 6;
-    if (tw > w - 20) {
-      waitHint = "Wait: TLS + download starting";
-      tw = (int)strlen(waitHint) * 6;
-    }
-    tft->setCursor((w - tw) / 2, h / 4 + 38);
-    tft->print(waitHint);
-  }
-
-  tft->setTextColor(TFT_WHITE, TFT_BLACK);
-  tft->drawRoundRect(marginX, barY, barW, barH, 8, TFT_WHITE);
+  const int ix = marginX + 2;
+  const int iy = barY + 2;
   const int inner = barW - 4;
   const int innerH = barH - 4;
-  tft->fillRect(marginX + 2, barY + 2, inner, innerH, kTrack);
 
+  char pctb[24];
+  otaBuildProgressLabel(pctb, sizeof(pctb), cur, total, statusOverride);
+
+  const bool wantWaitHint = (cur == 0 && total == 0);
+  int chunkPos = -1;
+  int chunkW = 0;
+  if (total == 0 && cur > 0) {
+    chunkW = inner / 5;
+    if (chunkW < 12) chunkW = 12;
+    int travel = inner - chunkW;
+    if (travel < 1) travel = 1;
+    chunkPos = (int)((millis() / 100) % (travel * 2));
+    if (chunkPos > travel) chunkPos = 2 * travel - chunkPos;
+  }
+
+  const bool needFullLayout = s_otaInstallUiFullClear || !s_otaUiStaticPainted;
+
+  if (needFullLayout) {
+    if (s_otaInstallUiFullClear) {
+      tft->fillScreen(TFT_BLACK);
+      s_otaInstallUiFullClear = false;
+    }
+    tft->setTextWrap(false);
+    tft->setTextColor(TFT_WHITE, TFT_BLACK);
+    tft->setTextSize(2);
+    const char* headline = "Firmware update";
+    int tw = (int)strlen(headline) * 12;
+    tft->setCursor((w - tw) / 2, h / 4);
+    tft->print(headline);
+
+    char sub[72];
+    if (s_pending.version[0]) {
+      snprintf(sub, sizeof(sub), "Installing v%s", s_pending.version);
+    } else {
+      strncpy(sub, "Installing update", sizeof(sub) - 1);
+      sub[sizeof(sub) - 1] = '\0';
+    }
+    tft->setTextSize(1);
+    tw = (int)strlen(sub) * 6;
+    if (tw > w - 24) {
+      snprintf(sub, sizeof(sub), "v%s", s_pending.version);
+      tw = (int)strlen(sub) * 6;
+    }
+    tft->setCursor((w - tw) / 2, h / 4 + 26);
+    tft->print(sub);
+
+    s_otaUiHadWaitHint = false;
+    if (wantWaitHint) {
+      tft->setTextColor(0xBDF7, TFT_BLACK);
+      const char* waitHint = "HTTPS link can take 1-3 min on Wi-Fi";
+      tw = (int)strlen(waitHint) * 6;
+      if (tw > w - 20) {
+        waitHint = "Wait: TLS + download starting";
+        tw = (int)strlen(waitHint) * 6;
+      }
+      tft->setCursor((w - tw) / 2, h / 4 + 38);
+      tft->print(waitHint);
+      s_otaUiHadWaitHint = true;
+    }
+
+    tft->setTextColor(TFT_WHITE, TFT_BLACK);
+    tft->drawRoundRect(marginX, barY, barW, barH, 8, TFT_WHITE);
+    tft->fillRect(ix, iy, inner, innerH, kTrack);
+    if (total > 0) {
+      int fillW = (int)((uint64_t)cur * (uint64_t)inner / (uint64_t)total);
+      if (fillW > inner) fillW = inner;
+      if (fillW > 0) tft->fillRect(ix, iy, fillW, innerH, kFill);
+    } else if (chunkPos >= 0) {
+      tft->fillRect(ix + chunkPos, iy, chunkW, innerH, kFill);
+    }
+
+    tft->setTextSize(2);
+    tw = (int)strlen(pctb) * 12;
+    if (tw > w - 16) {
+      tft->setTextSize(1);
+      tw = (int)strlen(pctb) * 6;
+    }
+    tft->setTextColor(TFT_WHITE, TFT_BLACK);
+    tft->setCursor((w - tw) / 2, barY + barH + 16);
+    tft->print(pctb);
+
+    tft->setTextSize(1);
+    const char* hint = "Do not power off";
+    tw = (int)strlen(hint) * 6;
+    tft->setCursor((w - tw) / 2, h - 40);
+    tft->print(hint);
+
+    strncpy(s_otaUiLastPctb, pctb, sizeof(s_otaUiLastPctb) - 1);
+    s_otaUiLastPctb[sizeof(s_otaUiLastPctb) - 1] = '\0';
+    s_otaUiLastChunkPos = chunkPos;
+    s_otaUiStaticPainted = true;
+    return;
+  }
+
+  /* Incremental: wait-hint line only when it appears or disappears */
+  if (s_otaUiHadWaitHint && !wantWaitHint) {
+    tft->fillRect(0, h / 4 + 34, w, 22, TFT_BLACK);
+    s_otaUiHadWaitHint = false;
+  }
+
+  tft->fillRect(ix, iy, inner, innerH, kTrack);
   if (total > 0) {
     int fillW = (int)((uint64_t)cur * (uint64_t)inner / (uint64_t)total);
     if (fillW > inner) fillW = inner;
-    if (fillW > 0) tft->fillRect(marginX + 2, barY + 2, fillW, innerH, kFill);
-  } else if (cur > 0) {
-    int chunk = inner / 5;
-    if (chunk < 12) chunk = 12;
-    int travel = inner - chunk;
-    if (travel < 1) travel = 1;
-    int pos = (int)((millis() / 100) % (travel * 2));
-    if (pos > travel) pos = 2 * travel - pos;
-    tft->fillRect(marginX + 2 + pos, barY + 2, chunk, innerH, kFill);
+    if (fillW > 0) tft->fillRect(ix, iy, fillW, innerH, kFill);
+  } else if (chunkPos >= 0) {
+    tft->fillRect(ix + chunkPos, iy, chunkW, innerH, kFill);
   }
 
-  tft->setTextSize(2);
-  char pctb[20];
-  if (statusOverride && statusOverride[0]) {
-    strncpy(pctb, statusOverride, sizeof(pctb) - 1);
-    pctb[sizeof(pctb) - 1] = '\0';
-  } else if (total > 0) {
-    int pct = (int)((uint64_t)cur * 100 / (uint64_t)total);
-    if (pct > 100) pct = 100;
-    snprintf(pctb, sizeof(pctb), "%d%%", pct);
-  } else if (cur == 0) {
-    strncpy(pctb, "Connecting...", sizeof(pctb) - 1);
-    pctb[sizeof(pctb) - 1] = '\0';
-  } else {
-    strncpy(pctb, "Downloading", sizeof(pctb) - 1);
-    pctb[sizeof(pctb) - 1] = '\0';
+  if (strcmp(pctb, s_otaUiLastPctb) != 0) {
+    const int stripY = barY + barH + 10;
+    tft->fillRect(0, stripY, w, 30, TFT_BLACK);
+    tft->setTextWrap(false);
+    tft->setTextColor(TFT_WHITE, TFT_BLACK);
+    tft->setTextSize(2);
+    int tw = (int)strlen(pctb) * 12;
+    if (tw > w - 16) {
+      tft->setTextSize(1);
+      tw = (int)strlen(pctb) * 6;
+    }
+    tft->setCursor((w - tw) / 2, barY + barH + 16);
+    tft->print(pctb);
+    strncpy(s_otaUiLastPctb, pctb, sizeof(s_otaUiLastPctb) - 1);
+    s_otaUiLastPctb[sizeof(s_otaUiLastPctb) - 1] = '\0';
   }
-  tw = (int)strlen(pctb) * 12;
-  if (tw > w - 16) {
-    tft->setTextSize(1);
-    tw = (int)strlen(pctb) * 6;
-  }
-  tft->setTextColor(TFT_WHITE, TFT_BLACK);
-  tft->setCursor((w - tw) / 2, barY + barH + 16);
-  tft->print(pctb);
-
-  tft->setTextSize(1);
-  const char* hint = "Do not power off";
-  tw = (int)strlen(hint) * 6;
-  tft->setCursor((w - tw) / 2, h - 40);
-  tft->print(hint);
+  if (chunkPos >= 0) s_otaUiLastChunkPos = chunkPos;
 }
 
 /** Call only from the task that owns the display (loop / install wait loop on APP CPU). */
@@ -251,15 +310,15 @@ static void otaPumpInstallUiOnce(SparkyTft* tft) {
   if (pct > 100) pct = 100;
 
   if (!phaseChanged) {
-    if (phase == OTA_PHASE_CONNECT && (ms - s_otaProgressLastMs) < 500) return;
+    if (phase == OTA_PHASE_CONNECT && (ms - s_otaProgressLastMs) < 900) return;
     if (phase == OTA_PHASE_DOWNLOAD) {
       if (pct >= 0 && pct < 100) {
-        if (pct == s_otaProgressLastPct && (ms - s_otaProgressLastMs) < 200) return;
-      } else if (total == 0 && cur > 0 && (ms - s_otaProgressLastMs) < 100) {
+        if (pct == s_otaProgressLastPct && (ms - s_otaProgressLastMs) < 400) return;
+      } else if (total == 0 && cur > 0 && (ms - s_otaProgressLastMs) < 180) {
         return;
       }
     }
-    if (phase == OTA_PHASE_WRITE && (ms - s_otaProgressLastMs) < 100) return;
+    if (phase == OTA_PHASE_WRITE && (ms - s_otaProgressLastMs) < 250) return;
   }
 
   s_otaPollLastPhase = phase;
@@ -674,6 +733,10 @@ bool OtaUpdate_installPending(void) {
   s_otaProgressLastMs = 0;
   s_otaInstallInProgress = true;
   s_otaInstallUiFullClear = true;
+  s_otaUiStaticPainted = false;
+  s_otaUiHadWaitHint = false;
+  s_otaUiLastPctb[0] = '\0';
+  s_otaUiLastChunkPos = -9999;
 
   if (s_installTft) {
     otaDrawInstallProgress(s_installTft, 0, 0, nullptr);

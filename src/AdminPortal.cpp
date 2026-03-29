@@ -7,6 +7,8 @@
 #include "EmailTest.h"
 #include "SparkyRtc.h"
 #include "SparkyTime.h"
+#include "OtaUpdate.h"
+#include "Standards.h"
 
 #include <Arduino.h>
 #include <WiFi.h>
@@ -36,6 +38,8 @@ static std::atomic<bool> s_emailTestRunning{false};
 static std::atomic<int> s_otaHttpPauseDepth{0};
 /** AsyncWebServer::begin() after OTA must run from the Arduino loop task; worker-thread begin() can leave :80 dead. */
 static std::atomic<bool> s_httpResumePending{false};
+/** Install must run on loop task (same as device UI); set from POST handler, run in AdminPortal_tick. */
+static std::atomic<bool> s_webOtaInstallPending{false};
 static uint32_t s_emailTestActiveJobId = 0;
 static unsigned long s_emailTestStartMs = 0;
 static char s_emailTestStatus[180] = "Idle";
@@ -178,13 +182,18 @@ static String webFriendlyTestName(const char* name) {
 
 static String htmlPage(const String& title, const String& body) {
   String h;
-  h.reserve(6000);
+  h.reserve(6200);
   h += "<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>";
   h += "<title>";
   h += title;
   h += "</title><style>";
   h += kCss;
-  h += "</style></head><body><div class='brand'><img src='/admin/logo.bmp' alt='SparkyCheck logo' style='width:120px;height:auto;border:1px solid #8ecae6;border-radius:8px;background:#0b162a;display:block'/><div class='meta' id='brandMeta'>Frank Offer · 2026<br/>SparkyCheck Creator<br/><a href='/admin/logo-info' style='color:#93c5fd'>Logo info</a></div></div><div class='wrap'>";
+  h += "</style></head><body><div class='brand'><img src='/admin/logo.bmp' alt='SparkyCheck logo' style='width:120px;height:auto;border:1px solid #8ecae6;border-radius:8px;background:#0b162a;display:block'/><div class='meta' id='brandMeta'>Firmware <span style='color:#93c5fd'>";
+  {
+    const char* fwv = OtaUpdate_getCurrentVersion();
+    h += esc(fwv && fwv[0] ? fwv : "?");
+  }
+  h += "</span><br/>Created by Frank Offer 2026<br/>SparkyCheck Creator<br/><a href='/admin/logo-info' style='color:#93c5fd'>Logo info</a></div></div><div class='wrap'>";
   h += body;
   h += "</div>";
   h += "</body></html>";
@@ -325,6 +334,7 @@ static String settingsPage(void) {
   char endpoint[APP_STATE_TRAINING_SYNC_URL_LEN] = "", token[APP_STATE_TRAINING_SYNC_TOKEN_LEN] = "";
   char cubicle[APP_STATE_TRAINING_SYNC_CUBICLE_LEN] = "", devId[APP_STATE_DEVICE_ID_LEN] = "";
   char adminApSsid[APP_STATE_ADMIN_AP_SSID_LEN] = "", adminApPass[APP_STATE_ADMIN_AP_PASS_LEN] = "";
+  char otaManifestUrl[APP_STATE_OTA_URL_LEN] = "";
   char ssid[WIFI_SSID_LEN] = "", ip[20] = "";
   String wifiMac = WiFi.macAddress();
   if (!wifiMac.length()) wifiMac = "Unavailable";
@@ -338,6 +348,7 @@ static String settingsPage(void) {
   AppState_getTrainingSyncCubicleId(cubicle, sizeof(cubicle));
   AppState_getDeviceIdOverride(devId, sizeof(devId));
   AppState_getAdminApCredentials(adminApSsid, sizeof(adminApSsid), adminApPass, sizeof(adminApPass));
+  AppState_getOtaManifestUrl(otaManifestUrl, sizeof(otaManifestUrl));
   WifiManager_getConnectedSsid(ssid, sizeof(ssid));
   WifiManager_getIpString(ip, sizeof(ip));
   if (s_apActive) {
@@ -352,8 +363,17 @@ static String settingsPage(void) {
   }
 
   String b;
-  b.reserve(9000);
+  b.reserve(11000);
   b += "<h1>SparkyCheck Admin</h1>";
+  {
+    char rulesTag[40];
+    Standards_getRulesVersion(rulesTag, sizeof(rulesTag));
+    b += "<p class='small'>Firmware <strong>";
+    b += esc(OtaUpdate_getCurrentVersion());
+    b += "</strong> · embedded rules <strong>";
+    b += esc(rulesTag);
+    b += "</strong></p>";
+  }
   if (s_flashMsg[0]) {
     b += "<div class='card' style='border-color:";
     b += s_flashErr ? "#f87171" : "#4ade80";
@@ -410,6 +430,30 @@ static String settingsPage(void) {
   b += "<div class='row'><div><label>SSID</label><input name='ssid' value=''/></div>";
   b += "<div><label>Password</label><input type='password' name='pass' value=''/></div></div>";
   b += "<button class='btn' type='submit'>Connect Manually</button></form></div>";
+
+  b += "<div class='card mode-both'><h2>Firmware updates (OTA)</h2>";
+  b += "<p class='small'>Uses the manifest URL below (HTTPS JSON). Device must be on Wi-Fi. <strong>Install</strong> reboots when the download completes.</p>";
+  b += "<form method='post' action='/admin/save'><input type='hidden' name='section' value='ota'/>";
+  b += "<label>Manifest URL</label><input name='ota_manifest_url' value='" + esc(otaManifestUrl) + "' placeholder='https://.../manifest-stable.json'/>";
+  b += "<p class='small'>Leave blank to use the firmware default from build, if any.</p>";
+  b += "<div class='row'><div><label>Auto-check for updates</label><select name='ota_auto_check'><option value='1'";
+  b += boolSelected(AppState_getOtaAutoCheckEnabled());
+  b += ">On</option><option value='0'";
+  b += boolSelected(!AppState_getOtaAutoCheckEnabled());
+  b += ">Off</option></select></div>";
+  b += "<div><label>Auto-install (no prompt)</label><select name='ota_auto_install'><option value='1'";
+  b += boolSelected(AppState_getOtaAutoInstallEnabled());
+  b += ">On</option><option value='0'";
+  b += boolSelected(!AppState_getOtaAutoInstallEnabled());
+  b += ">Off</option></select><p class='small'>When on, new versions may install without visiting this page.</p></div></div>";
+  b += "<button class='btn btn2' type='submit'>Save OTA settings</button></form>";
+  b += "<form method='post' action='/admin/ota/check' style='margin-top:10px;display:inline-block;margin-right:8px'><button class='btn' type='submit'>Check for updates</button></form>";
+  b += "<form method='post' action='/admin/ota/install' style='margin-top:10px;display:inline-block' onsubmit=\"return confirm('Install the pending firmware now? The device will reboot.');\"><button class='btn' type='submit' style='background:#b45309'";
+  if (!OtaUpdate_hasPendingUpdate()) b += " disabled title='Run Check first when an update is available'";
+  b += ">Install pending update</button></form>";
+  b += "<p class='small' id='otaWebStatusLine'>OTA status: (loading...)</p>";
+  b += "<script>(async function(){const el=document.getElementById('otaWebStatusLine');if(!el)return;async function poll(){try{const r=await fetch('/admin/ota-status',{cache:'no-store',credentials:'same-origin'});if(!r.ok)return;const j=await r.json();let t='OTA status: '+(j.last_status||'');if(j.check_busy)t+=' [checking...]';if(j.has_pending)t+=' - Pending v'+(j.pending_version||'');el.textContent=t;}catch(e){el.textContent='OTA status: (poll error)';}}poll();setInterval(poll,2500);})();</script>";
+  b += "</div>";
 
   b += "<div class='card mode-both'><h2>Device Identification</h2>";
   b += "<p class='small'>Used across reports, email subjects/body, and cloud records in both Field and Training modes.</p>";
@@ -2169,6 +2213,14 @@ void AdminPortal_init(void) {
         s_flashMsg[sizeof(s_flashMsg) - 1] = '\0';
         s_flashErr = true;
       }
+    } else if (section == "ota") {
+      String url = postValue(req, "ota_manifest_url");
+      AppState_setOtaManifestUrl(url.c_str());
+      AppState_setOtaAutoCheckEnabled(postValue(req, "ota_auto_check").toInt() == 1);
+      AppState_setOtaAutoInstallEnabled(postValue(req, "ota_auto_install").toInt() == 1);
+      strncpy(s_flashMsg, "OTA settings saved.", sizeof(s_flashMsg) - 1);
+      s_flashMsg[sizeof(s_flashMsg) - 1] = '\0';
+      s_flashErr = false;
     } else if (section == "admin_pin") {
       String currentPin = postValue(req, "current_pin");
       String newPin = postValue(req, "new_pin");
@@ -2243,6 +2295,89 @@ void AdminPortal_init(void) {
     j += "\"}";
     AsyncWebServerResponse* resp = req->beginResponse(200, "application/json", j);
     resp->addHeader("Cache-Control", "no-store");
+    req->send(resp);
+  });
+
+  s_server.on("/admin/ota-status", HTTP_GET, [](AsyncWebServerRequest* req) {
+    if (!isAuthorized(req)) {
+      req->send(200, "application/json", "{\"authorized\":false,\"last_status\":\"Not authorized\"}");
+      return;
+    }
+    char st[OTA_STATUS_LEN], pend[OTA_VERSION_LEN];
+    OtaUpdate_getLastStatus(st, sizeof(st));
+    OtaUpdate_getPendingVersion(pend, sizeof(pend));
+    String j = "{\"authorized\":true,\"wifi\":";
+    j += WifiManager_isConnected() ? "true" : "false";
+    j += ",\"configured\":";
+    j += OtaUpdate_isConfigured() ? "true" : "false";
+    j += ",\"check_busy\":";
+    j += OtaUpdate_isManifestCheckBusy() ? "true" : "false";
+    j += ",\"current\":\"";
+    j += jsonEsc(OtaUpdate_getCurrentVersion());
+    j += "\",\"has_pending\":";
+    j += OtaUpdate_hasPendingUpdate() ? "true" : "false";
+    j += ",\"pending_version\":\"";
+    j += jsonEsc(pend);
+    j += "\",\"last_status\":\"";
+    j += jsonEsc(st);
+    j += "\"}";
+    AsyncWebServerResponse* resp = req->beginResponse(200, "application/json", j);
+    resp->addHeader("Cache-Control", "no-store");
+    req->send(resp);
+  });
+
+  s_server.on("/admin/ota/check", HTTP_POST, [](AsyncWebServerRequest* req) {
+    if (!isAuthorized(req)) {
+      req->send(403, "text/plain", "Forbidden");
+      return;
+    }
+    if (!WifiManager_isConnected()) {
+      strncpy(s_flashMsg, "OTA check needs Wi-Fi.", sizeof(s_flashMsg) - 1);
+      s_flashMsg[sizeof(s_flashMsg) - 1] = '\0';
+      s_flashErr = true;
+    } else if (!OtaUpdate_isConfigured()) {
+      strncpy(s_flashMsg, "Set a manifest URL under OTA settings first.", sizeof(s_flashMsg) - 1);
+      s_flashMsg[sizeof(s_flashMsg) - 1] = '\0';
+      s_flashErr = true;
+    } else if (OtaUpdate_isManifestCheckBusy()) {
+      strncpy(s_flashMsg, "OTA check already running.", sizeof(s_flashMsg) - 1);
+      s_flashMsg[sizeof(s_flashMsg) - 1] = '\0';
+      s_flashErr = false;
+    } else if (!OtaUpdate_startManifestCheckFromUi()) {
+      strncpy(s_flashMsg, "Could not start OTA check.", sizeof(s_flashMsg) - 1);
+      s_flashMsg[sizeof(s_flashMsg) - 1] = '\0';
+      s_flashErr = true;
+    } else {
+      strncpy(s_flashMsg, "Checking for updates...", sizeof(s_flashMsg) - 1);
+      s_flashMsg[sizeof(s_flashMsg) - 1] = '\0';
+      s_flashErr = false;
+    }
+    AsyncWebServerResponse* resp = req->beginResponse(302);
+    resp->addHeader("Location", "/admin");
+    req->send(resp);
+  });
+
+  s_server.on("/admin/ota/install", HTTP_POST, [](AsyncWebServerRequest* req) {
+    if (!isAuthorized(req)) {
+      req->send(403, "text/plain", "Forbidden");
+      return;
+    }
+    if (!OtaUpdate_hasPendingUpdate()) {
+      strncpy(s_flashMsg, "No pending firmware to install. Run Check for updates first.", sizeof(s_flashMsg) - 1);
+      s_flashMsg[sizeof(s_flashMsg) - 1] = '\0';
+      s_flashErr = true;
+    } else if (!WifiManager_isConnected()) {
+      strncpy(s_flashMsg, "Install needs Wi-Fi.", sizeof(s_flashMsg) - 1);
+      s_flashMsg[sizeof(s_flashMsg) - 1] = '\0';
+      s_flashErr = true;
+    } else {
+      s_webOtaInstallPending.store(true);
+      strncpy(s_flashMsg, "Install queued - screen shows progress; device reboots when done.", sizeof(s_flashMsg) - 1);
+      s_flashMsg[sizeof(s_flashMsg) - 1] = '\0';
+      s_flashErr = false;
+    }
+    AsyncWebServerResponse* resp = req->beginResponse(302);
+    resp->addHeader("Location", "/admin");
     req->send(resp);
   });
 
@@ -2356,6 +2491,9 @@ void AdminPortal_tick(void) {
     }
   }
   runPendingHttpResume();
+  if (s_webOtaInstallPending.exchange(false)) {
+    if (OtaUpdate_hasPendingUpdate()) OtaUpdate_installPending();
+  }
   unsigned long now = millis();
   if ((long)(now - s_nextPortalTickMs) < 0) return;
   s_nextPortalTickMs = now + kPortalTickMs;
