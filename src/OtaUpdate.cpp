@@ -9,6 +9,7 @@
 #include <HTTPUpdate.h>
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
+#include <esp_heap_caps.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 #include <freertos/task.h>
@@ -58,6 +59,15 @@ static char s_otaWorkerErrBuf[OTA_STATUS_LEN];
 static uint8_t s_otaPollLastPhase = 0xFF;
 static bool s_installOfferPending = false;
 static volatile bool s_otaUiRefreshRequest = false;
+
+/* GitHub/raw.githubusercontent reject or throttle generic clients; mbedTLS needs tight buffers + heap. */
+static const char kOtaHttpUserAgent[] =
+    "Mozilla/5.0 (compatible; SparkyCheck-OTA/1.0; +https://github.com/Wirepower/SparkyCheck)";
+
+static void otaLogHeap(const char* tag) {
+  Serial.printf("[OTA] %s heap=%u largest_internal=%u\n", tag, (unsigned)ESP.getFreeHeap(),
+                (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
+}
 
 static void otaEnsureInstallSyncPrimitives(void) {
   if (!s_otaUiMutex) s_otaUiMutex = xSemaphoreCreateMutex();
@@ -294,15 +304,21 @@ static void configureSecureClient(WiFiClientSecure& client) {
 #else
   client.setCACert(OTA_TLS_ROOT_CA);
 #endif
-  client.setTimeout(12000);
+  /* ESP32 Arduino: stream timeout is milliseconds for TLS read/write. */
+  client.setTimeout(90000);
+#if ESP_ARDUINO_VERSION >= ESP_ARDUINO_VERSION_VAL(2, 0, 5)
+  /* Default ~16 KiB RX buffers often fail with -32512 (SSL alloc) alongside web admin; GitHub works fine smaller. */
+  client.setBufferSizes(4096, 3072);
+#endif
 }
 
 static void otaInstallWorker(void* arg) {
   (void)arg;
+  otaLogHeap("before_tls(firmware)");
   WiFiClientSecure client;
   configureSecureClient(client);
 
-  HTTPUpdate updater(120000);
+  HTTPUpdate updater(180000);
   updater.rebootOnUpdate(true);
   updater.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
 #if ESP_ARDUINO_VERSION >= ESP_ARDUINO_VERSION_VAL(3, 0, 0)
@@ -317,7 +333,17 @@ static void otaInstallWorker(void* arg) {
   /* Let AsyncTCP / admin sockets settle; mbedTLS needs a large contiguous block (see SSL -32512). */
   vTaskDelay(pdMS_TO_TICKS(400));
 
-  s_otaWorkerRet = updater.update(client, s_pending.firmwareUrl, OtaUpdate_getCurrentVersion());
+  const String fwUrl(s_pending.firmwareUrl);
+  Serial.printf("[OTA] firmware GET (redirects OK) len_url=%u\n", (unsigned)fwUrl.length());
+
+  /* Request callback: GitHub/CDN friendly UA + long read timeout (library default headers stay). */
+  s_otaWorkerRet =
+      updater.update(client, fwUrl, OtaUpdate_getCurrentVersion(), [](HTTPClient* http) {
+        if (!http) return;
+        http->setUserAgent(kOtaHttpUserAgent);
+        http->setTimeout(180000);
+        http->setConnectTimeout(45000);
+      });
   if (s_otaWorkerRet != HTTP_UPDATE_OK) {
     strCopy(s_otaWorkerErrBuf, sizeof(s_otaWorkerErrBuf), updater.getLastErrorString().c_str());
   } else {
@@ -403,6 +429,7 @@ static bool fetchManifestJson(char* jsonOut, unsigned jsonSize) {
   }
 
   AdminPortal_pauseForOta();
+  otaLogHeap("after_admin_pause(manifest)");
   bool ok = false;
   {
     WiFiClientSecure client;
@@ -412,11 +439,20 @@ static bool fetchManifestJson(char* jsonOut, unsigned jsonSize) {
     if (!http.begin(client, url)) {
       setStatus("Unable to start manifest request.");
     } else {
-      http.setTimeout(12000);
+      http.setTimeout(45000);
+      http.setConnectTimeout(20000);
+      http.setUserAgent(kOtaHttpUserAgent);
+      http.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
+      http.setRedirectLimit(8);
+      Serial.printf("[OTA] manifest GET host=%s\n", host);
       const int code = http.GET();
+      otaLogHeap("after_manifest_GET");
       if (code != HTTP_CODE_OK) {
         char msg[OTA_STATUS_LEN];
-        snprintf(msg, sizeof(msg), "Manifest HTTP error: %d", code);
+        if (code < 0)
+          snprintf(msg, sizeof(msg), "Manifest: %s", http.errorToString(code).c_str());
+        else
+          snprintf(msg, sizeof(msg), "Manifest HTTP %d", code);
         setStatus(msg);
         http.end();
       } else {
@@ -425,6 +461,7 @@ static bool fetchManifestJson(char* jsonOut, unsigned jsonSize) {
         if (body.length() == 0) {
           setStatus("Manifest response is empty.");
         } else {
+          Serial.printf("[OTA] manifest OK bytes=%u\n", (unsigned)body.length());
           strCopy(jsonOut, jsonSize, body.c_str());
           ok = true;
         }
@@ -592,9 +629,9 @@ bool OtaUpdate_installPending(void) {
   }
   char msg[OTA_STATUS_LEN];
   if (s_otaWorkerErrBuf[0])
-    snprintf(msg, sizeof(msg), "Install failed: %s", s_otaWorkerErrBuf);
+    snprintf(msg, sizeof(msg), "Install failed: %s (see Serial [OTA])", s_otaWorkerErrBuf);
   else
-    snprintf(msg, sizeof(msg), "Install failed.");
+    snprintf(msg, sizeof(msg), "Install failed. Serial log tag [OTA]");
   setStatus(msg);
   return false;
 }
