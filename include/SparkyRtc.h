@@ -16,6 +16,11 @@
 extern "C" {
 #endif
 
+#if defined(SPARKYCHECK_PANEL_43B)
+/** Call before tft.init(): starts Wire on GPIO8/9 so ESP_Display_Panel can skip I2C host init (RTC + touch + CH422G). */
+void SparkyRtc_earlyInitSharedI2c(void);
+#endif
+
 void SparkyRtc_init(void);
 
 /** Re-scan addresses only; does not call Wire.begin() (avoids breaking GT911 touch). */

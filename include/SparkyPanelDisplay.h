@@ -20,6 +20,10 @@ class LCD;
 class Touch;
 }  // namespace esp_panel::drivers
 
+namespace esp_expander {
+class Base;
+}
+
 class SparkyPanelDisplay : public Adafruit_GFX {
  public:
   SparkyPanelDisplay();
@@ -33,6 +37,9 @@ class SparkyPanelDisplay : public Adafruit_GFX {
   bool getTouch(uint16_t* x, uint16_t* y);
 
   void drawPixel(int16_t x, int16_t y, uint16_t color) override;
+
+  /** CH422G low-level driver; null before init(). Used for TF card CS (EXIO4). */
+  static esp_expander::Base* ioExpanderBase();
 
  private:
   bool setupBoard();

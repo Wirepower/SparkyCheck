@@ -97,6 +97,7 @@ void SparkyTime_addSeconds(long delta_sec) {
   if (gettimeofday(&tv, nullptr) != 0) return;
   tv.tv_sec += delta_sec;
   if (settimeofday(&tv, nullptr) != 0) return;
+  AppState_saveWallClockUtc(tv.tv_sec);
   if (SparkyRtc_isPresent()) SparkyRtc_writeFromSystemClock();
 }
 

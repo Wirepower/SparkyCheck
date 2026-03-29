@@ -80,9 +80,16 @@ static bool trySelectRtcAt(uint8_t a) {
   if (!probeAddress(a)) return false;
   uint8_t raw[7];
   if (!i2cReadRegsAt(a, 0x04, raw, sizeof(raw))) return false;
-  if (!raw7LooksLikeRtc(raw)) return false;
-  s_i2cAddr = a;
-  return true;
+  if (raw7LooksLikeRtc(raw)) {
+    s_i2cAddr = a;
+    return true;
+  }
+  /* PCF85063 at 0x51 can read as invalid BCD until first valid load (battery / fresh part). */
+  if (a == kRtcI2cAddr7) {
+    s_i2cAddr = a;
+    return true;
+  }
+  return false;
 }
 
 static void pickRtcAddress(void) {
@@ -103,7 +110,11 @@ static bool rtcApplyWaveshareCtrl1Init(void) {
 
 static void rtcBusProbe(void) {
   Wire.setPins(SPARKY_RTC_SDA, SPARKY_RTC_SCL);
+#if defined(SPARKYCHECK_PANEL_43B)
+  /* Wire.begin() already done in SparkyRtc_earlyInitSharedI2c() before panel init. */
+#else
   Wire.begin();
+#endif
   Wire.setClock(SPARKY_RTC_I2C_HZ);
   delay(4);
   pickRtcAddress();
@@ -113,13 +124,21 @@ static void rtcBusProbe(void) {
 
 #endif
 
+#if defined(SPARKYCHECK_PANEL_43B)
+extern "C" void SparkyRtc_earlyInitSharedI2c(void) {
+  Wire.setPins(SPARKY_RTC_SDA, SPARKY_RTC_SCL);
+  Wire.begin();
+  Wire.setClock(400000);
+}
+#endif
+
 void SparkyRtc_init(void) {
   if (s_inited) return;
   s_inited = true;
   s_present = false;
   s_i2cAddr = 0;
 #if SPARKY_RTC_HAVE_HW
-  /* After panel init: shared I2C on GPIO8/9 (GT911 + PCF85063). Must not run Wire before tft.init(). */
+  /* Shared I2C on GPIO8/9: Wire.begin() runs before tft.init() on 4.3B (see SparkyRtc_earlyInitSharedI2c). */
   rtcBusProbe();
 #endif
 }

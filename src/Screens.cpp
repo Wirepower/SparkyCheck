@@ -2223,6 +2223,7 @@ static void screens_draw_impl(SparkyTft* tft, ScreenId id, bool fullClear) {
       break;
     }
     case SCREEN_DATE_TIME: {
+      SparkyRtc_refreshPresence();
       tft->setTextColor(kWhite, kBg);
       tft->setTextSize(2);
       {
@@ -2242,32 +2243,35 @@ static void screens_draw_impl(SparkyTft* tft, ScreenId id, bool fullClear) {
       tft->setCursor(20, 58);
       tft->print(SparkyRtc_isPresent() ? "RTC: detected (PCF85063 / I2C)" : "RTC: not detected (re-open to re-scan)");
       const int btnW = w - 40;
-      int y = 74;
-      const int btnH = sparkyReadableUi(w, h) ? 32 : 28;
-      const int gap = 4;
+      const int btnH = 48;
+      const int rowStep = 58;
+      int y = 78;
       char line[56];
       snprintf(line, sizeof(line), "12-hour display: %s", AppState_getClock12Hour() ? "On" : "Off");
-      tft->fillRoundRect(20, y, btnW, btnH, 6, kBtn);
-      tft->drawRoundRect(20, y, btnW, btnH, 6, kWhite);
+      tft->fillRoundRect(20, y, btnW, btnH, 8, kBtn);
+      tft->drawRoundRect(20, y, btnW, btnH, 8, kWhite);
       tft->setTextColor(kWhite, kBtn);
       sparkyDrawBtnLabel(tft, 20, y, btnW, btnH, line, 2);
-      y += btnH + gap;
-      tft->fillRoundRect(20, y, btnW, btnH, 6, kBtn);
-      tft->drawRoundRect(20, y, btnW, btnH, 6, kWhite);
+      y += rowStep;
+      tft->fillRoundRect(20, y, btnW, btnH, 8, kBtn);
+      tft->drawRoundRect(20, y, btnW, btnH, 8, kWhite);
       sparkyDrawBtnLabel(tft, 20, y, btnW, btnH, "Set device from RTC chip", 2);
-      y += btnH + gap;
-      tft->fillRoundRect(20, y, btnW, btnH, 6, kBtn);
-      tft->drawRoundRect(20, y, btnW, btnH, 6, kWhite);
+      y += rowStep;
+      tft->fillRoundRect(20, y, btnW, btnH, 8, kBtn);
+      tft->drawRoundRect(20, y, btnW, btnH, 8, kWhite);
       sparkyDrawBtnLabel(tft, 20, y, btnW, btnH, "Set date & time (dd/mm/yyyy)", 2);
-      y += btnH + gap;
-      tft->fillRoundRect(20, y, btnW, btnH, 6, kBtn);
-      tft->drawRoundRect(20, y, btnW, btnH, 6, kWhite);
+      y += rowStep;
+      tft->fillRoundRect(20, y, btnW, btnH, 8, kBtn);
+      tft->drawRoundRect(20, y, btnW, btnH, 8, kWhite);
       sparkyDrawBtnLabel(tft, 20, y, btnW, btnH, "Write clock to RTC chip", 2);
-      y += btnH + gap;
-      tft->fillRoundRect(20, y, btnW, 36, 6, kBtn);
-      tft->drawRoundRect(20, y, btnW, 36, 6, kWhite);
-      tft->setTextColor(kWhite, kBtn);
-      sparkyDrawBtnLabel(tft, 20, y, btnW, 36, "Back", 2);
+      {
+        const int backH = 44;
+        const int by = h - 52;
+        tft->setTextColor(kWhite, kBtn);
+        tft->fillRoundRect(20, by, btnW, backH, 6, kBtn);
+        tft->drawRoundRect(20, by, btnW, backH, 6, kWhite);
+        sparkyDrawBtnLabel(tft, 20, by, btnW, backH, "Back", 2);
+      }
       break;
     }
     case SCREEN_CLOCK_SET: {
@@ -3620,33 +3624,32 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
       break;
     case SCREEN_DATE_TIME: {
       const int btnW = w - 40;
-      int y = 74;
-      const int btnH = sparkyReadableUi(w, h) ? 32 : 28;
-      const int gap = 4;
+      const int btnH = 48;
+      const int rowStep = 58;
+      int y = 78;
       if (inRect(ix, iy, 20, y, btnW, btnH)) {
         AppState_setClock12Hour(!AppState_getClock12Hour());
         Screens_draw(tft, current);
         return handled(current);
       }
-      y += btnH + gap;
+      y += rowStep;
       if (inRect(ix, iy, 20, y, btnW, btnH)) {
         if (SparkyRtc_syncSystemFromRtc()) showSavedPrompt(tft, "Time from RTC");
         else showSavedPrompt(tft, "RTC read failed");
         return handled(current);
       }
-      y += btnH + gap;
+      y += rowStep;
       if (inRect(ix, iy, 20, y, btnW, btnH)) {
         clockWizardBegin();
         return handled(SCREEN_CLOCK_SET);
       }
-      y += btnH + gap;
+      y += rowStep;
       if (inRect(ix, iy, 20, y, btnW, btnH)) {
         if (SparkyRtc_writeFromSystemClock()) showSavedPrompt(tft, "Saved to RTC");
         else showSavedPrompt(tft, "RTC write failed");
         return handled(current);
       }
-      y += btnH + gap;
-      if (inRect(ix, iy, 20, y, btnW, 36)) return handled(SCREEN_SETTINGS);
+      if (inRect(ix, iy, 20, h - 52, btnW, 44)) return handled(SCREEN_SETTINGS);
       break;
     }
     case SCREEN_CLOCK_SET: {

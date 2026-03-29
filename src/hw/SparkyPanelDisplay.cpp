@@ -9,6 +9,7 @@ using namespace esp_panel::board;
 using namespace esp_panel::drivers;
 
 static Board* s_board = nullptr;
+static esp_expander::Base* s_ioExpander = nullptr;
 
 SparkyPanelDisplay::SparkyPanelDisplay() : Adafruit_GFX(800, 480) {}
 
@@ -25,6 +26,9 @@ bool SparkyPanelDisplay::setupBoard() {
   }
   lcd_ = s_board->getLCD();
   touch_ = s_board->getTouch();
+  if (auto* ex = s_board->getIO_Expander()) {
+    s_ioExpander = ex->getBase();
+  }
   if (!lcd_) {
     return false;
   }
@@ -111,6 +115,10 @@ static void nativeToLogical(uint8_t rotation, int16_t WIDTH, int16_t HEIGHT, int
       *ly = ny;
       break;
   }
+}
+
+esp_expander::Base* SparkyPanelDisplay::ioExpanderBase() {
+  return s_ioExpander;
 }
 
 bool SparkyPanelDisplay::getTouch(uint16_t* x, uint16_t* y) {

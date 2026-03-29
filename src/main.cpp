@@ -33,11 +33,15 @@ void setup() {
 
   Buzzer_init();
   AppState_load();
-  SdConfig_initAndApply();
+#if defined(SPARKYCHECK_PANEL_43B)
+  SparkyRtc_earlyInitSharedI2c();
+#endif
   tft.init();
+  SdConfig_initAndApply();
   SparkyRtc_init();
-  if (SparkyRtc_isPresent()) SparkyRtc_syncSystemFromRtc();
+  /* NVS wall_utc first: CPU time resets every boot/OTA; restore last saved instant before optional RTC. */
   AppState_applySavedWallClockIfInvalid();
+  if (time(nullptr) < (time_t)100000 && SparkyRtc_isPresent()) SparkyRtc_syncSystemFromRtc();
   tft.setRotation(sparkyGfxRotationFromApp(AppState_getRotation()));
   tft.fillScreen(TFT_BLACK);
 

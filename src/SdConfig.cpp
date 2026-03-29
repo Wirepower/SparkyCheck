@@ -5,7 +5,13 @@
 
 #include <Arduino.h>
 #include <ArduinoJson.h>
+#if defined(SPARKYCHECK_PANEL_43B)
+#include "SparkySd43b.h"
+#include <SdFat.h>
+#include <fcntl.h>
+#else
 #include <SD_MMC.h>
+#endif
 #include <ctype.h>
 #include <stdio.h>
 #include <string.h>
@@ -45,33 +51,53 @@ static TrainingSyncTarget parseSyncTarget(const char* s) {
 static bool mountSd(void) {
   if (s_attempted) return s_sdAvailable;
   s_attempted = true;
-#ifdef SPARKYCHECK_PANEL_43B
-  // Waveshare 4.3B uses TF over SPI with CS via CH422G (EXIO4).
-  // Current SD_MMC path is not compatible and can crash on Arduino 3.x.
-  s_sdAvailable = false;
-  setStatus("SD provisioning disabled on 4.3B build.");
-  return false;
-#endif
+#if defined(SPARKYCHECK_PANEL_43B)
+  s_sdAvailable = SparkySd43b_mount();
+  if (!s_sdAvailable) setStatus("SD not mounted (TF / SPI).");
+  else setStatus("SD mounted.");
+  return s_sdAvailable;
+#else
   s_sdAvailable = SD_MMC.begin("/sdcard", true);
   if (!s_sdAvailable) setStatus("SD not mounted.");
   else setStatus("SD mounted.");
   return s_sdAvailable;
+#endif
 }
 
 template <typename TDoc>
 static bool writeJsonFile(const char* path, const TDoc& doc) {
+#if defined(SPARKYCHECK_PANEL_43B)
+  FsFile f;
+  if (!f.open(path, O_WRONLY | O_CREAT | O_TRUNC)) return false;
+  if (serializeJsonPretty(doc, f) == 0) {
+    f.close();
+    return false;
+  }
+  f.println();
+  f.close();
+  return true;
+#else
   File f = SD_MMC.open(path, FILE_WRITE);
   if (!f) return false;
-  if (serializeJsonPretty(doc, f) == 0) { f.close(); return false; }
+  if (serializeJsonPretty(doc, f) == 0) {
+    f.close();
+    return false;
+  }
   f.print("\n");
   f.close();
   return true;
+#endif
 }
 
 static void ensureProvisioningFiles(void) {
   if (!s_sdAvailable) return;
 
+#if defined(SPARKYCHECK_PANEL_43B)
+  SdFat32& sd = SparkySd43b_volume();
+  if (!sd.exists(kTemplatePath)) {
+#else
   if (!SD_MMC.exists(kTemplatePath)) {
+#endif
     StaticJsonDocument<2048> t;
     t["template_version"] = 1;
     t["enabled"] = false;
@@ -112,7 +138,11 @@ static void ensureProvisioningFiles(void) {
     writeJsonFile(kTemplatePath, t);
   }
 
+#if defined(SPARKYCHECK_PANEL_43B)
+  if (!sd.exists(kConfigPath)) {
+#else
   if (!SD_MMC.exists(kConfigPath)) {
+#endif
     StaticJsonDocument<1024> c;
     c["enabled"] = false;
     c["settings"]["mode"] = "training";
@@ -149,8 +179,19 @@ static void applyStringIfPresent(JsonObjectConst obj, const char* key,
 }
 
 static void applyProvisioning(void) {
+#if defined(SPARKYCHECK_PANEL_43B)
+  FsFile f;
+  if (!f.open(kConfigPath, O_RDONLY)) {
+    setStatus("Provisioning file not found.");
+    return;
+  }
+#else
   File f = SD_MMC.open(kConfigPath, FILE_READ);
-  if (!f) { setStatus("Provisioning file not found."); return; }
+  if (!f) {
+    setStatus("Provisioning file not found.");
+    return;
+  }
+#endif
 
   StaticJsonDocument<3072> doc;
   DeserializationError err = deserializeJson(doc, f);

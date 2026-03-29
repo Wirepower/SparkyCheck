@@ -9,7 +9,13 @@
 #include "EmailTest.h"
 #include "SparkyTime.h"
 #include <LittleFS.h>
+#if defined(SPARKYCHECK_PANEL_43B)
+#include "SparkySd43b.h"
+#include <SdFat.h>
+#include <fcntl.h>
+#else
 #include <SD_MMC.h>
+#endif
 #include <Arduino.h>
 #include <stdio.h>
 #include <string.h>
@@ -251,6 +257,116 @@ static bool writeLine(File& f, const char* line) {
   return f.write((const uint8_t*)line, n) == n;
 }
 
+#if defined(SPARKYCHECK_PANEL_43B)
+static bool writeLineSf(FsFile& f, const char* line) {
+  size_t n = strlen(line);
+  return f.write((const uint8_t*)line, n) == n;
+}
+
+static bool writeReportToSdFat43b(SdFat32& sd, const char* dir, const char* basename, const char* device_id,
+                                  const char* student_id, const char* rules_ver, Row* rows, int count) {
+  if (!sd.exists(dir) && !sd.mkdir(dir)) return false;
+
+  char path[96];
+  char line[LINE_BUF_SIZE];
+
+  snprintf(path, sizeof(path), "%s/%s.csv", dir, basename);
+  FsFile fc;
+  if (!fc.open(path, O_WRONLY | O_CREAT | O_TRUNC)) return false;
+  snprintf(line, sizeof(line), "Device ID,%s\r\n", device_id ? device_id : "");
+  if (!writeLineSf(fc, line)) {
+    fc.close();
+    return false;
+  }
+  {
+    char gen[56];
+    SparkyTime_formatPreferred(gen, sizeof(gen));
+    snprintf(line, sizeof(line), "Generated,%s\r\n", gen);
+    if (!writeLineSf(fc, line)) {
+      fc.close();
+      return false;
+    }
+  }
+  if (student_id && student_id[0]) {
+    snprintf(line, sizeof(line), "Student ID,%s\r\n", student_id);
+    if (!writeLineSf(fc, line)) {
+      fc.close();
+      return false;
+    }
+  }
+  if (!writeLineSf(fc, "Test,Value,Unit,Result,Clause\r\n")) {
+    fc.close();
+    return false;
+  }
+  for (int i = 0; i < count; i++) {
+    Row* r = &rows[i];
+    snprintf(line, sizeof(line), "%s,%s,%s,%s,%s\r\n", r->name, r->value, r->unit, r->passed ? "PASS" : "FAIL", r->clause);
+    if (!writeLineSf(fc, line)) {
+      fc.close();
+      return false;
+    }
+  }
+  fc.close();
+
+  snprintf(path, sizeof(path), "%s/%s.html", dir, basename);
+  FsFile fh;
+  if (!fh.open(path, O_WRONLY | O_CREAT | O_TRUNC)) return false;
+  if (!writeLineSf(fh, "<!DOCTYPE html><html><head><meta charset=\"UTF-8\"><title>SparkyCheck Report</title>")) {
+    fh.close();
+    return false;
+  }
+  if (!writeLineSf(fh,
+                   "<style>body{font-family:sans-serif;margin:1rem;} table{border-collapse:collapse;} th,td{border:1px solid "
+                   "#333;padding:6px 10px;} .pass{background:#cfc;} .fail{background:#fcc;}</style></head><body>")) {
+    fh.close();
+    return false;
+  }
+  {
+    char gen[56];
+    SparkyTime_formatPreferred(gen, sizeof(gen));
+    if (student_id && student_id[0])
+      snprintf(line, sizeof(line),
+               "<h1>SparkyCheck Verification Report</h1><p><strong>Job:</strong> %s &nbsp; <strong>Device:</strong> %s "
+               "&nbsp; <strong>Student:</strong> %s &nbsp; <strong>Rules:</strong> %s &nbsp; <strong>Generated:</strong> "
+               "%s</p>",
+               basename, device_id ? device_id : "", student_id, rules_ver ? rules_ver : "", gen);
+    else
+      snprintf(line, sizeof(line),
+               "<h1>SparkyCheck Verification Report</h1><p><strong>Job:</strong> %s &nbsp; <strong>Device:</strong> %s "
+               "&nbsp; <strong>Rules:</strong> %s &nbsp; <strong>Generated:</strong> %s</p>",
+               basename, device_id ? device_id : "", rules_ver ? rules_ver : "", gen);
+  }
+  if (!writeLineSf(fh, line)) {
+    fh.close();
+    return false;
+  }
+  if (!writeLineSf(fh, "<table><tr><th>Test</th><th>Value</th><th>Unit</th><th>Result</th><th>Clause</th></tr>")) {
+    fh.close();
+    return false;
+  }
+  for (int i = 0; i < count; i++) {
+    Row* r = &rows[i];
+    snprintf(line, sizeof(line), "<tr class=\"%s\"><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>",
+             r->passed ? "pass" : "fail", r->name, r->value, r->unit, r->passed ? "PASS" : "FAIL", r->clause);
+    if (!writeLineSf(fh, line)) {
+      fh.close();
+      return false;
+    }
+  }
+  {
+    char foot[160];
+    Standards_getReportFooterStandardsLine(foot, sizeof(foot));
+    snprintf(line, sizeof(line), "</table><p><em>%s</em></p></body></html>", foot);
+    if (!writeLineSf(fh, line)) {
+      fh.close();
+      return false;
+    }
+  }
+  fh.close();
+  return true;
+}
+#endif
+
 static bool writeReportToFs(fs::FS& fs, const char* dir, const char* basename,
                             const char* device_id, const char* student_id,
                             const char* rules_ver, Row* rows, int count) {
@@ -402,8 +518,10 @@ bool ReportGenerator_end(void) {
   /* Field mode: also persist report copies on SD card when available. */
   if (AppState_isFieldMode()) {
 #ifdef SPARKYCHECK_PANEL_43B
-    // 4.3B SD path is SPI+CH422G controlled CS, not SD_MMC.
-    // Skip SD mirror write until dedicated SPI SD support is added.
+    if (SparkySd43b_isMounted()) {
+      writeReportToSdFat43b(SparkySd43b_volume(), "/reports", s_report.basename, device_id, s_report.student_id, rules_ver,
+                            s_report.rows, s_report.count);
+    }
 #else
     bool sd_ok = (SD_MMC.cardType() != CARD_NONE);
     if (!sd_ok) sd_ok = SD_MMC.begin("/sdcard", true);
