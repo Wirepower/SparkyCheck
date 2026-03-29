@@ -14,7 +14,7 @@
 
 namespace BootScreen {
 
-static const char* kCreatorCredit = "Frank Offer · 2026";
+static const char* kCreatorCredit = "Created by Frank Offer 2026";
 
 /** Vertical centre of boot logo (matches `drawBootLogoRaster`). */
 static int bootGraphicCenterY(int screenH) { return screenH / 2; }
@@ -178,29 +178,38 @@ void showFirst(SparkyTft& tft) {
 
   drawBootLogoRaster(tft, w, h);
 
-  /* White on dark bg — readable on the blue gradient (avoids dim gold on mid-blue). */
+  /* White on dark bg — readable on the blue gradient (avoids dim gold on mid-blue).
+   * Use ASCII only in footer strings: default font has no glyph for middle dot etc. */
   tft.setTextColor(kWhite, kBgDark);
-  const uint8_t footTs = 2;
-  tft.setTextSize(footTs);
-  const int cw = 6 * (int)footTs;
-  const int footY = h - (7 * (int)footTs + 8);
 
+  char vbuf[40];
   {
     const char* ver = OtaUpdate_getCurrentVersion();
-    char vbuf[40];
     if (ver && ver[0]) {
       snprintf(vbuf, sizeof(vbuf), "v%s", ver);
     } else {
       strncpy(vbuf, "v?", sizeof(vbuf) - 1);
       vbuf[sizeof(vbuf) - 1] = '\0';
     }
-    tft.setCursor(12, footY);
-    tft.print(vbuf);
   }
 
+  const int credLen = (int)strlen(kCreatorCredit);
+  const int verLen = (int)strlen(vbuf);
+  const int gapMid = 16;
+  const int marginX = 12;
+  uint8_t footTs = 2;
+  if (marginX + verLen * (6 * 2) + gapMid + credLen * (6 * 2) + marginX > w) footTs = 1;
+
+  tft.setTextSize(footTs);
+  const int cw = 6 * (int)footTs;
+  const int footY = h - (7 * (int)footTs + 8);
+
+  tft.setCursor(marginX, footY);
+  tft.print(vbuf);
+
   {
-    int tw = (int)strlen(kCreatorCredit) * cw;
-    int tx = w - tw - 12;
+    int tw = credLen * cw;
+    int tx = w - tw - marginX;
     tft.setCursor(tx, footY);
     tft.print(kCreatorCredit);
   }

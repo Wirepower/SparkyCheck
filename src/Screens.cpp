@@ -237,7 +237,8 @@ static int sparkyDrawWrappedLeftUntilY(SparkyTft* tft, const char* text, int x, 
   const int cw = 6 * (int)ts;
   if (maxW < cw * 4) return y;
 
-  char lineBuf[OTA_STATUS_LEN + 32];
+  /* One wrapped output line; wide panels + ts=1 can exceed OTA_STATUS_LEN chars per line. */
+  char lineBuf[192];
   lineBuf[0] = '\0';
   const char* p = text;
 
@@ -245,7 +246,7 @@ static int sparkyDrawWrappedLeftUntilY(SparkyTft* tft, const char* text, int x, 
     if (y + lineH > maxY) break;
     while (*p == ' ') p++;
     if (!*p) break;
-    char word[72];
+    char word[96];
     int wl = 0;
     while (*p && *p != ' ' && wl < (int)sizeof(word) - 1) word[wl++] = *p++;
     word[wl] = '\0';
@@ -2656,6 +2657,10 @@ static void screens_draw_impl(SparkyTft* tft, ScreenId id, bool fullClear) {
       break;
     }
     case SCREEN_ABOUT: {
+      static const char kAboutBlurb[] =
+          "SparkyCheck is a portable verification coach for electrical apprentices and electricians. "
+          "It walks through AS/NZS-aligned checks, safety reminders, pass/fail capture, and saved "
+          "reports you can review on the device or send by email when configured.";
       const bool readable = sparkyReadableUi(w, h);
       const uint8_t bodyTs = readable ? (uint8_t)2 : (uint8_t)1;
       const int lineH = 7 * (int)bodyTs + (readable ? 6 : 4);
@@ -2663,6 +2668,8 @@ static void screens_draw_impl(SparkyTft* tft, ScreenId id, bool fullClear) {
       const int backY = h - backH - (readable ? 8 : 6);
       const int btnW = w - 40;
       const int yMax = backY - 8;
+      const int marginX = 20;
+      const int textW = w - 2 * marginX;
 
       tft->setTextColor(kWhite, kBg);
       tft->setTextSize(2);
@@ -2678,73 +2685,77 @@ static void screens_draw_impl(SparkyTft* tft, ScreenId id, bool fullClear) {
 
       if (y + lineH <= yMax) {
         tft->setTextColor(kAccent, kBg);
-        tft->setCursor(20, y);
+        tft->setCursor(marginX, y);
         tft->print("Firmware version");
         y += lineH;
       }
       if (y + lineH <= yMax) {
         tft->setTextColor(kWhite, kBg);
-        tft->setCursor(24, y);
+        tft->setCursor(marginX + 4, y);
         tft->print(OtaUpdate_getCurrentVersion());
         y += lineH;
       }
+
+      int activeStd = 0;
+      for (int sid = 0; sid < STANDARD_COUNT; sid++) {
+        if (Standards_isActiveInCurrentMode((StandardId)sid)) activeStd++;
+      }
+      /* Leave room below blurb for credits + standards (wrapped) + rules; cap so short panels still get a blurb. */
+      const int minTailLines = 6;
+      const int perStdLines = 2;
+      int tailLines = minTailLines + activeStd * perStdLines;
+      if (tailLines > 14) tailLines = 14;
+      int descMaxY = yMax - tailLines * lineH;
+      if (descMaxY < y + 2 * lineH) descMaxY = y + 2 * lineH;
       if (y + lineH <= yMax) {
         tft->setTextColor(kAccent, kBg);
-        tft->setCursor(20, y);
+        tft->setCursor(marginX, y);
         tft->print("What it is");
         y += lineH;
       }
-      if (y < yMax) {
+      if (y < descMaxY) {
         tft->setTextColor(kWhite, kBg);
-        tft->setTextWrap(true);
-        tft->setCursor(20, y);
-        tft->print(
-            "SparkyCheck is a portable verification coach for electrical apprentices and electricians. "
-            "It walks through AS/NZS-aligned checks, safety reminders, pass/fail capture, and saved "
-            "reports you can review on the device or send by email when configured.");
-        y = tft->getCursorY() + (readable ? 8 : 4);
-        tft->setTextWrap(false);
+        y = sparkyDrawWrappedLeftUntilY(tft, kAboutBlurb, marginX, y, textW, descMaxY, bodyTs, lineH, kWhite, kBg);
+        y += (readable ? 8 : 4);
+        if (y > yMax) y = yMax;
       }
       if (y + lineH <= yMax) {
         tft->setTextColor(kAccent, kBg);
-        tft->setCursor(20, y);
+        tft->setCursor(marginX, y);
         tft->print("Created by");
         y += lineH;
       }
       if (y + lineH <= yMax) {
         tft->setTextColor(kWhite, kBg);
-        tft->setCursor(20, y);
+        tft->setCursor(marginX, y);
         tft->print("Frank Offer 2026");
         y += lineH;
       }
       if (y + lineH <= yMax) {
         tft->setTextColor(kAccent, kBg);
-        tft->setCursor(20, y);
+        tft->setCursor(marginX, y);
         tft->print("Current standards");
         y += lineH;
       }
       tft->setTextColor(kWhite, kBg);
       StandardInfo info;
+      char stdLine[192];
       for (int sid = 0; sid < STANDARD_COUNT; sid++) {
-        if (y + lineH > yMax) break;
+        if (y >= yMax) break;
         Standards_getInfo((StandardId)sid, &info);
         if (!Standards_isActiveInCurrentMode((StandardId)sid)) continue;
-        tft->setCursor(20, y);
-        tft->print(info.short_name);
-        if (info.section && info.section[0]) {
-          tft->print(" ");
-          tft->print(info.section);
-        } else {
-          tft->print(" - ");
-          tft->print(info.title);
-        }
-        y += lineH;
+        if (info.section && info.section[0])
+          snprintf(stdLine, sizeof(stdLine), "%s %s", info.short_name, info.section);
+        else
+          snprintf(stdLine, sizeof(stdLine), "%s - %s", info.short_name, info.title);
+        y = sparkyDrawWrappedLeftUntilY(tft, stdLine, marginX, y, textW, yMax, bodyTs, lineH, kWhite, kBg);
+        y += (readable ? 2 : 1);
       }
       if (y + lineH <= yMax) {
         char rv[16];
         Standards_getRulesVersion(rv, sizeof(rv));
         tft->setTextColor(kAccent, kBg);
-        tft->setCursor(20, y);
+        tft->setCursor(marginX, y);
         tft->print("Rules version: ");
         tft->setTextColor(kWhite, kBg);
         tft->print(rv);
