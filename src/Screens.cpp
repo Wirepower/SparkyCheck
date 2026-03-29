@@ -469,6 +469,9 @@ static void sparkyDrawSettingsPagedList(SparkyTft* tft, int w, int h) {
       } else if (idx == 2) {
         sparkyDrawDualLineSettingRow(tft, 20, y, w - 40, bh, "Buzzer (sound)",
                                      AppState_getBuzzerEnabled() ? "On" : "Off", lblTs, 1);
+      } else if (idx == 5) {
+        sparkyDrawDualLineSettingRow(tft, 20, y, w - 40, bh, "Firmware updates",
+                                     OtaUpdate_getCurrentVersion(), lblTs, 1);
       } else {
         sparkyDrawBtnLabel(tft, 20, y, w - 40, bh, settingsRowPrimaryLabel(field, idx), lblTs);
       }
@@ -2525,22 +2528,33 @@ static void screens_draw_impl(SparkyTft* tft, ScreenId id, bool fullClear) {
       tft->setTextSize(1);
       tft->setTextColor(kAccent, kBg);
       tft->setCursor(20, 34);
+      tft->print("Firmware version");
+      tft->setTextColor(kWhite, kBg);
+      tft->setCursor(130, 34);
+      tft->print(OtaUpdate_getCurrentVersion());
+      tft->setTextColor(kAccent, kBg);
+      tft->setCursor(20, 50);
       tft->print("What it is");
       tft->setTextColor(kWhite, kBg);
-      tft->setCursor(20, 48);
-      tft->print("Portable verification coach for AS/NZS. Step-by-step tests, safety reminders, result entry with pass/fail, and reports for print or email.");
+      tft->setCursor(20, 64);
+      tft->setTextWrap(true);
+      tft->print(
+          "SparkyCheck is a portable verification coach for electrical apprentices and electricians. "
+          "It walks through AS/NZS-aligned checks, safety reminders, pass/fail capture, and saved "
+          "reports you can review on the device or send by email when configured.");
+      tft->setTextWrap(false);
       tft->setTextColor(kAccent, kBg);
-      tft->setCursor(20, 98);
+      tft->setCursor(20, 118);
       tft->print("Created by");
       tft->setTextColor(kWhite, kBg);
-      tft->setCursor(20, 112);
+      tft->setCursor(20, 132);
       tft->print("Frank Offer 2026");
       tft->setTextColor(kAccent, kBg);
-      tft->setCursor(20, 132);
+      tft->setCursor(20, 148);
       tft->print("Current standards");
       tft->setTextColor(kWhite, kBg);
       StandardInfo info;
-      int ly = 146;
+      int ly = 162;
       for (int sid = 0; sid < STANDARD_COUNT; sid++) {
         Standards_getInfo((StandardId)sid, &info);
         if (!Standards_isActiveInCurrentMode((StandardId)sid)) continue;

@@ -144,6 +144,10 @@ static bool isLegacyOnlyScreen(ScreenId id) {
     /* Real Wi-Fi list + scan lives in Screens.cpp; EEZ mockup would overwrite scan results. */
     case SCREEN_WIFI_LIST:
     case SCREEN_WIFI_PASSWORD:
+    /* Full product copy + standards list (Screens.cpp); mockup only showed title + wide Back bar. */
+    case SCREEN_ABOUT:
+    /* Real OTA layout + hit targets (Screens.cpp); mockup stacked wrong buttons vs. legacy rects. */
+    case SCREEN_UPDATES:
     case SCREEN_TRAINING_SYNC_EDIT:
     case SCREEN_EMAIL_FIELD_EDIT:
     case SCREEN_CHANGE_PIN:
