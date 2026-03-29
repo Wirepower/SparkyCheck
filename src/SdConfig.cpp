@@ -115,7 +115,6 @@ static void ensureProvisioningFiles(void) {
     JsonObject ota = s.createNestedObject("ota");
     ota["manifest_url"] = "";
     ota["auto_check"] = true;
-    ota["auto_install"] = true;
 
     JsonObject rep = s.createNestedObject("reporting");
     rep["email_enabled"] = false;
@@ -229,7 +228,6 @@ static void applyProvisioning(void) {
   if (!ota.isNull()) {
     applyStringIfPresent(ota, "manifest_url", AppState_getOtaManifestUrl, AppState_setOtaManifestUrl, APP_STATE_OTA_URL_LEN);
     applyBoolIfPresent(ota, "auto_check", AppState_getOtaAutoCheckEnabled, AppState_setOtaAutoCheckEnabled);
-    applyBoolIfPresent(ota, "auto_install", AppState_getOtaAutoInstallEnabled, AppState_setOtaAutoInstallEnabled);
   }
 
   JsonObjectConst reporting = s["reporting"].as<JsonObjectConst>();

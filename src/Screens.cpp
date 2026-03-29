@@ -2806,12 +2806,10 @@ static void screens_draw_impl(SparkyTft* tft, ScreenId id, bool fullClear) {
       if (y + lineH <= contentMaxY) {
         tft->setTextColor(kAccent, kBg);
         tft->setCursor(20, y);
-        tft->print("Auto-check / auto-install:");
+        tft->print("Auto-check after boot:");
         tft->setTextColor(kWhite, kBg);
-        tft->setCursor(20 + (int)strlen("Auto-check / auto-install:") * 6 * bodyTs + 2 * (int)bodyTs, y);
+        tft->setCursor(20 + (int)strlen("Auto-check after boot:") * 6 * bodyTs + 2 * (int)bodyTs, y);
         tft->print(AppState_getOtaAutoCheckEnabled() ? "On" : "Off");
-        tft->print(" / ");
-        tft->print(AppState_getOtaAutoInstallEnabled() ? "On" : "Off");
         y += lineH;
       }
 
@@ -2873,12 +2871,9 @@ static void screens_draw_impl(SparkyTft* tft, ScreenId id, bool fullClear) {
       }
 
       btnY = toggleY;
-      tft->fillRoundRect(20, btnY, half, btnH, 6, kBtn);
-      tft->drawRoundRect(20, btnY, half, btnH, 6, kWhite);
-      sparkyDrawBtnLabel(tft, 20, btnY, half, btnH, "Toggle auto-check", btnLblTs);
-      tft->fillRoundRect(30 + half, btnY, half, btnH, 6, kBtn);
-      tft->drawRoundRect(30 + half, btnY, half, btnH, 6, kWhite);
-      sparkyDrawBtnLabel(tft, 30 + half, btnY, half, btnH, "Toggle auto-install", btnLblTs);
+      tft->fillRoundRect(20, btnY, w - 40, btnH, 6, kBtn);
+      tft->drawRoundRect(20, btnY, w - 40, btnH, 6, kWhite);
+      sparkyDrawBtnLabel(tft, 20, btnY, w - 40, btnH, "Toggle auto-check", btnLblTs);
 
       tft->fillRoundRect(20, backY, w - 40, backH, 6, kBtn);
       tft->drawRoundRect(20, backY, w - 40, backH, 6, kWhite);
@@ -4131,19 +4126,11 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
         }
       }
       btnY = toggleY;
-      if (inRect(ix, iy, 20, btnY, half, btnH)) {
+      if (inRect(ix, iy, 20, btnY, w - 40, btnH)) {
         bool enabled = !AppState_getOtaAutoCheckEnabled();
         AppState_setOtaAutoCheckEnabled(enabled);
         Screens_draw(tft, current);
         showSavedPrompt(tft, enabled ? "Auto-check: ON" : "Auto-check: OFF");
-        Screens_draw(tft, current);
-        return handled(current);
-      }
-      if (inRect(ix, iy, 30 + half, btnY, half, btnH)) {
-        bool enabled = !AppState_getOtaAutoInstallEnabled();
-        AppState_setOtaAutoInstallEnabled(enabled);
-        Screens_draw(tft, current);
-        showSavedPrompt(tft, enabled ? "Auto-install: ON" : "Auto-install: OFF");
         Screens_draw(tft, current);
         return handled(current);
       }

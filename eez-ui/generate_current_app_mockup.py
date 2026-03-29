@@ -304,7 +304,7 @@ def build_pages():
             blocks(
                 "Firmware updates",
                 "OTA status and controls",
-                ["Check now", "Install now", "Toggle auto-check", "Toggle auto-install", "Back"],
+                ["Check now", "Install now", "Toggle auto-check", "Back"],
                 ["Current firmware + status", "Pending version when available"],
             ),
         ),

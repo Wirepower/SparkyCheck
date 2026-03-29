@@ -19,7 +19,6 @@ static const char* NVS_KEY_ADMIN_AP_SSID = "adm_ap_ssid";
 static const char* NVS_KEY_ADMIN_AP_PASS = "adm_ap_pass";
 static const char* NVS_KEY_OTA_URL     = "ota_url";
 static const char* NVS_KEY_OTA_AUTO    = "ota_auto";
-static const char* NVS_KEY_OTA_INSTALL = "ota_inst";
 static const char* NVS_KEY_TRSYNC_EN   = "trsync_en";
 static const char* NVS_KEY_TRSYNC_URL  = "trsync_url";
 static const char* NVS_KEY_TRSYNC_TOK  = "trsync_tok";
@@ -272,24 +271,6 @@ void AppState_setOtaAutoCheckEnabled(bool on) {
   Preferences prefs;
   if (prefs.begin(NVS_NAMESPACE, false)) {
     prefs.putBool(NVS_KEY_OTA_AUTO, on);
-    prefs.end();
-  }
-}
-
-bool AppState_getOtaAutoInstallEnabled(void) {
-  Preferences prefs;
-  if (prefs.begin(NVS_NAMESPACE, true)) {
-    bool out = prefs.getBool(NVS_KEY_OTA_INSTALL, false);
-    prefs.end();
-    return out;
-  }
-  return false;
-}
-
-void AppState_setOtaAutoInstallEnabled(bool on) {
-  Preferences prefs;
-  if (prefs.begin(NVS_NAMESPACE, false)) {
-    prefs.putBool(NVS_KEY_OTA_INSTALL, on);
     prefs.end();
   }
 }

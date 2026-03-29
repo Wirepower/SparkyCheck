@@ -26,6 +26,10 @@
 #include <memory>
 #include <atomic>
 
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+#include <freertos/semphr.h>
+
 static AsyncWebServer s_server(80);
 static bool s_started = false;
 static bool s_authed = false;
@@ -38,6 +42,15 @@ static std::atomic<bool> s_emailTestRunning{false};
 static std::atomic<int> s_otaHttpPauseDepth{0};
 /** AsyncWebServer::begin() after OTA must run from the Arduino loop task; worker-thread begin() can leave :80 dead. */
 static std::atomic<bool> s_httpResumePending{false};
+/** Worker-thread pause must not call s_server.end() off loopTask; loop runs end() and signals this sem. */
+static std::atomic<bool> s_httpPausePending{false};
+static SemaphoreHandle_t s_otaPauseDoneSem = nullptr;
+
+static bool arduinoOnLoopTask(void) {
+  TaskHandle_t loop = xTaskGetHandle("loopTask");
+  if (!loop) return true;
+  return xTaskGetCurrentTaskHandle() == loop;
+}
 /** Install must run on loop task (same as device UI); set from POST handler, run in AdminPortal_tick. */
 static std::atomic<bool> s_webOtaInstallPending{false};
 static uint32_t s_emailTestActiveJobId = 0;
@@ -436,16 +449,12 @@ static String settingsPage(void) {
   b += "<form method='post' action='/admin/save'><input type='hidden' name='section' value='ota'/>";
   b += "<label>Manifest URL</label><input name='ota_manifest_url' value='" + esc(otaManifestUrl) + "' placeholder='https://.../manifest-stable.json'/>";
   b += "<p class='small'>Leave blank to use the firmware default from build, if any.</p>";
-  b += "<div class='row'><div><label>Auto-check for updates</label><select name='ota_auto_check'><option value='1'";
+  b += "<label>Auto-check for updates</label><select name='ota_auto_check'><option value='1'";
   b += boolSelected(AppState_getOtaAutoCheckEnabled());
   b += ">On</option><option value='0'";
   b += boolSelected(!AppState_getOtaAutoCheckEnabled());
-  b += ">Off</option></select></div>";
-  b += "<div><label>Auto-install (no prompt)</label><select name='ota_auto_install'><option value='1'";
-  b += boolSelected(AppState_getOtaAutoInstallEnabled());
-  b += ">On</option><option value='0'";
-  b += boolSelected(!AppState_getOtaAutoInstallEnabled());
-  b += ">Off</option></select><p class='small'>When on, new versions may install without visiting this page.</p></div></div>";
+  b += ">Off</option></select>";
+  b += "<p class='small'>When on, the device checks the manifest shortly after boot (Wi‑Fi required). You still install from this page or the device.</p>";
   b += "<button class='btn btn2' type='submit'>Save OTA settings</button></form>";
   b += "<form method='post' action='/admin/ota/check' style='margin-top:10px;display:inline-block;margin-right:8px'><button class='btn' type='submit'>Check for updates</button></form>";
   b += "<form method='post' action='/admin/ota/install' style='margin-top:10px;display:inline-block' onsubmit=\"return confirm('Install the pending firmware now? The device will reboot.');\"><button class='btn' type='submit' style='background:#b45309'";
@@ -2217,7 +2226,6 @@ void AdminPortal_init(void) {
       String url = postValue(req, "ota_manifest_url");
       AppState_setOtaManifestUrl(url.c_str());
       AppState_setOtaAutoCheckEnabled(postValue(req, "ota_auto_check").toInt() == 1);
-      AppState_setOtaAutoInstallEnabled(postValue(req, "ota_auto_install").toInt() == 1);
       strncpy(s_flashMsg, "OTA settings saved.", sizeof(s_flashMsg) - 1);
       s_flashMsg[sizeof(s_flashMsg) - 1] = '\0';
       s_flashErr = false;
@@ -2454,12 +2462,33 @@ void AdminPortal_init(void) {
   s_started = true;
 }
 
+static void runPendingHttpPause(void) {
+  if (!s_httpPausePending.exchange(false)) return;
+  s_server.end();
+  delay(120);
+  Serial.printf("[Admin] http paused for OTA (loop, heap=%u)\n", (unsigned)ESP.getFreeHeap());
+  if (s_otaPauseDoneSem) (void)xSemaphoreGive(s_otaPauseDoneSem);
+}
+
 void AdminPortal_pauseForOta(void) {
   const int prev = s_otaHttpPauseDepth.fetch_add(1);
   if (prev != 0) return;
-  s_server.end();
-  delay(120);
-  Serial.printf("[Admin] http paused for OTA (heap=%u)\n", (unsigned)ESP.getFreeHeap());
+  if (arduinoOnLoopTask()) {
+    s_server.end();
+    delay(120);
+    Serial.printf("[Admin] http paused for OTA (heap=%u)\n", (unsigned)ESP.getFreeHeap());
+    return;
+  }
+  if (!s_otaPauseDoneSem) s_otaPauseDoneSem = xSemaphoreCreateBinary();
+  if (!s_otaPauseDoneSem) {
+    s_server.end();
+    delay(120);
+    Serial.printf("[Admin] http paused for OTA (no sem, sync fallback, heap=%u)\n", (unsigned)ESP.getFreeHeap());
+    return;
+  }
+  s_httpPausePending.store(true);
+  Serial.printf("[Admin] http pause deferred to loop (heap=%u)\n", (unsigned)ESP.getFreeHeap());
+  (void)xSemaphoreTake(s_otaPauseDoneSem, portMAX_DELAY);
 }
 
 void AdminPortal_resumeAfterOta(void) {
@@ -2490,6 +2519,7 @@ void AdminPortal_tick(void) {
       s_flashErr = true;
     }
   }
+  runPendingHttpPause();
   runPendingHttpResume();
   if (s_webOtaInstallPending.exchange(false)) {
     if (OtaUpdate_hasPendingUpdate()) OtaUpdate_installPending();

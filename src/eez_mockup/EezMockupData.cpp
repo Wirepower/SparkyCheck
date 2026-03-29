@@ -161,8 +161,7 @@ static const EezMockupButton kButtons_screen_updates[] = {
   { 18, 76, 350, 44, "Check now", SCREEN_UPDATES },
   { 18, 128, 350, 44, "Install now", SCREEN_UPDATES },
   { 18, 180, 350, 44, "Toggle auto-check", SCREEN_UPDATES },
-  { 18, 232, 350, 44, "Toggle auto-install", SCREEN_UPDATES },
-  { 18, 284, 350, 44, "Back", SCREEN_SETTINGS },
+  { 18, 232, 350, 44, "Back", SCREEN_SETTINGS },
 };
 
 static const EezMockupLabel kLabels_screen_training_sync[] = {

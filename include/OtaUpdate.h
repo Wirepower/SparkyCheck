@@ -53,7 +53,7 @@ void OtaUpdate_getPendingVersion(char* buf, unsigned size);
 /** Download and install pending update. Usually reboots on success. */
 bool OtaUpdate_installPending(void);
 
-/** Auto-check and optional auto-install according to AppState toggles. */
+/** Auto-check for updates according to AppState (boot-time manifest compare). */
 void OtaUpdate_runAutoFlow(void);
 
 /** FreeRTOS task entry: calls OtaUpdate_runAutoFlow() then deletes the task. */

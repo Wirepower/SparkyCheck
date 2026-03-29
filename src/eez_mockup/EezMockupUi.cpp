@@ -653,7 +653,6 @@ static bool screenButtonCenterLegacy(ScreenId screen, const char* label, int w, 
     int btnY = 150;
     int btnH = 30;
     int gap = 6;
-    int half = (w - 50) / 2;
     if (strcmp(label, "Check now") == 0) {
       *outX = w / 2;
       *outY = btnY + btnH / 2;
@@ -667,12 +666,7 @@ static bool screenButtonCenterLegacy(ScreenId screen, const char* label, int w, 
     }
     btnY += btnH + gap;
     if (strcmp(label, "Toggle auto-check") == 0) {
-      *outX = 20 + half / 2;
-      *outY = btnY + btnH / 2;
-      return true;
-    }
-    if (strcmp(label, "Toggle auto-install") == 0) {
-      *outX = 30 + half + half / 2;
+      *outX = w / 2;
       *outY = btnY + btnH / 2;
       return true;
     }

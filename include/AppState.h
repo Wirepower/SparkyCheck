@@ -82,14 +82,12 @@ void AppState_setWifiCredentials(const char* ssid, const char* pass);
 void AppState_getAdminApCredentials(char* ssid, unsigned ssid_size, char* pass, unsigned pass_size);
 void AppState_setAdminApCredentials(const char* ssid, const char* pass);
 
-/** OTA settings (manifest URL + automation toggles). */
+/** OTA settings (manifest URL + auto-check toggle). */
 #define APP_STATE_OTA_URL_LEN 192
 void AppState_getOtaManifestUrl(char* buf, unsigned size);
 void AppState_setOtaManifestUrl(const char* s);
 bool AppState_getOtaAutoCheckEnabled(void);
 void AppState_setOtaAutoCheckEnabled(bool on);
-bool AppState_getOtaAutoInstallEnabled(void);
-void AppState_setOtaAutoInstallEnabled(bool on);
 
 /** Training-mode cloud sync settings (optional endpoint). */
 #define APP_STATE_TRAINING_SYNC_URL_LEN 192
