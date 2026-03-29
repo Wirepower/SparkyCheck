@@ -64,6 +64,10 @@ static volatile bool s_otaUiRefreshRequest = false;
 static const char kOtaHttpUserAgent[] =
     "Mozilla/5.0 (compatible; SparkyCheck-OTA/1.0; +https://github.com/Wirepower/SparkyCheck)";
 
+/* Arduino-ESP32 3.1 HTTPClient::setTimeout is uint16_t ms (max 65535). */
+static const uint16_t kOtaManifestHttpTimeoutMs = 45000;
+static const uint16_t kOtaFirmwareHttpTimeoutMs = 60000;
+
 static void otaLogHeap(const char* tag) {
   Serial.printf("[OTA] %s heap=%u largest_internal=%u\n", tag, (unsigned)ESP.getFreeHeap(),
                 (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
@@ -304,12 +308,8 @@ static void configureSecureClient(WiFiClientSecure& client) {
 #else
   client.setCACert(OTA_TLS_ROOT_CA);
 #endif
-  /* ESP32 Arduino: stream timeout is milliseconds for TLS read/write. */
-  client.setTimeout(90000);
-#if ESP_ARDUINO_VERSION >= ESP_ARDUINO_VERSION_VAL(2, 0, 5)
-  /* Default ~16 KiB RX buffers often fail with -32512 (SSL alloc) alongside web admin; GitHub works fine smaller. */
-  client.setBufferSizes(4096, 3072);
-#endif
+  /* NetworkClientSecure (Arduino 3.1+): stream timeout in ms; keep within uint16_t if API is narrow. */
+  client.setTimeout((uint32_t)kOtaFirmwareHttpTimeoutMs);
 }
 
 static void otaInstallWorker(void* arg) {
@@ -318,7 +318,8 @@ static void otaInstallWorker(void* arg) {
   WiFiClientSecure client;
   configureSecureClient(client);
 
-  HTTPUpdate updater(180000);
+  /* Constructor uses int; library applies this to HTTPClient (may clamp on some cores). */
+  HTTPUpdate updater(300000);
   updater.rebootOnUpdate(true);
   updater.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
 #if ESP_ARDUINO_VERSION >= ESP_ARDUINO_VERSION_VAL(3, 0, 0)
@@ -336,13 +337,12 @@ static void otaInstallWorker(void* arg) {
   const String fwUrl(s_pending.firmwareUrl);
   Serial.printf("[OTA] firmware GET (redirects OK) len_url=%u\n", (unsigned)fwUrl.length());
 
-  /* Request callback: GitHub/CDN friendly UA + long read timeout (library default headers stay). */
+  /* Request callback: do not call http->setTimeout here — Arduino 3.1 uses uint16_t (~65s max). */
   s_otaWorkerRet =
       updater.update(client, fwUrl, OtaUpdate_getCurrentVersion(), [](HTTPClient* http) {
         if (!http) return;
         http->setUserAgent(kOtaHttpUserAgent);
-        http->setTimeout(180000);
-        http->setConnectTimeout(45000);
+        http->setConnectTimeout(30000);
       });
   if (s_otaWorkerRet != HTTP_UPDATE_OK) {
     strCopy(s_otaWorkerErrBuf, sizeof(s_otaWorkerErrBuf), updater.getLastErrorString().c_str());
@@ -439,7 +439,7 @@ static bool fetchManifestJson(char* jsonOut, unsigned jsonSize) {
     if (!http.begin(client, url)) {
       setStatus("Unable to start manifest request.");
     } else {
-      http.setTimeout(45000);
+      http.setTimeout(kOtaManifestHttpTimeoutMs);
       http.setConnectTimeout(20000);
       http.setUserAgent(kOtaHttpUserAgent);
       http.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
