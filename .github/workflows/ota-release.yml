@@ -8,6 +8,7 @@ on:
       - "src/**"
       - "include/**"
       - "lib/**"
+      - "extra_scripts/**"
       - "platformio.ini"
       - ".github/workflows/ota-release.yml"
       - "scripts/generate_ota_manifest.py"
