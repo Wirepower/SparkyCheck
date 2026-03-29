@@ -902,7 +902,7 @@ void EezMockupUi_draw(SparkyTft* tft, ScreenId id) {
       OtaUpdate_getPendingVersion(pv, sizeof(pv));
       char line[56];
       if (pv[0])
-        snprintf(line, sizeof(line), "Firmware v%s — tap for Yes/No", pv);
+        snprintf(line, sizeof(line), "Firmware v%s — tap for Install/Not now", pv);
       else
         strncpy(line, "Firmware update — tap here", sizeof(line) - 1);
       line[sizeof(line) - 1] = '\0';

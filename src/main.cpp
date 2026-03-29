@@ -77,8 +77,8 @@ void setup() {
   OtaUpdate_init();
   GoogleSync_init();
   AdminPortal_init();
-  /* Defer OTA HTTPS so web server + AsyncTCP get heap first */
-  s_otaAutoAfterMs = millis() + 8000UL;
+  /* Defer OTA HTTPS so web server + AsyncTCP get heap first; extra time for STA join. */
+  s_otaAutoAfterMs = millis() + 12000UL;
   if (adminGesture) {
     Screens_setModeSelectChoice(AppState_getMode() == APP_MODE_FIELD ? 1 : 0);
     Screens_setPinSuccessTarget(SCREEN_MODE_SELECT);
@@ -107,6 +107,14 @@ void loop() {
   GoogleSync_tick();
   AdminPortal_tick();
   Screens_refreshLiveStatus(&tft, s_currentScreen);
+  if (OtaUpdate_takeUiRefreshRequest()) {
+#if defined(SPARKYCHECK_EEZ_MOCKUP_UI)
+    EezMockupUi_draw(&tft, s_currentScreen);
+#else
+    Screens_draw(&tft, s_currentScreen);
+#endif
+    sparkyDisplayFlush(&tft);
+  }
   if (!s_otaAutoDone && (long)(millis() - s_otaAutoAfterMs) >= 0) {
     s_otaAutoDone = true;
     /* OTA uses HTTPUpdate + TLS; running on loopTask blew the stack canary when combined with UI saves.

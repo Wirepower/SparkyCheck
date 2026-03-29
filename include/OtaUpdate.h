@@ -73,4 +73,7 @@ bool OtaUpdate_isInstallOfferPending(void);
 /** Dismiss the update offer (device stays usable; pending version remains for "Install now"). */
 void OtaUpdate_dismissInstallOffer(void);
 
+/** If set after background OTA check, caller should redraw the current screen once. */
+bool OtaUpdate_takeUiRefreshRequest(void);
+
 #endif

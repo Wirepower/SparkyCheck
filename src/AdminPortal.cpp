@@ -33,6 +33,7 @@ static unsigned long s_nextPortalTickMs = 0;
 static bool s_apActive = false;
 static std::atomic<bool> s_emailTestPending{false};
 static std::atomic<bool> s_emailTestRunning{false};
+static std::atomic<int> s_otaHttpPauseDepth{0};
 static uint32_t s_emailTestActiveJobId = 0;
 static unsigned long s_emailTestStartMs = 0;
 static char s_emailTestStatus[180] = "Idle";
@@ -2314,6 +2315,22 @@ void AdminPortal_init(void) {
   (void)writeWebLogoBmpToFile();
 
   s_started = true;
+}
+
+void AdminPortal_pauseForOta(void) {
+  const int prev = s_otaHttpPauseDepth.fetch_add(1);
+  if (prev != 0) return;
+  s_server.end();
+  delay(120);
+  Serial.printf("[Admin] http paused for OTA (heap=%u)\n", (unsigned)ESP.getFreeHeap());
+}
+
+void AdminPortal_resumeAfterOta(void) {
+  const int after = s_otaHttpPauseDepth.fetch_sub(1) - 1;
+  if (after != 0) return;
+  Serial.printf("[Admin] http resume (heap=%u)\n", (unsigned)ESP.getFreeHeap());
+  s_server.begin();
+  Serial.println("[Admin] web server listen on :80");
 }
 
 void AdminPortal_tick(void) {

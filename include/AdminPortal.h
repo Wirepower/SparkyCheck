@@ -14,6 +14,13 @@ void AdminPortal_init(void);
 /** Maintain fallback hotspot state (call regularly from loop). */
 void AdminPortal_tick(void);
 
+/**
+ * Temporarily stop the :80 web server so mbedTLS/WiFiClientSecure can allocate
+ * (refcounted — safe if nested). Pair every pause with resume.
+ */
+void AdminPortal_pauseForOta(void);
+void AdminPortal_resumeAfterOta(void);
+
 /** True when fallback AP hotspot is active. */
 bool AdminPortal_isApActive(void);
 

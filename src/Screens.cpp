@@ -50,24 +50,33 @@ static bool sparkyTestFlowNarrowHeader(int w) {
   return w < 600;
 }
 
-/** Firmware updates: primary buttons + full-width Back; same geometry as Screens_handleTouch. */
-static void sparkyOtaUpdatesComputeLayout(int w, int h, bool readable, bool showInstallOffer, int* outCheckY,
-                                          int* outOfferY, int* outInstallY, int* outToggleY, int* outBtnH,
-                                          int* outGap, int* outHalf, int* outBackY, int* outBackH) {
+/**
+ * Firmware updates: bottom-up = Back, toggles, optional full-width Install (pending, no banner),
+ * optional Install|Not now row (auto-check offer), Check now.
+ */
+static void sparkyOtaUpdatesComputeLayout(int w, int h, bool readable, bool showInstallOffer,
+                                          bool showStandaloneInstall, int* outCheckY, int* outOfferY,
+                                          int* outInstallY, int* outToggleY, int* outBtnH, int* outGap,
+                                          int* outHalf, int* outBackY, int* outBackH) {
   *outBtnH = readable ? 42 : 30;
   *outGap = readable ? 8 : 6;
   *outBackH = readable ? 44 : 36;
   const int bottomPad = readable ? 8 : 6;
   *outBackY = h - *outBackH - bottomPad;
   *outToggleY = *outBackY - *outGap - *outBtnH;
-  *outInstallY = *outToggleY - *outGap - *outBtnH;
-  if (showInstallOffer) {
-    *outOfferY = *outInstallY - *outGap - *outBtnH;
-    *outCheckY = *outOfferY - *outGap - *outBtnH;
-  } else {
-    *outOfferY = -1;
-    *outCheckY = *outInstallY - *outGap - *outBtnH;
+  int y = *outToggleY;
+  *outInstallY = -1;
+  if (showStandaloneInstall) {
+    y -= *outGap + *outBtnH;
+    *outInstallY = y;
   }
+  *outOfferY = -1;
+  if (showInstallOffer) {
+    y -= *outGap + *outBtnH;
+    *outOfferY = y;
+  }
+  y -= *outGap + *outBtnH;
+  *outCheckY = y;
   *outHalf = (w - 50) / 2;
 }
 
@@ -2676,9 +2685,10 @@ static void screens_draw_impl(SparkyTft* tft, ScreenId id, bool fullClear) {
       const uint8_t btnLblTs = readable ? (uint8_t)2 : (uint8_t)1;
       const int lineH = 7 * (int)bodyTs + (readable ? 4 : 3);
       const bool showOffer = OtaUpdate_isInstallOfferPending();
+      const bool showStandaloneInstall = OtaUpdate_hasPendingUpdate() && !showOffer;
       int checkY = 0, offerY = -1, installY = 0, toggleY = 0, btnH = 0, gap = 0, half = 0, backY = 0, backH = 0;
-      sparkyOtaUpdatesComputeLayout(w, h, readable, showOffer, &checkY, &offerY, &installY, &toggleY, &btnH, &gap,
-                                    &half, &backY, &backH);
+      sparkyOtaUpdatesComputeLayout(w, h, readable, showOffer, showStandaloneInstall, &checkY, &offerY, &installY,
+                                    &toggleY, &btnH, &gap, &half, &backY, &backH);
       const int contentMaxY = checkY - (readable ? 10 : 6);
 
       tft->setTextColor(kWhite, kBg);
@@ -2709,34 +2719,12 @@ static void screens_draw_impl(SparkyTft* tft, ScreenId id, bool fullClear) {
       if (y + lineH <= contentMaxY) {
         tft->setTextColor(kAccent, kBg);
         tft->setCursor(20, y);
-        tft->print("Auto-check:");
+        tft->print("Auto-check / auto-install:");
         tft->setTextColor(kWhite, kBg);
-        tft->setCursor(20 + (int)strlen("Auto-check:") * 6 * bodyTs + 4 * (int)bodyTs, y);
+        tft->setCursor(20 + (int)strlen("Auto-check / auto-install:") * 6 * bodyTs + 2 * (int)bodyTs, y);
         tft->print(AppState_getOtaAutoCheckEnabled() ? "On" : "Off");
-        y += lineH;
-      }
-      if (y + lineH <= contentMaxY) {
-        tft->setTextColor(kAccent, kBg);
-        tft->setCursor(20, y);
-        tft->print("Auto-install:");
-        tft->setTextColor(kWhite, kBg);
-        tft->setCursor(20 + (int)strlen("Auto-install:") * 6 * bodyTs + 4 * (int)bodyTs, y);
+        tft->print(" / ");
         tft->print(AppState_getOtaAutoInstallEnabled() ? "On" : "Off");
-        y += lineH;
-      }
-
-      char manifestUrl[APP_STATE_OTA_URL_LEN];
-      OtaUpdate_getManifestUrl(manifestUrl, sizeof(manifestUrl));
-      if (y + lineH <= contentMaxY) {
-        tft->setTextColor(kAccent, kBg);
-        tft->setCursor(20, y);
-        tft->print("Manifest URL:");
-        y += lineH;
-      }
-      if (y + lineH <= contentMaxY) {
-        tft->setTextColor(kWhite, kBg);
-        tft->setCursor(24, y);
-        tft->print(manifestUrl[0] ? "Configured" : "Not configured");
         y += lineH;
       }
 
@@ -2779,21 +2767,22 @@ static void screens_draw_impl(SparkyTft* tft, ScreenId id, bool fullClear) {
           tft->setTextSize(1);
           tft->setTextColor(kAccent, kBg);
           tft->setCursor(20, btnY - (readable ? 22 : 18));
-          tft->print("Install this update now?");
+          tft->print("New version offered — install or dismiss:");
         }
         tft->fillRoundRect(20, btnY, half, btnH, 6, kGreen);
         tft->drawRoundRect(20, btnY, half, btnH, 6, kWhite);
-        sparkyDrawBtnLabel(tft, 20, btnY, half, btnH, "Yes", btnLblTs);
+        sparkyDrawBtnLabel(tft, 20, btnY, half, btnH, "Install", btnLblTs);
         tft->fillRoundRect(30 + half, btnY, half, btnH, 6, kBtn);
         tft->drawRoundRect(30 + half, btnY, half, btnH, 6, kWhite);
         sparkyDrawBtnLabel(tft, 30 + half, btnY, half, btnH, "Not now", btnLblTs);
       }
 
-      btnY = installY;
-      uint16_t installColor = OtaUpdate_hasPendingUpdate() ? kAccent : kBtn;
-      tft->fillRoundRect(20, btnY, w - 40, btnH, 6, installColor);
-      tft->drawRoundRect(20, btnY, w - 40, btnH, 6, kWhite);
-      sparkyDrawBtnLabel(tft, 20, btnY, w - 40, btnH, "Install now", btnLblTs);
+      if (installY >= 0) {
+        btnY = installY;
+        tft->fillRoundRect(20, btnY, w - 40, btnH, 6, kAccent);
+        tft->drawRoundRect(20, btnY, w - 40, btnH, 6, kWhite);
+        sparkyDrawBtnLabel(tft, 20, btnY, w - 40, btnH, "Install update", btnLblTs);
+      }
 
       btnY = toggleY;
       tft->fillRoundRect(20, btnY, half, btnH, 6, kBtn);
@@ -4020,9 +4009,10 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
     case SCREEN_UPDATES: {
       const bool readable = sparkyReadableUi(w, h);
       const bool showOffer = OtaUpdate_isInstallOfferPending();
+      const bool showStandaloneInstall = OtaUpdate_hasPendingUpdate() && !showOffer;
       int checkY = 0, offerY = -1, installY = 0, toggleY = 0, btnH = 0, gap = 0, half = 0, backY = 0, backH = 0;
-      sparkyOtaUpdatesComputeLayout(w, h, readable, showOffer, &checkY, &offerY, &installY, &toggleY, &btnH, &gap,
-                                    &half, &backY, &backH);
+      sparkyOtaUpdatesComputeLayout(w, h, readable, showOffer, showStandaloneInstall, &checkY, &offerY, &installY,
+                                    &toggleY, &btnH, &gap, &half, &backY, &backH);
       int btnY = checkY;
       if (inRect(ix, iy, 20, btnY, w - 40, btnH)) {
         OtaUpdate_checkNow();
@@ -4044,11 +4034,13 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
           return handled(current);
         }
       }
-      btnY = installY;
-      if (inRect(ix, iy, 20, btnY, w - 40, btnH)) {
-        if (OtaUpdate_hasPendingUpdate()) OtaUpdate_installPending();
-        Screens_draw(tft, current);
-        return handled(current);
+      if (installY >= 0) {
+        btnY = installY;
+        if (inRect(ix, iy, 20, btnY, w - 40, btnH)) {
+          if (OtaUpdate_hasPendingUpdate()) OtaUpdate_installPending();
+          Screens_draw(tft, current);
+          return handled(current);
+        }
       }
       btnY = toggleY;
       if (inRect(ix, iy, 20, btnY, half, btnH)) {

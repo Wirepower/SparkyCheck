@@ -1,4 +1,5 @@
 #include "OtaUpdate.h"
+#include "AdminPortal.h"
 #include "AppState.h"
 #include "WifiManager.h"
 
@@ -56,6 +57,7 @@ static t_httpUpdate_return s_otaWorkerRet = HTTP_UPDATE_FAILED;
 static char s_otaWorkerErrBuf[OTA_STATUS_LEN];
 static uint8_t s_otaPollLastPhase = 0xFF;
 static bool s_installOfferPending = false;
+static volatile bool s_otaUiRefreshRequest = false;
 
 static void otaEnsureInstallSyncPrimitives(void) {
   if (!s_otaUiMutex) s_otaUiMutex = xSemaphoreCreateMutex();
@@ -88,6 +90,12 @@ bool OtaUpdate_isInstallOfferPending(void) {
 
 void OtaUpdate_dismissInstallOffer(void) {
   s_installOfferPending = false;
+}
+
+bool OtaUpdate_takeUiRefreshRequest(void) {
+  if (!s_otaUiRefreshRequest) return false;
+  s_otaUiRefreshRequest = false;
+  return true;
 }
 
 /**
@@ -394,33 +402,37 @@ static bool fetchManifestJson(char* jsonOut, unsigned jsonSize) {
     return false;
   }
 
-  WiFiClientSecure client;
-  configureSecureClient(client);
+  AdminPortal_pauseForOta();
+  bool ok = false;
+  {
+    WiFiClientSecure client;
+    configureSecureClient(client);
 
-  HTTPClient http;
-  if (!http.begin(client, url)) {
-    setStatus("Unable to start manifest request.");
-    return false;
+    HTTPClient http;
+    if (!http.begin(client, url)) {
+      setStatus("Unable to start manifest request.");
+    } else {
+      http.setTimeout(12000);
+      const int code = http.GET();
+      if (code != HTTP_CODE_OK) {
+        char msg[OTA_STATUS_LEN];
+        snprintf(msg, sizeof(msg), "Manifest HTTP error: %d", code);
+        setStatus(msg);
+        http.end();
+      } else {
+        const String body = http.getString();
+        http.end();
+        if (body.length() == 0) {
+          setStatus("Manifest response is empty.");
+        } else {
+          strCopy(jsonOut, jsonSize, body.c_str());
+          ok = true;
+        }
+      }
+    }
   }
-  http.setTimeout(12000);
-
-  int code = http.GET();
-  if (code != HTTP_CODE_OK) {
-    char msg[OTA_STATUS_LEN];
-    snprintf(msg, sizeof(msg), "Manifest HTTP error: %d", code);
-    setStatus(msg);
-    http.end();
-    return false;
-  }
-
-  String body = http.getString();
-  http.end();
-  if (body.length() == 0) {
-    setStatus("Manifest response is empty.");
-    return false;
-  }
-  strCopy(jsonOut, jsonSize, body.c_str());
-  return true;
+  AdminPortal_resumeAfterOta();
+  return ok;
 }
 
 static bool parseManifest(const char* json, OtaManifest* out) {
@@ -526,8 +538,10 @@ bool OtaUpdate_installPending(void) {
   s_installOfferPending = false;
 
   setStatus("Installing update...");
+  AdminPortal_pauseForOta();
   otaEnsureInstallSyncPrimitives();
   if (!s_otaUiMutex || !s_otaWorkerDoneSem) {
+    AdminPortal_resumeAfterOta();
     setStatus("Install failed: OTA sync init.");
     return false;
   }
@@ -554,6 +568,7 @@ bool OtaUpdate_installPending(void) {
 #endif
   if (created != pdPASS) {
     s_otaInstallInProgress = false;
+    AdminPortal_resumeAfterOta();
     setStatus("Install failed: OTA worker task.");
     return false;
   }
@@ -562,6 +577,8 @@ bool OtaUpdate_installPending(void) {
     if (s_installTft) otaPumpInstallUiOnce(s_installTft);
     if (xSemaphoreTake(s_otaWorkerDoneSem, pdMS_TO_TICKS(50)) == pdTRUE) break;
   }
+
+  AdminPortal_resumeAfterOta();
 
   const t_httpUpdate_return ret = s_otaWorkerRet;
 
@@ -586,11 +603,12 @@ void OtaUpdate_runAutoFlow(void) {
   if (!AppState_getOtaAutoCheckEnabled()) return;
   if (!WifiManager_isConnected()) return;
   OtaCheckStatus st = OtaUpdate_checkNow();
+  s_otaUiRefreshRequest = true;
   if (st != OTA_CHECK_UPDATE_AVAILABLE) return;
 
   /* Never block the device with a full-screen install from the background task. */
   s_installOfferPending = true;
-  setStatus("Update available — Firmware updates: Yes to install or Not now.");
+  setStatus("Update available — open Firmware updates, then Install or Not now.");
 }
 
 void OtaUpdate_autoFlowTask(void* arg) {
