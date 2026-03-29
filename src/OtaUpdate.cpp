@@ -401,8 +401,10 @@ bool OtaUpdate_installPending(void) {
   WiFiClientSecure client;
   configureSecureClient(client);
 
-  HTTPUpdate updater;
+  /* GitHub release URLs respond with 302 to objects.githubusercontent.com; HTTPUpdate defaults to no redirects. */
+  HTTPUpdate updater(120000);
   updater.rebootOnUpdate(true);
+  updater.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
 #if ESP_ARDUINO_VERSION >= ESP_ARDUINO_VERSION_VAL(3, 0, 0)
   if (s_pending.md5[0]) updater.setMD5sum(s_pending.md5);
 #else
