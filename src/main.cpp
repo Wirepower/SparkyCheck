@@ -15,6 +15,7 @@
 #include <time.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+#include <sdkconfig.h>
 
 #if defined(SPARKYCHECK_EEZ_MOCKUP_UI)
 #include "EezMockupUi.h"
@@ -108,8 +109,13 @@ void loop() {
   Screens_refreshLiveStatus(&tft, s_currentScreen);
   if (!s_otaAutoDone && (long)(millis() - s_otaAutoAfterMs) >= 0) {
     s_otaAutoDone = true;
-    /* OTA uses HTTPUpdate + TLS; running on loopTask blew the stack canary when combined with UI saves. */
+    /* OTA uses HTTPUpdate + TLS; running on loopTask blew the stack canary when combined with UI saves.
+     * Pin to APP CPU (1) so install UI pump matches the core that owns the panel (same as loop). */
+#if defined(CONFIG_FREERTOS_UNICORE) && CONFIG_FREERTOS_UNICORE
     if (xTaskCreate(OtaUpdate_autoFlowTask, "ota_auto", 16384, nullptr, 1, nullptr) != pdPASS)
+#else
+    if (xTaskCreatePinnedToCore(OtaUpdate_autoFlowTask, "ota_auto", 16384, nullptr, 1, nullptr, 1) != pdPASS)
+#endif
       OtaUpdate_runAutoFlow();
   }
 

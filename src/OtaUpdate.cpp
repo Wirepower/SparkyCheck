@@ -8,6 +8,9 @@
 #include <HTTPUpdate.h>
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
+#include <freertos/task.h>
 #include <ctype.h>
 #include <stdio.h>
 #include <string.h>
@@ -39,6 +42,40 @@ static char s_lastStatus[OTA_STATUS_LEN] = "No OTA check yet.";
 static SparkyTft* s_installTft = nullptr;
 static unsigned long s_otaProgressLastMs = 0;
 static int s_otaProgressLastPct = -1;
+
+/* HTTPUpdate callbacks run on the WiFi stack (often not core 1). TFT must only refresh from the
+ * install wait loop on the same core as Arduino loop (typically APP CPU 1) to avoid INT WDT. */
+enum { OTA_PHASE_CONNECT = 0, OTA_PHASE_DOWNLOAD = 1, OTA_PHASE_WRITE = 2 };
+static SemaphoreHandle_t s_otaUiMutex = nullptr;
+static SemaphoreHandle_t s_otaWorkerDoneSem = nullptr;
+static volatile uint8_t s_otaUiPhase = OTA_PHASE_CONNECT;
+static volatile size_t s_otaUiCur = 0;
+static volatile size_t s_otaUiTotal = 0;
+static volatile bool s_otaInstallInProgress = false;
+static t_httpUpdate_return s_otaWorkerRet = HTTP_UPDATE_FAILED;
+static char s_otaWorkerErrBuf[OTA_STATUS_LEN];
+static uint8_t s_otaPollLastPhase = 0xFF;
+
+static void otaEnsureInstallSyncPrimitives(void) {
+  if (!s_otaUiMutex) s_otaUiMutex = xSemaphoreCreateMutex();
+  if (!s_otaWorkerDoneSem) s_otaWorkerDoneSem = xSemaphoreCreateBinary();
+}
+
+static void otaWorkerOnStart(void) {
+  if (!s_otaUiMutex) return;
+  if (xSemaphoreTake(s_otaUiMutex, pdMS_TO_TICKS(500)) != pdTRUE) return;
+  s_otaUiPhase = OTA_PHASE_WRITE;
+  xSemaphoreGive(s_otaUiMutex);
+}
+
+static void otaWorkerOnProgress(size_t cur, size_t total) {
+  if (!s_otaUiMutex) return;
+  if (xSemaphoreTake(s_otaUiMutex, pdMS_TO_TICKS(200)) != pdTRUE) return;
+  s_otaUiCur = cur;
+  s_otaUiTotal = total;
+  s_otaUiPhase = OTA_PHASE_DOWNLOAD;
+  xSemaphoreGive(s_otaUiMutex);
+}
 
 void OtaUpdate_setInstallDisplay(SparkyTft* tft) {
   s_installTft = tft;
@@ -149,21 +186,44 @@ static void otaDrawInstallProgress(SparkyTft* tft, size_t cur, size_t total, con
   tft->print(hint);
 }
 
-static void otaOnProgress(size_t cur, size_t total) {
-  if (!s_installTft) return;
-  int pct = -1;
-  if (total > 0) pct = (int)((uint64_t)cur * 100 / (uint64_t)total);
-  if (pct > 100) pct = 100;
+/** Call only from the task that owns the display (loop / install wait loop on APP CPU). */
+static void otaPumpInstallUiOnce(SparkyTft* tft) {
+  if (!s_otaInstallInProgress || !tft || !s_otaUiMutex) return;
+
+  size_t cur = 0, total = 0;
+  uint8_t phase = OTA_PHASE_CONNECT;
+  if (xSemaphoreTake(s_otaUiMutex, 0) != pdTRUE) return;
+  cur = s_otaUiCur;
+  total = s_otaUiTotal;
+  phase = s_otaUiPhase;
+  xSemaphoreGive(s_otaUiMutex);
 
   unsigned long ms = millis();
-  if (pct >= 0 && pct < 100) {
-    if (pct == s_otaProgressLastPct && (ms - s_otaProgressLastMs) < 200) return;
-  } else if (total == 0 && cur > 0 && (ms - s_otaProgressLastMs) < 100) return;
+  const bool phaseChanged = (phase != s_otaPollLastPhase);
 
+  int pct = -1;
+  if (total > 0) pct = (int)((uint64_t)cur * (uint64_t)100 / (uint64_t)total);
+  if (pct > 100) pct = 100;
+
+  if (!phaseChanged) {
+    if (phase == OTA_PHASE_CONNECT && (ms - s_otaProgressLastMs) < 500) return;
+    if (phase == OTA_PHASE_DOWNLOAD) {
+      if (pct >= 0 && pct < 100) {
+        if (pct == s_otaProgressLastPct && (ms - s_otaProgressLastMs) < 200) return;
+      } else if (total == 0 && cur > 0 && (ms - s_otaProgressLastMs) < 100) {
+        return;
+      }
+    }
+    if (phase == OTA_PHASE_WRITE && (ms - s_otaProgressLastMs) < 100) return;
+  }
+
+  s_otaPollLastPhase = phase;
   s_otaProgressLastPct = pct;
   s_otaProgressLastMs = ms;
-  otaDrawInstallProgress(s_installTft, cur, total, nullptr);
-  sparkyDisplayFlush(s_installTft);
+
+  const char* ov = (phase == OTA_PHASE_WRITE) ? "Writing to flash..." : nullptr;
+  otaDrawInstallProgress(tft, cur, total, ov);
+  sparkyDisplayFlush(tft);
 }
 
 static void setStatus(const char* text) {
@@ -218,6 +278,35 @@ static void configureSecureClient(WiFiClientSecure& client) {
   client.setCACert(OTA_TLS_ROOT_CA);
 #endif
   client.setTimeout(12000);
+}
+
+static void otaInstallWorker(void* arg) {
+  (void)arg;
+  WiFiClientSecure client;
+  configureSecureClient(client);
+
+  HTTPUpdate updater(120000);
+  updater.rebootOnUpdate(true);
+  updater.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
+#if ESP_ARDUINO_VERSION >= ESP_ARDUINO_VERSION_VAL(3, 0, 0)
+  if (s_pending.md5[0]) updater.setMD5sum(s_pending.md5);
+#else
+  if (s_pending.md5[0]) updater.setMD5(s_pending.md5);
+#endif
+
+  updater.onStart([]() { otaWorkerOnStart(); });
+  updater.onProgress([](size_t c, size_t t) { otaWorkerOnProgress(c, t); });
+
+  s_otaWorkerRet = updater.update(client, s_pending.firmwareUrl, OtaUpdate_getCurrentVersion());
+  if (s_otaWorkerRet != HTTP_UPDATE_OK) {
+    strCopy(s_otaWorkerErrBuf, sizeof(s_otaWorkerErrBuf), updater.getLastErrorString().c_str());
+  } else {
+    s_otaWorkerErrBuf[0] = '\0';
+  }
+
+  s_otaInstallInProgress = false;
+  xSemaphoreGive(s_otaWorkerDoneSem);
+  vTaskDelete(nullptr);
 }
 
 void OtaUpdate_init(void) {
@@ -422,37 +511,44 @@ bool OtaUpdate_installPending(void) {
   }
 
   setStatus("Installing update...");
-  WiFiClientSecure client;
-  configureSecureClient(client);
-
-  /* GitHub release URLs respond with 302 to objects.githubusercontent.com; HTTPUpdate defaults to no redirects. */
-  HTTPUpdate updater(120000);
-  updater.rebootOnUpdate(true);
-  updater.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
-#if ESP_ARDUINO_VERSION >= ESP_ARDUINO_VERSION_VAL(3, 0, 0)
-  if (s_pending.md5[0]) updater.setMD5sum(s_pending.md5);
-#else
-  if (s_pending.md5[0]) updater.setMD5(s_pending.md5);
-#endif
-
-  s_otaProgressLastPct = -1;
-  s_otaProgressLastMs = 0;
-  if (s_installTft) {
-    /*
-     * Do not run TFT redraw from a second FreeRTOS task during TLS/WiFi: concurrent SPI/display
-     * with the stack on another core can trigger Interrupt WDT on CPU1 (ISR starvation).
-     */
-    otaDrawInstallProgress(s_installTft, 0, 0, nullptr);
-    sparkyDisplayFlush(s_installTft);
-    updater.onStart([]() {
-      if (!s_installTft) return;
-      otaDrawInstallProgress(s_installTft, 0, 0, "Writing to flash...");
-      sparkyDisplayFlush(s_installTft);
-    });
-    updater.onProgress([](size_t c, size_t t) { otaOnProgress(c, t); });
+  otaEnsureInstallSyncPrimitives();
+  if (!s_otaUiMutex || !s_otaWorkerDoneSem) {
+    setStatus("Install failed: OTA sync init.");
+    return false;
   }
 
-  t_httpUpdate_return ret = updater.update(client, s_pending.firmwareUrl, OtaUpdate_getCurrentVersion());
+  s_otaUiPhase = OTA_PHASE_CONNECT;
+  s_otaUiCur = 0;
+  s_otaUiTotal = 0;
+  s_otaProgressLastPct = -1;
+  s_otaProgressLastMs = 0;
+  s_otaInstallInProgress = true;
+
+  if (s_installTft) {
+    otaDrawInstallProgress(s_installTft, 0, 0, nullptr);
+    sparkyDisplayFlush(s_installTft);
+    s_otaProgressLastMs = millis();
+  }
+  s_otaPollLastPhase = OTA_PHASE_CONNECT;
+
+#if defined(CONFIG_FREERTOS_UNICORE) && CONFIG_FREERTOS_UNICORE
+  const BaseType_t created = xTaskCreate(otaInstallWorker, "ota_inst", 24576, nullptr, 3, nullptr);
+#else
+  const BaseType_t created =
+      xTaskCreatePinnedToCore(otaInstallWorker, "ota_inst", 24576, nullptr, 3, nullptr, 0);
+#endif
+  if (created != pdPASS) {
+    s_otaInstallInProgress = false;
+    setStatus("Install failed: OTA worker task.");
+    return false;
+  }
+
+  for (;;) {
+    if (s_installTft) otaPumpInstallUiOnce(s_installTft);
+    if (xSemaphoreTake(s_otaWorkerDoneSem, pdMS_TO_TICKS(50)) == pdTRUE) break;
+  }
+
+  const t_httpUpdate_return ret = s_otaWorkerRet;
 
   if (ret == HTTP_UPDATE_OK) {
     setStatus("Update installed. Rebooting...");
@@ -463,7 +559,10 @@ bool OtaUpdate_installPending(void) {
     return false;
   }
   char msg[OTA_STATUS_LEN];
-  snprintf(msg, sizeof(msg), "Install failed: %s", updater.getLastErrorString().c_str());
+  if (s_otaWorkerErrBuf[0])
+    snprintf(msg, sizeof(msg), "Install failed: %s", s_otaWorkerErrBuf);
+  else
+    snprintf(msg, sizeof(msg), "Install failed.");
   setStatus(msg);
   return false;
 }
