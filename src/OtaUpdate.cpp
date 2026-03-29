@@ -8,6 +8,7 @@
 #include <HTTPUpdate.h>
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
+#include <freertos/semphr.h>
 #include <freertos/task.h>
 #include <ctype.h>
 #include <stdio.h>
@@ -40,6 +41,13 @@ static char s_lastStatus[OTA_STATUS_LEN] = "No OTA check yet.";
 static SparkyTft* s_installTft = nullptr;
 static unsigned long s_otaProgressLastMs = 0;
 static int s_otaProgressLastPct = -1;
+
+/* Live "working" clock while HTTPUpdate blocks in TLS/GET (no onProgress yet). */
+static SemaphoreHandle_t s_otaUiMutex = nullptr;
+static volatile bool s_otaPulseAbort = false;
+static volatile bool s_otaPulseTaskDone = true;
+static TaskHandle_t s_otaPulseHandle = nullptr;
+static unsigned long s_otaConnectStartMs = 0;
 
 void OtaUpdate_setInstallDisplay(SparkyTft* tft) {
   s_installTft = tft;
@@ -85,8 +93,8 @@ static void otaDrawInstallProgress(SparkyTft* tft, size_t cur, size_t total, con
   tft->setCursor((w - tw) / 2, h / 4 + 26);
   tft->print(sub);
 
-  /* Only while blocked in HTTP GET (no size yet): onProgress does not run until after TLS + headers. */
-  if (cur == 0 && total == 0 && (!statusOverride || !statusOverride[0])) {
+  /* While size unknown (TLS/GET or unknown Content-Length): explain possible wait. */
+  if (cur == 0 && total == 0) {
     tft->setTextColor(0xBDF7, TFT_BLACK);
     const char* waitHint = "HTTPS link can take 1-3 min on Wi-Fi";
     tw = (int)strlen(waitHint) * 6;
@@ -150,6 +158,47 @@ static void otaDrawInstallProgress(SparkyTft* tft, size_t cur, size_t total, con
   tft->print(hint);
 }
 
+static void otaUiMutexEnsure(void) {
+  if (s_otaUiMutex) return;
+  s_otaUiMutex = xSemaphoreCreateMutex();
+}
+
+static void otaPulseStopAndJoin(void) {
+  s_otaPulseAbort = true;
+  const unsigned long t0 = millis();
+  while (!s_otaPulseTaskDone && (millis() - t0) < 5000UL) {
+    vTaskDelay(pdMS_TO_TICKS(5));
+  }
+}
+
+static void otaConnectingPulseTask(void* arg) {
+  (void)arg;
+  otaUiMutexEnsure();
+  s_otaPulseTaskDone = false;
+  for (;;) {
+    if (s_otaPulseAbort) break;
+    if (s_installTft && s_otaUiMutex) {
+      if (xSemaphoreTake(s_otaUiMutex, pdMS_TO_TICKS(300)) == pdTRUE) {
+        const unsigned sec = (unsigned)((millis() - s_otaConnectStartMs) / 1000UL);
+        char line[36];
+        const unsigned m = sec / 60U;
+        const unsigned s = sec % 60U;
+        if (m > 0)
+          snprintf(line, sizeof(line), "Working %um %02us", m, s);
+        else
+          snprintf(line, sizeof(line), "Working... %us", sec);
+        otaDrawInstallProgress(s_installTft, 0, 0, line);
+        sparkyDisplayFlush(s_installTft);
+        xSemaphoreGive(s_otaUiMutex);
+      }
+    }
+    vTaskDelay(pdMS_TO_TICKS(400));
+  }
+  s_otaPulseTaskDone = true;
+  s_otaPulseHandle = nullptr;
+  vTaskDelete(nullptr);
+}
+
 static void otaOnProgress(size_t cur, size_t total) {
   if (!s_installTft) return;
   int pct = -1;
@@ -163,8 +212,12 @@ static void otaOnProgress(size_t cur, size_t total) {
 
   s_otaProgressLastPct = pct;
   s_otaProgressLastMs = ms;
+  if (s_otaUiMutex) {
+    if (xSemaphoreTake(s_otaUiMutex, pdMS_TO_TICKS(200)) != pdTRUE) return;
+  }
   otaDrawInstallProgress(s_installTft, cur, total, nullptr);
   sparkyDisplayFlush(s_installTft);
+  if (s_otaUiMutex) xSemaphoreGive(s_otaUiMutex);
 }
 
 static void setStatus(const char* text) {
@@ -439,17 +492,36 @@ bool OtaUpdate_installPending(void) {
   s_otaProgressLastPct = -1;
   s_otaProgressLastMs = 0;
   if (s_installTft) {
-    otaDrawInstallProgress(s_installTft, 0, 0, nullptr);
-    sparkyDisplayFlush(s_installTft);
-    updater.onStart([]() {
-      if (!s_installTft) return;
-      otaDrawInstallProgress(s_installTft, 0, 0, "Writing to flash...");
+    otaUiMutexEnsure();
+    s_otaPulseAbort = false;
+    s_otaConnectStartMs = millis();
+    s_otaPulseTaskDone = false;
+    const BaseType_t pt = xTaskCreate(otaConnectingPulseTask, "ota_conn_ui", 8192, nullptr, 1, &s_otaPulseHandle);
+    if (pt != pdPASS) {
+      s_otaPulseTaskDone = true;
+      s_otaPulseHandle = nullptr;
+      otaDrawInstallProgress(s_installTft, 0, 0, nullptr);
       sparkyDisplayFlush(s_installTft);
+    }
+    updater.onStart([]() {
+      s_otaPulseAbort = true;
+      const unsigned long t0 = millis();
+      while (!s_otaPulseTaskDone && (millis() - t0) < 5000UL) {
+        vTaskDelay(pdMS_TO_TICKS(5));
+      }
+      if (!s_installTft) return;
+      if (s_otaUiMutex && xSemaphoreTake(s_otaUiMutex, pdMS_TO_TICKS(1000)) == pdTRUE) {
+        otaDrawInstallProgress(s_installTft, 0, 0, "Writing to flash...");
+        sparkyDisplayFlush(s_installTft);
+        xSemaphoreGive(s_otaUiMutex);
+      }
     });
     updater.onProgress([](size_t c, size_t t) { otaOnProgress(c, t); });
   }
 
   t_httpUpdate_return ret = updater.update(client, s_pending.firmwareUrl, OtaUpdate_getCurrentVersion());
+
+  if (s_installTft) otaPulseStopAndJoin();
 
   if (ret == HTTP_UPDATE_OK) {
     setStatus("Update installed. Rebooting...");
