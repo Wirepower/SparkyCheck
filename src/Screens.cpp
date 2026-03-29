@@ -34,8 +34,11 @@ static const uint16_t kWhite = 0xFFFF;
 static const uint16_t kGreen = kBtn;
 static const uint16_t kRed = 0xF800;
 
-/** Centered headings: below status bar band so periodic clock refresh never clips them. */
-static const int kScreenTitleYCenterSize2 = 28;
+/**
+ * Baseline Y for centered size-2 titles. Status bar draws battery (~y7–17), Wi‑Fi (~y16), clock (y8–22);
+ * size-2 glyphs extend ~12px above baseline, so 28 overlapped the banner; 40 clears it before Screens_drawStatusBar().
+ */
+static const int kScreenTitleYCenterSize2 = 40;
 
 /** Readable text on 4.3" landscape or tall portrait (matches EEZ layout helpers). */
 static bool sparkyReadableUi(int w, int h) {
@@ -45,6 +48,20 @@ static bool sparkyReadableUi(int w, int h) {
 /** Narrow width (e.g. portrait 480×800): title must sit below Back, not on the same row. */
 static bool sparkyTestFlowNarrowHeader(int w) {
   return w < 600;
+}
+
+/** Firmware updates: primary buttons + full-width Back; same geometry as Screens_handleTouch. */
+static void sparkyOtaUpdatesComputeLayout(int w, int h, bool readable, int* outCheckY, int* outBtnH, int* outGap,
+                                          int* outHalf, int* outBackY, int* outBackH) {
+  *outBtnH = readable ? 42 : 30;
+  *outGap = readable ? 8 : 6;
+  *outBackH = readable ? 44 : 36;
+  const int bottomPad = readable ? 8 : 6;
+  *outBackY = h - *outBackH - bottomPad;
+  const int toggleY = *outBackY - *outGap - *outBtnH;
+  const int installY = toggleY - *outGap - *outBtnH;
+  *outCheckY = installY - *outGap - *outBtnH;
+  *outHalf = (w - 50) / 2;
 }
 
 static void sparkyMainMenuLayout(int w, int h, int* y0, int* btnH, int* gap) {
@@ -1550,7 +1567,7 @@ static void screens_draw_impl(SparkyTft* tft, ScreenId id, bool fullClear) {
       {
         const char* title = "SparkyCheck";
         int tw = (int)strlen(title) * 6 * 2;
-        tft->setCursor((w - tw) / 2, 30);
+        tft->setCursor((w - tw) / 2, kScreenTitleYCenterSize2);
         tft->print(title);
       }
       tft->setTextSize(1);
@@ -1558,7 +1575,7 @@ static void screens_draw_impl(SparkyTft* tft, ScreenId id, bool fullClear) {
       {
         const char* mode = AppState_isFieldMode() ? "Field mode" : "Training mode";
         int twm = (int)strlen(mode) * 6;
-        tft->setCursor((w - twm) / 2, 54);
+        tft->setCursor((w - twm) / 2, kScreenTitleYCenterSize2 + 20);
         tft->print(mode);
       }
       int btnW = w - 40, y = y0;
@@ -2521,155 +2538,223 @@ static void screens_draw_impl(SparkyTft* tft, ScreenId id, bool fullClear) {
       break;
     }
     case SCREEN_ABOUT: {
+      const bool readable = sparkyReadableUi(w, h);
+      const uint8_t bodyTs = readable ? (uint8_t)2 : (uint8_t)1;
+      const int lineH = 7 * (int)bodyTs + (readable ? 6 : 4);
+      const int backH = readable ? 44 : 36;
+      const int backY = h - backH - (readable ? 8 : 6);
+      const int btnW = w - 40;
+      const int yMax = backY - 8;
+
       tft->setTextColor(kWhite, kBg);
       tft->setTextSize(2);
-      tft->setCursor(20, 8);
-      tft->print("About SparkyCheck");
-      tft->setTextSize(1);
-      tft->setTextColor(kAccent, kBg);
-      tft->setCursor(20, 34);
-      tft->print("Firmware version");
-      tft->setTextColor(kWhite, kBg);
-      tft->setCursor(130, 34);
-      tft->print(OtaUpdate_getCurrentVersion());
-      tft->setTextColor(kAccent, kBg);
-      tft->setCursor(20, 50);
-      tft->print("What it is");
-      tft->setTextColor(kWhite, kBg);
-      tft->setCursor(20, 64);
-      tft->setTextWrap(true);
-      tft->print(
-          "SparkyCheck is a portable verification coach for electrical apprentices and electricians. "
-          "It walks through AS/NZS-aligned checks, safety reminders, pass/fail capture, and saved "
-          "reports you can review on the device or send by email when configured.");
+      {
+        const char* title = "About SparkyCheck";
+        int tw = (int)strlen(title) * 6 * 2;
+        tft->setCursor((w - tw) / 2, kScreenTitleYCenterSize2);
+        tft->print(title);
+      }
+      int y = kScreenTitleYCenterSize2 + (readable ? 22 : 18);
+      tft->setTextSize(bodyTs);
       tft->setTextWrap(false);
-      tft->setTextColor(kAccent, kBg);
-      tft->setCursor(20, 118);
-      tft->print("Created by");
-      tft->setTextColor(kWhite, kBg);
-      tft->setCursor(20, 132);
-      tft->print("Frank Offer 2026");
-      tft->setTextColor(kAccent, kBg);
-      tft->setCursor(20, 148);
-      tft->print("Current standards");
+
+      if (y + lineH <= yMax) {
+        tft->setTextColor(kAccent, kBg);
+        tft->setCursor(20, y);
+        tft->print("Firmware version");
+        y += lineH;
+      }
+      if (y + lineH <= yMax) {
+        tft->setTextColor(kWhite, kBg);
+        tft->setCursor(24, y);
+        tft->print(OtaUpdate_getCurrentVersion());
+        y += lineH;
+      }
+      if (y + lineH <= yMax) {
+        tft->setTextColor(kAccent, kBg);
+        tft->setCursor(20, y);
+        tft->print("What it is");
+        y += lineH;
+      }
+      if (y < yMax) {
+        tft->setTextColor(kWhite, kBg);
+        tft->setTextWrap(true);
+        tft->setCursor(20, y);
+        tft->print(
+            "SparkyCheck is a portable verification coach for electrical apprentices and electricians. "
+            "It walks through AS/NZS-aligned checks, safety reminders, pass/fail capture, and saved "
+            "reports you can review on the device or send by email when configured.");
+        y = tft->getCursorY() + (readable ? 8 : 4);
+        tft->setTextWrap(false);
+      }
+      if (y + lineH <= yMax) {
+        tft->setTextColor(kAccent, kBg);
+        tft->setCursor(20, y);
+        tft->print("Created by");
+        y += lineH;
+      }
+      if (y + lineH <= yMax) {
+        tft->setTextColor(kWhite, kBg);
+        tft->setCursor(20, y);
+        tft->print("Frank Offer 2026");
+        y += lineH;
+      }
+      if (y + lineH <= yMax) {
+        tft->setTextColor(kAccent, kBg);
+        tft->setCursor(20, y);
+        tft->print("Current standards");
+        y += lineH;
+      }
       tft->setTextColor(kWhite, kBg);
       StandardInfo info;
-      int ly = 162;
       for (int sid = 0; sid < STANDARD_COUNT; sid++) {
+        if (y + lineH > yMax) break;
         Standards_getInfo((StandardId)sid, &info);
         if (!Standards_isActiveInCurrentMode((StandardId)sid)) continue;
-        tft->setCursor(20, ly);
+        tft->setCursor(20, y);
         tft->print(info.short_name);
-        if (info.section && info.section[0]) { tft->print(" "); tft->print(info.section); }
-        else { tft->print(" - "); tft->print(info.title); }
-        ly += 14;
+        if (info.section && info.section[0]) {
+          tft->print(" ");
+          tft->print(info.section);
+        } else {
+          tft->print(" - ");
+          tft->print(info.title);
+        }
+        y += lineH;
       }
-      char rv[16];
-      Standards_getRulesVersion(rv, sizeof(rv));
-      tft->setCursor(20, ly + 4);
-      tft->setTextColor(kAccent, kBg);
-      tft->print("Rules version: ");
-      tft->setTextColor(kWhite, kBg);
-      tft->print(rv);
-      tft->fillRoundRect(20, h - 44, 80, 36, 6, kBtn);
-      tft->drawRoundRect(20, h - 44, 80, 36, 6, kWhite);
-      tft->setTextColor(kWhite, kBtn);
-      tft->setCursor(40, h - 32);
-      tft->print("Back");
+      if (y + lineH <= yMax) {
+        char rv[16];
+        Standards_getRulesVersion(rv, sizeof(rv));
+        tft->setTextColor(kAccent, kBg);
+        tft->setCursor(20, y);
+        tft->print("Rules version: ");
+        tft->setTextColor(kWhite, kBg);
+        tft->print(rv);
+      }
+
+      tft->fillRoundRect(20, backY, btnW, backH, 6, kBtn);
+      tft->drawRoundRect(20, backY, btnW, backH, 6, kWhite);
+      sparkyDrawBtnLabel(tft, 20, backY, btnW, backH, "Back", 2);
       break;
     }
     case SCREEN_UPDATES: {
+      const bool readable = sparkyReadableUi(w, h);
+      const uint8_t bodyTs = readable ? (uint8_t)2 : (uint8_t)1;
+      const uint8_t btnLblTs = readable ? (uint8_t)2 : (uint8_t)1;
+      const int lineH = 7 * (int)bodyTs + (readable ? 4 : 3);
+      int checkY = 0, btnH = 0, gap = 0, half = 0, backY = 0, backH = 0;
+      sparkyOtaUpdatesComputeLayout(w, h, readable, &checkY, &btnH, &gap, &half, &backY, &backH);
+      const int contentMaxY = checkY - (readable ? 10 : 6);
+
       tft->setTextColor(kWhite, kBg);
       tft->setTextSize(2);
-      tft->setCursor(20, 8);
-      tft->print("Firmware updates");
-      tft->setTextSize(1);
+      {
+        const char* title = "Firmware updates";
+        int tw = (int)strlen(title) * 6 * 2;
+        tft->setCursor((w - tw) / 2, kScreenTitleYCenterSize2);
+        tft->print(title);
+      }
 
-      tft->setTextColor(kAccent, kBg);
-      tft->setCursor(20, 34);
-      tft->print("Current firmware:");
-      tft->setTextColor(kWhite, kBg);
-      tft->setCursor(150, 34);
-      tft->print(OtaUpdate_getCurrentVersion());
+      int y = kScreenTitleYCenterSize2 + (readable ? 22 : 18);
+      tft->setTextSize(bodyTs);
+      tft->setTextWrap(false);
 
-      tft->setTextColor(kAccent, kBg);
-      tft->setCursor(20, 50);
-      tft->print("Auto-check:");
-      tft->setTextColor(kWhite, kBg);
-      tft->setCursor(92, 50);
-      tft->print(AppState_getOtaAutoCheckEnabled() ? "On" : "Off");
-
-      tft->setTextColor(kAccent, kBg);
-      tft->setCursor(20, 64);
-      tft->print("Auto-install:");
-      tft->setTextColor(kWhite, kBg);
-      tft->setCursor(92, 64);
-      tft->print(AppState_getOtaAutoInstallEnabled() ? "On" : "Off");
+      if (y + lineH <= contentMaxY) {
+        tft->setTextColor(kAccent, kBg);
+        tft->setCursor(20, y);
+        tft->print("Current firmware:");
+        y += lineH;
+      }
+      if (y + lineH <= contentMaxY) {
+        tft->setTextColor(kWhite, kBg);
+        tft->setCursor(24, y);
+        tft->print(OtaUpdate_getCurrentVersion());
+        y += lineH;
+      }
+      if (y + lineH <= contentMaxY) {
+        tft->setTextColor(kAccent, kBg);
+        tft->setCursor(20, y);
+        tft->print("Auto-check:");
+        tft->setTextColor(kWhite, kBg);
+        tft->setCursor(20 + (int)strlen("Auto-check:") * 6 * bodyTs + 4 * (int)bodyTs, y);
+        tft->print(AppState_getOtaAutoCheckEnabled() ? "On" : "Off");
+        y += lineH;
+      }
+      if (y + lineH <= contentMaxY) {
+        tft->setTextColor(kAccent, kBg);
+        tft->setCursor(20, y);
+        tft->print("Auto-install:");
+        tft->setTextColor(kWhite, kBg);
+        tft->setCursor(20 + (int)strlen("Auto-install:") * 6 * bodyTs + 4 * (int)bodyTs, y);
+        tft->print(AppState_getOtaAutoInstallEnabled() ? "On" : "Off");
+        y += lineH;
+      }
 
       char manifestUrl[APP_STATE_OTA_URL_LEN];
       OtaUpdate_getManifestUrl(manifestUrl, sizeof(manifestUrl));
-      tft->setTextColor(kAccent, kBg);
-      tft->setCursor(20, 78);
-      tft->print("Manifest URL:");
-      tft->setTextColor(kWhite, kBg);
-      tft->setCursor(20, 92);
-      tft->print(manifestUrl[0] ? "Configured" : "Not configured");
+      if (y + lineH <= contentMaxY) {
+        tft->setTextColor(kAccent, kBg);
+        tft->setCursor(20, y);
+        tft->print("Manifest URL:");
+        y += lineH;
+      }
+      if (y + lineH <= contentMaxY) {
+        tft->setTextColor(kWhite, kBg);
+        tft->setCursor(24, y);
+        tft->print(manifestUrl[0] ? "Configured" : "Not configured");
+        y += lineH;
+      }
 
       char status[OTA_STATUS_LEN];
       OtaUpdate_getLastStatus(status, sizeof(status));
-      tft->setTextColor(kAccent, kBg);
-      tft->setCursor(20, 108);
-      tft->print("Status:");
-      tft->setTextColor(kWhite, kBg);
-      tft->setCursor(20, 122);
-      tft->print(status);
+      if (y + lineH <= contentMaxY) {
+        tft->setTextColor(kAccent, kBg);
+        tft->setCursor(20, y);
+        tft->print("Status:");
+        y += lineH;
+      }
+      if (y < contentMaxY) {
+        tft->setTextColor(kWhite, kBg);
+        tft->setTextWrap(true);
+        tft->setCursor(20, y);
+        tft->print(status);
+        y = tft->getCursorY() + (readable ? 4 : 2);
+        tft->setTextWrap(false);
+      }
 
       char pending[OTA_VERSION_LEN];
       OtaUpdate_getPendingVersion(pending, sizeof(pending));
-      if (pending[0]) {
+      if (pending[0] && y + lineH <= contentMaxY) {
         tft->setTextColor(kAccent, kBg);
-        tft->setCursor(20, 136);
+        tft->setCursor(20, y);
         tft->print("Pending:");
         tft->setTextColor(kWhite, kBg);
-        tft->setCursor(74, 136);
+        tft->setCursor(20 + (int)strlen("Pending:") * 6 * bodyTs + 4 * (int)bodyTs, y);
         tft->print(pending);
       }
 
-      int btnY = 150, btnH = 30, gap = 6;
+      int btnY = checkY;
       tft->fillRoundRect(20, btnY, w - 40, btnH, 6, kGreen);
       tft->drawRoundRect(20, btnY, w - 40, btnH, 6, kWhite);
-      tft->setTextColor(kWhite, kGreen);
-      tft->setCursor(w / 2 - 36, btnY + 8);
-      tft->print("Check now");
+      sparkyDrawBtnLabel(tft, 20, btnY, w - 40, btnH, "Check now", btnLblTs);
 
       btnY += btnH + gap;
       uint16_t installColor = OtaUpdate_hasPendingUpdate() ? kAccent : kBtn;
-      uint16_t installText = kWhite;
       tft->fillRoundRect(20, btnY, w - 40, btnH, 6, installColor);
       tft->drawRoundRect(20, btnY, w - 40, btnH, 6, kWhite);
-      tft->setTextColor(installText, installColor);
-      tft->setCursor(w / 2 - 34, btnY + 8);
-      tft->print("Install now");
+      sparkyDrawBtnLabel(tft, 20, btnY, w - 40, btnH, "Install now", btnLblTs);
 
       btnY += btnH + gap;
-      int half = (w - 50) / 2;
       tft->fillRoundRect(20, btnY, half, btnH, 6, kBtn);
       tft->drawRoundRect(20, btnY, half, btnH, 6, kWhite);
-      tft->setTextColor(kWhite, kBtn);
-      tft->setCursor(26, btnY + 8);
-      tft->print("Toggle auto-check");
+      sparkyDrawBtnLabel(tft, 20, btnY, half, btnH, "Toggle auto-check", btnLblTs);
       tft->fillRoundRect(30 + half, btnY, half, btnH, 6, kBtn);
       tft->drawRoundRect(30 + half, btnY, half, btnH, 6, kWhite);
-      tft->setCursor(36 + half, btnY + 8);
-      tft->print("Toggle auto-install");
+      sparkyDrawBtnLabel(tft, 30 + half, btnY, half, btnH, "Toggle auto-install", btnLblTs);
 
-      btnY += btnH + gap;
-
-      tft->fillRoundRect(20, btnY, 80, 26, 6, kBtn);
-      tft->drawRoundRect(20, btnY, 80, 26, 6, kWhite);
-      tft->setTextColor(kWhite, kBtn);
-      tft->setCursor(40, btnY + 6);
-      tft->print("Back");
+      tft->fillRoundRect(20, backY, w - 40, backH, 6, kBtn);
+      tft->drawRoundRect(20, backY, w - 40, backH, 6, kWhite);
+      sparkyDrawBtnLabel(tft, 20, backY, w - 40, backH, "Back", 2);
       break;
     }
     case SCREEN_TRAINING_SYNC: {
@@ -3867,11 +3952,18 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
       }
       break;
     }
-    case SCREEN_ABOUT:
-      if (inRect(ix, iy, 20, h - 44, 80, 36)) return handled(SCREEN_SETTINGS);
+    case SCREEN_ABOUT: {
+      const bool readable = sparkyReadableUi(w, h);
+      const int backH = readable ? 44 : 36;
+      const int backY = h - backH - (readable ? 8 : 6);
+      if (inRect(ix, iy, 20, backY, w - 40, backH)) return handled(SCREEN_SETTINGS);
       break;
+    }
     case SCREEN_UPDATES: {
-      int btnY = 150, btnH = 30, gap = 6;
+      const bool readable = sparkyReadableUi(w, h);
+      int checkY = 0, btnH = 0, gap = 0, half = 0, backY = 0, backH = 0;
+      sparkyOtaUpdatesComputeLayout(w, h, readable, &checkY, &btnH, &gap, &half, &backY, &backH);
+      int btnY = checkY;
       if (inRect(ix, iy, 20, btnY, w - 40, btnH)) {
         OtaUpdate_checkNow();
         Screens_draw(tft, current);
@@ -3884,7 +3976,6 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
         return handled(current);
       }
       btnY += btnH + gap;
-      int half = (w - 50) / 2;
       if (inRect(ix, iy, 20, btnY, half, btnH)) {
         bool enabled = !AppState_getOtaAutoCheckEnabled();
         AppState_setOtaAutoCheckEnabled(enabled);
@@ -3901,8 +3992,7 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
         Screens_draw(tft, current);
         return handled(current);
       }
-      btnY += btnH + gap;
-      if (inRect(ix, iy, 20, btnY, 80, 26)) return handled(SCREEN_SETTINGS);
+      if (inRect(ix, iy, 20, backY, w - 40, backH)) return handled(SCREEN_SETTINGS);
       break;
     }
     case SCREEN_TRAINING_SYNC: {
