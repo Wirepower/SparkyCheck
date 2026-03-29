@@ -1,6 +1,7 @@
 #include "AppState.h"
 #include "Standards.h"
 #include <Preferences.h>
+#include <string.h>
 #include <sys/time.h>
 #include <time.h>
 
@@ -12,6 +13,9 @@ static const char* NVS_KEY_BUZZ   = "buzz";
 static const char* NVS_KEY_CLK12  = "clk_12";
 static const char* NVS_KEY_CLK_TZ = "clk_tz";
 static const char* NVS_KEY_CLK_DST = "clk_dst";
+static const char* NVS_KEY_NTP_EN = "ntp_en";
+static const char* NVS_KEY_NTP_1 = "ntp_1";
+static const char* NVS_KEY_NTP_2 = "ntp_2";
 static const char* NVS_KEY_WALL_UTC = "wall_utc";
 static const char* NVS_KEY_WIFI_SSID   = "wifi_ssid";
 static const char* NVS_KEY_WIFI_PASS   = "wifi_pass";
@@ -38,6 +42,9 @@ static bool s_buzzer = true;
 static bool s_clock12 = true;
 static int16_t s_clockTzOffsetMin = 0;
 static bool s_clockDstExtra = false;
+static bool s_ntpEnabled = true;
+static char s_ntp1[APP_STATE_NTP_SERVER_LEN];
+static char s_ntp2[APP_STATE_NTP_SERVER_LEN];
 static bool s_loaded = false;
 
 void AppState_load(void) {
@@ -48,6 +55,13 @@ void AppState_load(void) {
     s_rotation = prefs.getInt(NVS_KEY_ROT, 1);
     s_buzzer = prefs.getBool(NVS_KEY_BUZZ, true);
     s_clock12 = prefs.getBool(NVS_KEY_CLK12, true);
+    s_clockTzOffsetMin = (int16_t)prefs.getInt(NVS_KEY_CLK_TZ, 0);
+    s_clockDstExtra = prefs.getBool(NVS_KEY_CLK_DST, false);
+    s_ntpEnabled = prefs.getBool(NVS_KEY_NTP_EN, true);
+    s_ntp1[0] = '\0';
+    s_ntp2[0] = '\0';
+    if (prefs.isKey(NVS_KEY_NTP_1)) prefs.getString(NVS_KEY_NTP_1, s_ntp1, sizeof(s_ntp1));
+    if (prefs.isKey(NVS_KEY_NTP_2)) prefs.getString(NVS_KEY_NTP_2, s_ntp2, sizeof(s_ntp2));
     prefs.end();
   }
   s_loaded = true;
@@ -170,6 +184,56 @@ void AppState_setClockDstExtraHour(bool on) {
     prefs.putBool(NVS_KEY_CLK_DST, on);
     prefs.end();
   }
+}
+
+bool AppState_getNtpEnabled(void) {
+  if (!s_loaded) AppState_load();
+  return s_ntpEnabled;
+}
+
+void AppState_setNtpEnabled(bool on) {
+  s_ntpEnabled = on;
+  Preferences prefs;
+  if (prefs.begin(NVS_NAMESPACE, false)) {
+    prefs.putBool(NVS_KEY_NTP_EN, on);
+    prefs.end();
+  }
+}
+
+void AppState_getNtpServer1(char* buf, unsigned size) {
+  if (!buf || size == 0) return;
+  if (!s_loaded) AppState_load();
+  strncpy(buf, s_ntp1, size - 1);
+  buf[size - 1] = '\0';
+}
+
+static void putNtpString(const char* key, char* cache, const char* s) {
+  if (!cache) return;
+  cache[0] = '\0';
+  if (s && s[0]) {
+    strncpy(cache, s, APP_STATE_NTP_SERVER_LEN - 1);
+    cache[APP_STATE_NTP_SERVER_LEN - 1] = '\0';
+  }
+  Preferences prefs;
+  if (prefs.begin(NVS_NAMESPACE, false)) {
+    prefs.putString(key, cache);
+    prefs.end();
+  }
+}
+
+void AppState_setNtpServer1(const char* s) {
+  putNtpString(NVS_KEY_NTP_1, s_ntp1, s);
+}
+
+void AppState_getNtpServer2(char* buf, unsigned size) {
+  if (!buf || size == 0) return;
+  if (!s_loaded) AppState_load();
+  strncpy(buf, s_ntp2, size - 1);
+  buf[size - 1] = '\0';
+}
+
+void AppState_setNtpServer2(const char* s) {
+  putNtpString(NVS_KEY_NTP_2, s_ntp2, s);
 }
 
 void AppState_saveWallClockUtc(time_t utc) {

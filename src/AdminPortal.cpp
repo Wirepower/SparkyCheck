@@ -8,6 +8,8 @@
 #include "SparkyRtc.h"
 #include "SparkyTime.h"
 #include "OtaUpdate.h"
+#include "SparkyNtp.h"
+#include "SparkyTzPresets.h"
 #include "Standards.h"
 
 #include <Arduino.h>
@@ -445,7 +447,8 @@ static String settingsPage(void) {
   b += "<button class='btn' type='submit'>Connect Manually</button></form></div>";
 
   b += "<div class='card mode-both'><h2>Firmware updates (OTA)</h2>";
-  b += "<p class='small'>Uses the manifest URL below (HTTPS JSON). Device must be on Wi-Fi. <strong>Install</strong> reboots when the download completes.</p>";
+  b += "<p class='small'>Uses the manifest URL below (HTTPS JSON). Device must be on Wi-Fi.</p>";
+  b += "<p class='small' style='color:#fecaca'>During install the display may <strong>flicker or flash</strong> — this is normal and does not mean the update failed. The device <strong>reboots</strong> when the download finishes.</p>";
   b += "<form method='post' action='/admin/save'><input type='hidden' name='section' value='ota'/>";
   b += "<label>Manifest URL</label><input name='ota_manifest_url' value='" + esc(otaManifestUrl) + "' placeholder='https://.../manifest-stable.json'/>";
   b += "<p class='small'>Leave blank to use the firmware default from build, if any.</p>";
@@ -457,7 +460,7 @@ static String settingsPage(void) {
   b += "<p class='small'>When on, the device checks the manifest shortly after boot (Wi‑Fi required). You still install from this page or the device.</p>";
   b += "<button class='btn btn2' type='submit'>Save OTA settings</button></form>";
   b += "<form method='post' action='/admin/ota/check' style='margin-top:10px;display:inline-block;margin-right:8px'><button class='btn' type='submit'>Check for updates</button></form>";
-  b += "<form method='post' action='/admin/ota/install' style='margin-top:10px;display:inline-block' onsubmit=\"return confirm('Install the pending firmware now? The device will reboot.');\"><button class='btn' type='submit' style='background:#b45309'";
+  b += "<form method='post' action='/admin/ota/install' style='margin-top:10px;display:inline-block' onsubmit=\"return confirm('Install the pending firmware now?\\n\\nThe screen may flicker during the update — this is normal.\\nThe device will reboot when finished.');\"><button class='btn' type='submit' style='background:#b45309'";
   if (!OtaUpdate_hasPendingUpdate()) b += " disabled title='Run Check first when an update is available'";
   b += ">Install pending update</button></form>";
   b += "<p class='small' id='otaWebStatusLine'>OTA status: (loading...)</p>";
@@ -523,16 +526,62 @@ static String settingsPage(void) {
     b += ">On</option><option value='0'";
     b += boolSelected(!AppState_getClock12Hour());
     b += ">Off (24-hour)</option></select>";
-    b += "<div class='row' style='margin-top:10px'><div><label>UTC offset (minutes east)</label><input type='number' name='clock_tz' min='-900' max='900' value='";
-    b += String((int)AppState_getClockTzOffsetMinutes());
-    b += "'/><p class='small'>PC sync fills this from your browser. Eastern Australia winter ≈ +600, summer ≈ +660.</p></div>";
-    b += "<div><label>Extra +1 h (daylight saving)</label><select name='clock_dst'><option value='0'";
+    {
+      const unsigned tzSel = SparkyTzPresets_indexForOffset(AppState_getClockTzOffsetMinutes());
+      const bool customTz = (tzSel >= SparkyTzPresets_count());
+      b += "<label style='margin-top:10px;display:block'>Timezone</label><select name='clock_tz_preset'>";
+      b += "<option value='custom'";
+      if (customTz) b += " selected";
+      {
+        char oth[72];
+        if (customTz) {
+          char curUtc[24];
+          SparkyTzPresets_formatUtcOffset(AppState_getClockTzOffsetMinutes(), curUtc, sizeof(curUtc));
+          snprintf(oth, sizeof(oth), "Other (%s) — not in city list", curUtc);
+        } else {
+          strncpy(oth, "Other — keep current offset", sizeof(oth) - 1);
+          oth[sizeof(oth) - 1] = '\0';
+        }
+        b += ">";
+        b += esc(oth);
+        b += "</option>";
+      }
+      for (unsigned i = 0; i < SparkyTzPresets_count(); i++) {
+        const SparkyTzPreset* p = SparkyTzPresets_get(i);
+        if (!p) continue;
+        char utcLbl[24];
+        SparkyTzPresets_formatUtcOffset(p->offsetMinutes, utcLbl, sizeof(utcLbl));
+        b += "<option value='" + String(i) + "'";
+        if (!customTz && i == tzSel) b += " selected";
+        b += ">" + esc(p->label) + " (" + esc(utcLbl) + ")</option>";
+      }
+      b += "</select>";
+      b += "<p class='small'>Choose the city closest to you (shown with <code>UTC+…</code>). <em>Sync to PC time</em> below sets the offset from your browser; if it does not match a city, <strong>Other</strong> is selected. Turn <strong>Extra +1 h</strong> on for daylight saving in NSW, VIC, TAS, ACT, SA, and NZ — off for QLD, NT, and WA.</p>";
+    }
+    b += "<div class='row' style='margin-top:10px'><div><label>Extra +1 h (daylight saving)</label><select name='clock_dst'><option value='0'";
     b += boolSelected(!AppState_getClockDstExtraHour());
     b += ">Off</option><option value='1'";
     b += boolSelected(AppState_getClockDstExtraHour());
     b += ">On</option></select><p class='small'>Adds one hour on top of the offset (if sync already includes DST, leave Off).</p></div></div>";
     b += "<p class='small'>Timestamps in emails and reports use dd/mm/yyyy with AM/PM when 12-hour is on.</p>";
     b += "<button class='btn' type='submit'>Save date &amp; time</button></form>";
+    {
+      char ntp1[APP_STATE_NTP_SERVER_LEN], ntp2[APP_STATE_NTP_SERVER_LEN];
+      AppState_getNtpServer1(ntp1, sizeof(ntp1));
+      AppState_getNtpServer2(ntp2, sizeof(ntp2));
+      b += "<h3 style='margin-top:18px'>NTP (network time)</h3>";
+      b += "<p class='small'>When Wi‑Fi is connected, the device can sync UTC from these servers. Wall time still uses the timezone preset, <strong>Extra +1 h</strong>, and 12/24h settings above.</p>";
+      b += "<form method='post' action='/admin/save'><input type='hidden' name='section' value='ntp'/>";
+      b += "<label>Enable NTP when on Wi‑Fi</label><select name='ntp_en'><option value='1'";
+      b += boolSelected(AppState_getNtpEnabled());
+      b += ">On</option><option value='0'";
+      b += boolSelected(!AppState_getNtpEnabled());
+      b += ">Off</option></select>";
+      b += "<label>NTP server 1</label><input name='ntp_s1' maxlength='63' value='" + esc(ntp1) + "' placeholder='pool.ntp.org'/>";
+      b += "<label>NTP server 2</label><input name='ntp_s2' maxlength='63' value='" + esc(ntp2) + "' placeholder='time.google.com'/>";
+      b += "<p class='small'>Leave blank for defaults (pool.ntp.org and time.google.com).</p>";
+      b += "<button class='btn btn2' type='submit'>Save NTP settings</button></form>";
+    }
     b += "<p class='small' style='margin-top:12px'>Sync sends the PC’s current instant (UTC) and your browser’s offset. Form fields below match the on-device <em>wall</em> clock (offset + optional extra DST). If the hour looks wrong, turn <strong>Extra +1 h DST</strong> off when your zone already includes daylight time in the offset.</p>";
     b += "<button class='btn btn2' type='button' id='syncPcTimeBtn'>Sync to PC time</button>";
     b += "<p class='small' id='syncPcTimeMsg'></p>";
@@ -2162,10 +2211,15 @@ void AdminPortal_init(void) {
       int se = postValue(req, "clock_sec").toInt();
       AppState_setClock12Hour(postValue(req, "clock_12").toInt() != 0);
       {
-        int tz = postValue(req, "clock_tz").toInt();
-        if (tz < -900) tz = -900;
-        if (tz > 900) tz = 900;
-        AppState_setClockTzOffsetMinutes((int16_t)tz);
+        String preset = postValue(req, "clock_tz_preset");
+        if (preset != "custom" && preset.length() > 0) {
+          int pi = preset.toInt();
+          if (pi >= 0 && (unsigned)pi < SparkyTzPresets_count()) {
+            const SparkyTzPreset* zp = SparkyTzPresets_get((unsigned)pi);
+            if (zp) AppState_setClockTzOffsetMinutes(zp->offsetMinutes);
+          }
+        }
+        /* preset == custom: leave offset unchanged (e.g. from PC sync). */
       }
       AppState_setClockDstExtraHour(postValue(req, "clock_dst").toInt() != 0);
       if (d >= 1 && d <= 31 && mo >= 1 && mo <= 12 && y >= 2000 && y <= 2099 && hh >= 0 && hh <= 23 && mi >= 0 && mi <= 59 &&
@@ -2184,6 +2238,14 @@ void AdminPortal_init(void) {
         s_flashMsg[sizeof(s_flashMsg) - 1] = '\0';
         s_flashErr = true;
       }
+    } else if (section == "ntp") {
+      AppState_setNtpEnabled(postValue(req, "ntp_en").toInt() == 1);
+      AppState_setNtpServer1(postValue(req, "ntp_s1").c_str());
+      AppState_setNtpServer2(postValue(req, "ntp_s2").c_str());
+      SparkyNtp_requestRestart();
+      strncpy(s_flashMsg, "NTP settings saved.", sizeof(s_flashMsg) - 1);
+      s_flashMsg[sizeof(s_flashMsg) - 1] = '\0';
+      s_flashErr = false;
     } else if (section == "email") {
       String smtpServer = postValue(req, "smtp_server");
       String smtpPort = postValue(req, "smtp_port");

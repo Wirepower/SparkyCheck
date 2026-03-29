@@ -59,7 +59,7 @@ void AppState_setClock12Hour(bool on);
 
 /**
  * Minutes east of UTC for display (same sign as JavaScript -Date.getTimezoneOffset()).
- * PC sync sets this from the browser; used when formatting time on screen and in admin.
+ * PC sync sets this from the browser; admin often shows the same value as hours (e.g. 600 min = +10 h).
  */
 int16_t AppState_getClockTzOffsetMinutes(void);
 void AppState_setClockTzOffsetMinutes(int16_t minutes);
@@ -67,6 +67,15 @@ void AppState_setClockTzOffsetMinutes(int16_t minutes);
 /** Extra +1 hour for daylight saving on top of the offset above (manual). Persisted in NVS. */
 bool AppState_getClockDstExtraHour(void);
 void AppState_setClockDstExtraHour(bool on);
+
+/** SNTP when associated to Wi-Fi; servers default to pool.ntp.org / time.google.com if blank. */
+#define APP_STATE_NTP_SERVER_LEN 64
+bool AppState_getNtpEnabled(void);
+void AppState_setNtpEnabled(bool on);
+void AppState_getNtpServer1(char* buf, unsigned size);
+void AppState_setNtpServer1(const char* s);
+void AppState_getNtpServer2(char* buf, unsigned size);
+void AppState_setNtpServer2(const char* s);
 
 /** Persist last known wall time (UTC epoch) when user or admin sets the clock; restored on boot if RTC missing. */
 void AppState_saveWallClockUtc(time_t utc);

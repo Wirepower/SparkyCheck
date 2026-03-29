@@ -12,6 +12,7 @@
 #include "SdConfig.h"
 #include "AdminPortal.h"
 #include "SparkyRtc.h"
+#include "SparkyNtp.h"
 #include <time.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -77,6 +78,7 @@ void setup() {
   OtaUpdate_init();
   GoogleSync_init();
   AdminPortal_init();
+  SparkyNtp_init();
   /* Defer OTA HTTPS so web server + AsyncTCP get heap first; extra time for STA join. */
   s_otaAutoAfterMs = millis() + 12000UL;
   if (adminGesture) {
@@ -105,6 +107,7 @@ void loop() {
 
   ReportGenerator_pollDeferredEmail();
   GoogleSync_tick();
+  SparkyNtp_tick();
   AdminPortal_tick();
   Screens_refreshLiveStatus(&tft, s_currentScreen);
   if (OtaUpdate_takeUiRefreshRequest()) {

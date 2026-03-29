@@ -14,6 +14,8 @@
 #include "SparkyDisplay.h"
 #include "SparkyRtc.h"
 #include "SparkyTime.h"
+#include "SparkyTzPresets.h"
+#include "SparkyNtp.h"
 #if defined(SPARKYCHECK_EEZ_MOCKUP_UI)
 #include "EezMockupUi.h"
 #endif
@@ -48,6 +50,13 @@ static bool sparkyReadableUi(int w, int h) {
 /** Narrow width (e.g. portrait 480×800): title must sit below Back, not on the same row. */
 static bool sparkyTestFlowNarrowHeader(int w) {
   return w < 600;
+}
+
+/** First tap on Install shows flicker warning; second tap starts OTA. Cleared when leaving the flow. */
+static bool s_otaInstallConfirmArmed = false;
+
+static void sparkyOtaDisarmInstallConfirm(void) {
+  s_otaInstallConfirmArmed = false;
 }
 
 /**
@@ -662,6 +671,17 @@ static void clockWizardBegin(void) {
   clockWizardLoadFromClock();
   s_clockWizardStep = 0;
   clockWizardPrefillInput();
+}
+
+static void sparkyCycleTimezonePreset(void) {
+  unsigned idx = SparkyTzPresets_indexForOffset(AppState_getClockTzOffsetMinutes());
+  const unsigned n = SparkyTzPresets_count();
+  if (n == 0) return;
+  if (idx >= n) idx = 0;
+  else
+    idx = (idx + 1) % n;
+  const SparkyTzPreset* p = SparkyTzPresets_get(idx);
+  if (p) AppState_setClockTzOffsetMinutes(p->offsetMinutes);
 }
 
 static const char* clockWizardFieldTitle(int step) {
@@ -2385,7 +2405,7 @@ static void screens_draw_impl(SparkyTft* tft, ScreenId id, bool fullClear) {
       const int btnH = 48;
       const int rowStep = 58;
       int y = 78;
-      char line[56];
+      char line[96];
       snprintf(line, sizeof(line), "12-hour display: %s", AppState_getClock12Hour() ? "On" : "Off");
       tft->fillRoundRect(20, y, btnW, btnH, 8, kBtn);
       tft->drawRoundRect(20, y, btnW, btnH, 8, kWhite);
@@ -2403,6 +2423,34 @@ static void screens_draw_impl(SparkyTft* tft, ScreenId id, bool fullClear) {
       tft->fillRoundRect(20, y, btnW, btnH, 8, kBtn);
       tft->drawRoundRect(20, y, btnW, btnH, 8, kWhite);
       sparkyDrawBtnLabel(tft, 20, y, btnW, btnH, "Write clock to RTC chip", 2);
+      y += rowStep;
+      snprintf(line, sizeof(line), "NTP on WiFi: %s", AppState_getNtpEnabled() ? "On" : "Off");
+      tft->fillRoundRect(20, y, btnW, btnH, 8, kBtn);
+      tft->drawRoundRect(20, y, btnW, btnH, 8, kWhite);
+      tft->setTextColor(kWhite, kBtn);
+      sparkyDrawBtnLabel(tft, 20, y, btnW, btnH, line, 2);
+      y += rowStep;
+      {
+        unsigned tzi = SparkyTzPresets_indexForOffset(AppState_getClockTzOffsetMinutes());
+        char utcB[20];
+        if (tzi < SparkyTzPresets_count()) {
+          const SparkyTzPreset* tp = SparkyTzPresets_get(tzi);
+          if (tp) {
+            SparkyTzPresets_formatUtcOffset(tp->offsetMinutes, utcB, sizeof(utcB));
+            snprintf(line, sizeof(line), "%s %s", utcB, tp->label);
+          } else {
+            strncpy(line, "Timezone: ?", sizeof(line) - 1);
+            line[sizeof(line) - 1] = '\0';
+          }
+        } else {
+          SparkyTzPresets_formatUtcOffset(AppState_getClockTzOffsetMinutes(), utcB, sizeof(utcB));
+          snprintf(line, sizeof(line), "Custom %s", utcB);
+        }
+      }
+      tft->fillRoundRect(20, y, btnW, btnH, 8, kBtn);
+      tft->drawRoundRect(20, y, btnW, btnH, 8, kWhite);
+      tft->setTextColor(kWhite, kBtn);
+      sparkyDrawBtnLabel(tft, 20, y, btnW, btnH, line, 1);
       {
         const int backH = 44;
         const int by = h - 52;
@@ -2853,7 +2901,7 @@ static void screens_draw_impl(SparkyTft* tft, ScreenId id, bool fullClear) {
           tft->setTextSize(1);
           tft->setTextColor(kAccent, kBg);
           tft->setCursor(20, btnY - (readable ? 22 : 18));
-          tft->print("New version offered — install or dismiss:");
+          tft->print("Tap Install twice (flicker OK) or dismiss:");
         }
         tft->fillRoundRect(20, btnY, half, btnH, 6, kGreen);
         tft->drawRoundRect(20, btnY, half, btnH, 6, kWhite);
@@ -2865,6 +2913,10 @@ static void screens_draw_impl(SparkyTft* tft, ScreenId id, bool fullClear) {
 
       if (installY >= 0) {
         btnY = installY;
+        tft->setTextSize(1);
+        tft->setTextColor(kAccent, kBg);
+        tft->setCursor(20, btnY - (readable ? 14 : 12));
+        tft->print("Tap Install twice; flicker OK, then reboot");
         tft->fillRoundRect(20, btnY, w - 40, btnH, 6, kAccent);
         tft->drawRoundRect(20, btnY, w - 40, btnH, 6, kWhite);
         sparkyDrawBtnLabel(tft, 20, btnY, w - 40, btnH, "Install update", btnLblTs);
@@ -3878,6 +3930,27 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
         else showSavedPrompt(tft, "RTC write failed");
         return handled(current);
       }
+      y += rowStep;
+      if (inRect(ix, iy, 20, y, btnW, btnH)) {
+        AppState_setNtpEnabled(!AppState_getNtpEnabled());
+        SparkyNtp_requestRestart();
+        Screens_draw(tft, current);
+        showSavedPrompt(tft, AppState_getNtpEnabled() ? "NTP: On" : "NTP: Off");
+        Screens_draw(tft, current);
+        return handled(current);
+      }
+      y += rowStep;
+      if (inRect(ix, iy, 20, y, btnW, btnH)) {
+        sparkyCycleTimezonePreset();
+        unsigned after = SparkyTzPresets_indexForOffset(AppState_getClockTzOffsetMinutes());
+        const SparkyTzPreset* tp = SparkyTzPresets_get(after < SparkyTzPresets_count() ? after : 0);
+        Screens_draw(tft, current);
+        char msg[80];
+        snprintf(msg, sizeof(msg), "TZ: %s", tp && tp->label ? tp->label : "set");
+        showSavedPrompt(tft, msg);
+        Screens_draw(tft, current);
+        return handled(current);
+      }
       if (inRect(ix, iy, 20, h - 52, btnW, 44)) return handled(SCREEN_SETTINGS);
       break;
     }
@@ -4098,6 +4171,7 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
                                     &toggleY, &btnH, &gap, &half, &backY, &backH);
       int btnY = checkY;
       if (inRect(ix, iy, 20, btnY, w - 40, btnH)) {
+        sparkyOtaDisarmInstallConfirm();
         if (!OtaUpdate_isManifestCheckBusy()) OtaUpdate_startManifestCheckFromUi();
         Screens_draw(tft, current);
         return handled(current);
@@ -4105,11 +4179,21 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
       if (showOffer && offerY >= 0) {
         btnY = offerY;
         if (inRect(ix, iy, 20, btnY, half, btnH)) {
-          if (OtaUpdate_hasPendingUpdate()) OtaUpdate_installPending();
+          if (OtaUpdate_hasPendingUpdate()) {
+            if (!s_otaInstallConfirmArmed) {
+              s_otaInstallConfirmArmed = true;
+              showPrompt(tft, "Screen may flicker during install", "Normal. Tap Install again to start", kAccent);
+              Screens_draw(tft, current);
+              return handled(current);
+            }
+            sparkyOtaDisarmInstallConfirm();
+            OtaUpdate_installPending();
+          }
           Screens_draw(tft, current);
           return handled(current);
         }
         if (inRect(ix, iy, 30 + half, btnY, half, btnH)) {
+          sparkyOtaDisarmInstallConfirm();
           OtaUpdate_dismissInstallOffer();
           Screens_draw(tft, current);
           showSavedPrompt(tft, "You can install later from here.");
@@ -4120,13 +4204,23 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
       if (installY >= 0) {
         btnY = installY;
         if (inRect(ix, iy, 20, btnY, w - 40, btnH)) {
-          if (OtaUpdate_hasPendingUpdate()) OtaUpdate_installPending();
+          if (OtaUpdate_hasPendingUpdate()) {
+            if (!s_otaInstallConfirmArmed) {
+              s_otaInstallConfirmArmed = true;
+              showPrompt(tft, "Screen may flicker during install", "Normal. Tap Install again to start", kAccent);
+              Screens_draw(tft, current);
+              return handled(current);
+            }
+            sparkyOtaDisarmInstallConfirm();
+            OtaUpdate_installPending();
+          }
           Screens_draw(tft, current);
           return handled(current);
         }
       }
       btnY = toggleY;
       if (inRect(ix, iy, 20, btnY, w - 40, btnH)) {
+        sparkyOtaDisarmInstallConfirm();
         bool enabled = !AppState_getOtaAutoCheckEnabled();
         AppState_setOtaAutoCheckEnabled(enabled);
         Screens_draw(tft, current);
@@ -4135,6 +4229,7 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
         return handled(current);
       }
       if (inRect(ix, iy, 20, backY, w - 40, backH)) {
+        sparkyOtaDisarmInstallConfirm();
         if (OtaUpdate_isInstallOfferPending()) OtaUpdate_dismissInstallOffer();
         return handled(SCREEN_SETTINGS);
       }
