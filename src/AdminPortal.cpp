@@ -34,6 +34,8 @@ static bool s_apActive = false;
 static std::atomic<bool> s_emailTestPending{false};
 static std::atomic<bool> s_emailTestRunning{false};
 static std::atomic<int> s_otaHttpPauseDepth{0};
+/** AsyncWebServer::begin() after OTA must run from the Arduino loop task; worker-thread begin() can leave :80 dead. */
+static std::atomic<bool> s_httpResumePending{false};
 static uint32_t s_emailTestActiveJobId = 0;
 static unsigned long s_emailTestStartMs = 0;
 static char s_emailTestStatus[180] = "Idle";
@@ -2328,9 +2330,14 @@ void AdminPortal_pauseForOta(void) {
 void AdminPortal_resumeAfterOta(void) {
   const int after = s_otaHttpPauseDepth.fetch_sub(1) - 1;
   if (after != 0) return;
-  Serial.printf("[Admin] http resume (heap=%u)\n", (unsigned)ESP.getFreeHeap());
-  s_server.begin();
-  Serial.println("[Admin] web server listen on :80");
+  Serial.printf("[Admin] http resume scheduled (heap=%u)\n", (unsigned)ESP.getFreeHeap());
+  s_httpResumePending.store(true);
+}
+
+static void runPendingHttpResume(void) {
+  if (!s_httpResumePending.exchange(false)) return;
+  Serial.printf("[Admin] http resume on loop (heap=%u)\n", (unsigned)ESP.getFreeHeap());
+  tryStartServer();
 }
 
 void AdminPortal_tick(void) {
@@ -2348,6 +2355,7 @@ void AdminPortal_tick(void) {
       s_flashErr = true;
     }
   }
+  runPendingHttpResume();
   unsigned long now = millis();
   if ((long)(now - s_nextPortalTickMs) < 0) return;
   s_nextPortalTickMs = now + kPortalTickMs;
