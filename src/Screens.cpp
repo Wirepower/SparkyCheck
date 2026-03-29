@@ -227,6 +227,82 @@ static int sparkyDrawWrappedWordsCentered(SparkyTft* tft, const char* text, int 
   return y;
 }
 
+/** Left-aligned word wrap; does not draw past maxY (avoids status text overlapping OTA buttons). */
+static int sparkyDrawWrappedLeftUntilY(SparkyTft* tft, const char* text, int x, int y, int maxW, int maxY, uint8_t ts,
+                                       int lineH, uint16_t fg, uint16_t bg) {
+  if (!text || !text[0] || y >= maxY || maxW < 24) return y;
+  tft->setTextWrap(false);
+  tft->setTextSize(ts);
+  tft->setTextColor(fg, bg);
+  const int cw = 6 * (int)ts;
+  if (maxW < cw * 4) return y;
+
+  char lineBuf[OTA_STATUS_LEN + 32];
+  lineBuf[0] = '\0';
+  const char* p = text;
+
+  while (*p) {
+    if (y + lineH > maxY) break;
+    while (*p == ' ') p++;
+    if (!*p) break;
+    char word[72];
+    int wl = 0;
+    while (*p && *p != ' ' && wl < (int)sizeof(word) - 1) word[wl++] = *p++;
+    word[wl] = '\0';
+    if (wl <= 0) continue;
+
+    int cur = (int)strlen(lineBuf);
+    int need = cur + (cur > 0 ? 1 : 0) + wl;
+    if (cur > 0 && need * cw > maxW) {
+      if (lineBuf[0]) {
+        if (y + lineH > maxY) break;
+        tft->setCursor(x, y);
+        tft->print(lineBuf);
+        y += lineH;
+        lineBuf[0] = '\0';
+      }
+      if (y + lineH > maxY) break;
+    }
+
+    if (wl * cw > maxW) {
+      for (int i = 0; i < wl; i++) {
+        char one[2] = {word[i], '\0'};
+        cur = (int)strlen(lineBuf);
+        if (cur > 0 && (cur + 1) * cw > maxW) {
+          if (y + lineH > maxY) break;
+          tft->setCursor(x, y);
+          tft->print(lineBuf);
+          y += lineH;
+          lineBuf[0] = '\0';
+        }
+        if (y + lineH > maxY) break;
+        strncat(lineBuf, one, sizeof(lineBuf) - strlen(lineBuf) - 1);
+      }
+      continue;
+    }
+
+    cur = (int)strlen(lineBuf);
+    if (cur + (cur > 0 ? 1 : 0) + wl >= (int)sizeof(lineBuf) - 1) {
+      if (lineBuf[0]) {
+        if (y + lineH > maxY) break;
+        tft->setCursor(x, y);
+        tft->print(lineBuf);
+        y += lineH;
+        lineBuf[0] = '\0';
+      }
+      if (y + lineH > maxY) break;
+    }
+    if (lineBuf[0]) strncat(lineBuf, " ", sizeof(lineBuf) - strlen(lineBuf) - 1);
+    strncat(lineBuf, word, sizeof(lineBuf) - strlen(lineBuf) - 1);
+  }
+  if (lineBuf[0] && y + lineH <= maxY) {
+    tft->setCursor(x, y);
+    tft->print(lineBuf);
+    y += lineH;
+  }
+  return y;
+}
+
 /** AS/NZS scope under Select test: split at natural break so lines stay balanced and centered. */
 static void sparkyDrawVerificationScope(SparkyTft* tft, int w, int y0, uint8_t ts) {
   char scope[96];
@@ -2730,23 +2806,24 @@ static void screens_draw_impl(SparkyTft* tft, ScreenId id, bool fullClear) {
 
       char status[OTA_STATUS_LEN];
       OtaUpdate_getLastStatus(status, sizeof(status));
+      char pending[OTA_VERSION_LEN];
+      OtaUpdate_getPendingVersion(pending, sizeof(pending));
       if (y + lineH <= contentMaxY) {
         tft->setTextColor(kAccent, kBg);
         tft->setCursor(20, y);
         tft->print("Status:");
         y += lineH;
       }
-      if (y < contentMaxY) {
-        tft->setTextColor(kWhite, kBg);
-        tft->setTextWrap(true);
-        tft->setCursor(20, y);
-        tft->print(status);
-        y = tft->getCursorY() + (readable ? 4 : 2);
-        tft->setTextWrap(false);
+      {
+        const int statusMaxY = contentMaxY - (pending[0] ? lineH : 0);
+        if (y < statusMaxY) {
+          tft->setTextColor(kWhite, kBg);
+          y = sparkyDrawWrappedLeftUntilY(tft, status, 20, y, w - 40, statusMaxY, bodyTs, lineH, kWhite, kBg);
+          y += (readable ? 4 : 2);
+          if (y > contentMaxY) y = contentMaxY;
+        }
       }
 
-      char pending[OTA_VERSION_LEN];
-      OtaUpdate_getPendingVersion(pending, sizeof(pending));
       if (pending[0] && y + lineH <= contentMaxY) {
         tft->setTextColor(kAccent, kBg);
         tft->setCursor(20, y);
@@ -4015,7 +4092,7 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
                                     &toggleY, &btnH, &gap, &half, &backY, &backH);
       int btnY = checkY;
       if (inRect(ix, iy, 20, btnY, w - 40, btnH)) {
-        OtaUpdate_checkNow();
+        if (!OtaUpdate_isManifestCheckBusy()) OtaUpdate_startManifestCheckFromUi();
         Screens_draw(tft, current);
         return handled(current);
       }

@@ -6,6 +6,7 @@
 #include "BootScreen.h"
 #include "SparkyDisplay.h"
 #include "Standards.h"
+#include "OtaUpdate.h"
 #include <Arduino.h>
 #include "boot_logo_embedded.h"
 #include <math.h>
@@ -179,12 +180,28 @@ void showFirst(SparkyTft& tft) {
 
   /* White on dark bg — readable on the blue gradient (avoids dim gold on mid-blue). */
   tft.setTextColor(kWhite, kBgDark);
-  tft.setTextSize(1);
+  const uint8_t footTs = 2;
+  tft.setTextSize(footTs);
+  const int cw = 6 * (int)footTs;
+  const int footY = h - (7 * (int)footTs + 8);
+
   {
-    int tw = (int)strlen(kCreatorCredit) * 6;
+    const char* ver = OtaUpdate_getCurrentVersion();
+    char vbuf[40];
+    if (ver && ver[0]) {
+      snprintf(vbuf, sizeof(vbuf), "v%s", ver);
+    } else {
+      strncpy(vbuf, "v?", sizeof(vbuf) - 1);
+      vbuf[sizeof(vbuf) - 1] = '\0';
+    }
+    tft.setCursor(12, footY);
+    tft.print(vbuf);
+  }
+
+  {
+    int tw = (int)strlen(kCreatorCredit) * cw;
     int tx = w - tw - 12;
-    int ty = h - 16;
-    tft.setCursor(tx, ty);
+    tft.setCursor(tx, footY);
     tft.print(kCreatorCredit);
   }
 

@@ -76,4 +76,12 @@ void OtaUpdate_dismissInstallOffer(void);
 /** If set after background OTA check, caller should redraw the current screen once. */
 bool OtaUpdate_takeUiRefreshRequest(void);
 
+/**
+ * Start manifest fetch/compare on a worker task (non-blocking).
+ * Required for UI "Check now" — a synchronous check runs inside loop() and can trip the task WDT
+ * during long TLS/HTTPS, causing reboot with little Serial output.
+ */
+bool OtaUpdate_startManifestCheckFromUi(void);
+bool OtaUpdate_isManifestCheckBusy(void);
+
 #endif

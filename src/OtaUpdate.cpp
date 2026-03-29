@@ -13,6 +13,7 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 #include <freertos/task.h>
+#include <sdkconfig.h>
 #include <ctype.h>
 #include <stdio.h>
 #include <string.h>
@@ -59,6 +60,10 @@ static char s_otaWorkerErrBuf[OTA_STATUS_LEN];
 static uint8_t s_otaPollLastPhase = 0xFF;
 static bool s_installOfferPending = false;
 static volatile bool s_otaUiRefreshRequest = false;
+
+static SemaphoreHandle_t s_manifestMutex = nullptr;
+static volatile bool s_manifestUiBusy = false;
+static bool s_otaInstallUiFullClear = true;
 
 /* GitHub/raw.githubusercontent reject or throttle generic clients; mbedTLS needs tight buffers + heap. */
 static const char kOtaHttpUserAgent[] =
@@ -127,7 +132,16 @@ static void otaDrawInstallProgress(SparkyTft* tft, size_t cur, size_t total, con
   const uint16_t kTrack = 0x2965;
   const uint16_t kFill = 0x07E0;
 
-  tft->fillScreen(TFT_BLACK);
+  if (s_otaInstallUiFullClear) {
+    tft->fillScreen(TFT_BLACK);
+    s_otaInstallUiFullClear = false;
+  } else {
+    /* From title row down: redraw headline/hint/bar each time (avoids full-screen flash). */
+    const int wipeTop = h / 4;
+    const int wipeBottomPad = 50;
+    const int wipeH = h - wipeTop - wipeBottomPad;
+    if (wipeH > 24) tft->fillRect(0, wipeTop, w, wipeH, TFT_BLACK);
+  }
   tft->setTextWrap(false);
   tft->setTextColor(TFT_WHITE, TFT_BLACK);
   tft->setTextSize(2);
@@ -359,6 +373,8 @@ void OtaUpdate_init(void) {
   s_hasPending = false;
   memset(&s_pending, 0, sizeof(s_pending));
   setStatus("No OTA check yet.");
+  s_manifestUiBusy = false;
+  if (!s_manifestMutex) s_manifestMutex = xSemaphoreCreateMutex();
 }
 
 const char* OtaUpdate_getCurrentVersion(void) {
@@ -510,7 +526,8 @@ static bool parseManifest(const char* json, OtaManifest* out) {
   return true;
 }
 
-OtaCheckStatus OtaUpdate_checkNow(void) {
+/** Core manifest logic; caller must hold s_manifestMutex. */
+static OtaCheckStatus checkNowLocked(void) {
   s_hasPending = false;
   memset(&s_pending, 0, sizeof(s_pending));
   s_installOfferPending = false;
@@ -532,12 +549,16 @@ OtaCheckStatus OtaUpdate_checkNow(void) {
 
   int cmp = compareVersions(OtaUpdate_getCurrentVersion(), candidate.version);
   if (cmp >= 0) {
-    setStatus("No update available.");
+    char msg[OTA_STATUS_LEN];
+    snprintf(msg, sizeof(msg), "Up to date. Manifest: v%s", candidate.version);
+    setStatus(msg);
     return OTA_CHECK_NO_UPDATE;
   }
 
   if (rolloutBucket() >= candidate.rolloutPercent) {
-    setStatus("Update exists but not in this rollout bucket.");
+    char msg[OTA_STATUS_LEN];
+    snprintf(msg, sizeof(msg), "v%s available — not in your rollout bucket.", candidate.version);
+    setStatus(msg);
     return OTA_CHECK_NO_UPDATE;
   }
 
@@ -547,6 +568,69 @@ OtaCheckStatus OtaUpdate_checkNow(void) {
   snprintf(msg, sizeof(msg), "Update available: %s", s_pending.version);
   setStatus(msg);
   return OTA_CHECK_UPDATE_AVAILABLE;
+}
+
+OtaCheckStatus OtaUpdate_checkNow(void) {
+  if (!s_manifestMutex) s_manifestMutex = xSemaphoreCreateMutex();
+  if (!s_manifestMutex) return OTA_CHECK_ERROR;
+  if (xSemaphoreTake(s_manifestMutex, portMAX_DELAY) != pdTRUE) return OTA_CHECK_ERROR;
+  OtaCheckStatus st = checkNowLocked();
+  xSemaphoreGive(s_manifestMutex);
+  return st;
+}
+
+static void otaManifestCheckUiWorker(void* arg) {
+  (void)arg;
+  Serial.println("[OTA] manifest check (UI worker) start");
+  Serial.flush();
+  OtaCheckStatus st = OtaUpdate_checkNow();
+  Serial.printf("[OTA] manifest check (UI worker) done status=%d\n", (int)st);
+  Serial.flush();
+  s_manifestUiBusy = false;
+  s_otaUiRefreshRequest = true;
+  vTaskDelete(nullptr);
+}
+
+bool OtaUpdate_startManifestCheckFromUi(void) {
+  if (s_manifestUiBusy) return false;
+  if (!WifiManager_isConnected()) {
+    setStatus("OTA check skipped: WiFi not connected.");
+    s_otaUiRefreshRequest = true;
+    return false;
+  }
+  if (!OtaUpdate_isConfigured()) {
+    setStatus("OTA check skipped: manifest URL not configured.");
+    s_otaUiRefreshRequest = true;
+    return false;
+  }
+  if (!s_manifestMutex) s_manifestMutex = xSemaphoreCreateMutex();
+  if (!s_manifestMutex) {
+    setStatus("OTA check: internal error (mutex).");
+    s_otaUiRefreshRequest = true;
+    return false;
+  }
+
+  s_manifestUiBusy = true;
+  setStatus("Checking for updates...");
+  s_otaUiRefreshRequest = true;
+
+#if defined(CONFIG_FREERTOS_UNICORE) && CONFIG_FREERTOS_UNICORE
+  const BaseType_t ok = xTaskCreate(otaManifestCheckUiWorker, "ota_mchk", 20480, nullptr, 3, nullptr);
+#else
+  const BaseType_t ok =
+      xTaskCreatePinnedToCore(otaManifestCheckUiWorker, "ota_mchk", 20480, nullptr, 3, nullptr, 0);
+#endif
+  if (ok != pdPASS) {
+    s_manifestUiBusy = false;
+    setStatus("OTA check: could not start task (memory?).");
+    s_otaUiRefreshRequest = true;
+    return false;
+  }
+  return true;
+}
+
+bool OtaUpdate_isManifestCheckBusy(void) {
+  return s_manifestUiBusy;
 }
 
 bool OtaUpdate_hasPendingUpdate(void) {
@@ -589,6 +673,7 @@ bool OtaUpdate_installPending(void) {
   s_otaProgressLastPct = -1;
   s_otaProgressLastMs = 0;
   s_otaInstallInProgress = true;
+  s_otaInstallUiFullClear = true;
 
   if (s_installTft) {
     otaDrawInstallProgress(s_installTft, 0, 0, nullptr);

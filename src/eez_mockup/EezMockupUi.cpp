@@ -498,6 +498,10 @@ static bool screenButtonCenterLegacy(ScreenId screen, const char* label, int w, 
   if (screen == SCREEN_MAIN_MENU) {
     int y0 = 0, btnH = 0, gap = 0;
     mainMenuButtonLayoutDims(w, h, &y0, &btnH, &gap);
+    if (OtaUpdate_isInstallOfferPending()) {
+      const bool r = (w >= 700) || (h >= 700) || (w >= 480 && h >= 600);
+      y0 += (r ? 46 : 40) + (r ? 10 : 8);
+    }
     const int y1 = y0 + btnH + gap;
     const int y2 = y1 + btnH + gap;
     if (strcmp(label, "Start verification") == 0) {
