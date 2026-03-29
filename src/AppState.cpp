@@ -279,11 +279,11 @@ void AppState_setOtaAutoCheckEnabled(bool on) {
 bool AppState_getOtaAutoInstallEnabled(void) {
   Preferences prefs;
   if (prefs.begin(NVS_NAMESPACE, true)) {
-    bool out = prefs.getBool(NVS_KEY_OTA_INSTALL, true);
+    bool out = prefs.getBool(NVS_KEY_OTA_INSTALL, false);
     prefs.end();
     return out;
   }
-  return true;
+  return false;
 }
 
 void AppState_setOtaAutoInstallEnabled(bool on) {

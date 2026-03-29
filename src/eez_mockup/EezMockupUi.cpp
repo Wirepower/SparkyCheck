@@ -1,12 +1,14 @@
 #include "EezMockupUi.h"
 
 #include <ctype.h>
+#include <stdio.h>
 #include <string.h>
 
 #include "AppState.h"
 #include "EezMockupData.h"
 #include "Screens.h"
 #include "Standards.h"
+#include "OtaUpdate.h"
 
 namespace {
 
@@ -248,6 +250,10 @@ static void getButtonRect(SparkyTft* tft, const EezMockupScreen* screen, size_t 
   if (sid == SCREEN_MAIN_MENU && index < 3) {
     int y0 = 0, btnH = 0, gap = 0;
     mainMenuButtonLayout(tft, &y0, &btnH, &gap);
+    if (OtaUpdate_isInstallOfferPending()) {
+      const bool r = readableUi(tft);
+      y0 += (r ? 46 : 40) + (r ? 10 : 8);
+    }
     *outX = 20;
     *outY = y0 + (int)index * (btnH + gap);
     *outW = w - 40;
@@ -804,6 +810,10 @@ static bool screenButtonCenterByIndex(ScreenId screen, size_t index, int w, int 
       if (index > 2) return false;
       int y0 = 0, btnH = 0, gap = 0;
       mainMenuButtonLayoutDims(w, h, &y0, &btnH, &gap);
+      if (OtaUpdate_isInstallOfferPending()) {
+        const bool r = (w >= 700) || (h >= 700) || (w >= 480 && h >= 600);
+        y0 += (r ? 46 : 40) + (r ? 10 : 8);
+      }
       const int y1 = y0 + btnH + gap;
       const int y2 = y1 + btnH + gap;
       const int yc[3] = {y0 + btnH / 2, y1 + btnH / 2, y2 + btnH / 2};
@@ -877,8 +887,34 @@ void EezMockupUi_draw(SparkyTft* tft, ScreenId id) {
     tft->setTextColor(kAccent, kBg);
     const char* mode = AppState_isFieldMode() ? "Field mode" : "Training mode";
     int twm = (int)strlen(mode) * 6;
-    tft->setCursor((tft->width() - twm) / 2, layoutLandWide(tft) ? 54 : (tft->height() >= 700 ? 62 : 50));
+    const int modeY = layoutLandWide(tft) ? 54 : (tft->height() >= 700 ? 62 : 50);
+    tft->setCursor((tft->width() - twm) / 2, modeY);
     tft->print(mode);
+    if (OtaUpdate_isInstallOfferPending()) {
+      const bool r = readableUi(tft);
+      const int bannerY = modeY + 14;
+      const int bannerH = r ? 46 : 40;
+      const int W = tft->width();
+      tft->fillRoundRect(20, bannerY, W - 40, bannerH, 8, kAccent);
+      tft->drawRoundRect(20, bannerY, W - 40, bannerH, 8, kWhite);
+      tft->setTextColor(TFT_BLACK, kAccent);
+      char pv[OTA_VERSION_LEN];
+      OtaUpdate_getPendingVersion(pv, sizeof(pv));
+      char line[56];
+      if (pv[0])
+        snprintf(line, sizeof(line), "Firmware v%s — tap for Yes/No", pv);
+      else
+        strncpy(line, "Firmware update — tap here", sizeof(line) - 1);
+      line[sizeof(line) - 1] = '\0';
+      int twl = (int)strlen(line) * 6;
+      if (twl > W - 48) {
+        strncpy(line, "Update ready — tap here", sizeof(line) - 1);
+        line[sizeof(line) - 1] = '\0';
+        twl = (int)strlen(line) * 6;
+      }
+      tft->setCursor((W - twl) / 2, bannerY + (r ? 16 : 13));
+      tft->print(line);
+    }
   }
 
   if (screen->id == SCREEN_SETTINGS) {
@@ -975,6 +1011,19 @@ ScreenId EezMockupUi_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, u
 
   int ix = (int)x;
   int iy = (int)y;
+
+  if (current == SCREEN_MAIN_MENU && OtaUpdate_isInstallOfferPending()) {
+    const bool r = readableUi(tft);
+    const int bannerH = r ? 46 : 40;
+    const int modeY = layoutLandWide(tft) ? 54 : (tft->height() >= 700 ? 62 : 50);
+    const int bannerY = modeY + 14;
+    const int Wm = tft->width();
+    if (inRectPad(ix, iy, 20, bannerY, Wm - 40, bannerH, 3)) {
+      s_handledButton = true;
+      return Screens_handleTouch(tft, current, (uint16_t)(Wm / 2), (uint16_t)(bannerY + bannerH / 2));
+    }
+  }
+
   for (size_t i = 0; i < screen->buttonCount; i++) {
     int bx = 0;
     int by = 0;

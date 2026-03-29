@@ -55,6 +55,7 @@ static volatile bool s_otaInstallInProgress = false;
 static t_httpUpdate_return s_otaWorkerRet = HTTP_UPDATE_FAILED;
 static char s_otaWorkerErrBuf[OTA_STATUS_LEN];
 static uint8_t s_otaPollLastPhase = 0xFF;
+static bool s_installOfferPending = false;
 
 static void otaEnsureInstallSyncPrimitives(void) {
   if (!s_otaUiMutex) s_otaUiMutex = xSemaphoreCreateMutex();
@@ -79,6 +80,14 @@ static void otaWorkerOnProgress(size_t cur, size_t total) {
 
 void OtaUpdate_setInstallDisplay(SparkyTft* tft) {
   s_installTft = tft;
+}
+
+bool OtaUpdate_isInstallOfferPending(void) {
+  return s_installOfferPending;
+}
+
+void OtaUpdate_dismissInstallOffer(void) {
+  s_installOfferPending = false;
 }
 
 /**
@@ -297,6 +306,9 @@ static void otaInstallWorker(void* arg) {
   updater.onStart([]() { otaWorkerOnStart(); });
   updater.onProgress([](size_t c, size_t t) { otaWorkerOnProgress(c, t); });
 
+  /* Let AsyncTCP / admin sockets settle; mbedTLS needs a large contiguous block (see SSL -32512). */
+  vTaskDelay(pdMS_TO_TICKS(400));
+
   s_otaWorkerRet = updater.update(client, s_pending.firmwareUrl, OtaUpdate_getCurrentVersion());
   if (s_otaWorkerRet != HTTP_UPDATE_OK) {
     strCopy(s_otaWorkerErrBuf, sizeof(s_otaWorkerErrBuf), updater.getLastErrorString().c_str());
@@ -452,6 +464,7 @@ static bool parseManifest(const char* json, OtaManifest* out) {
 OtaCheckStatus OtaUpdate_checkNow(void) {
   s_hasPending = false;
   memset(&s_pending, 0, sizeof(s_pending));
+  s_installOfferPending = false;
 
   if (!WifiManager_isConnected()) {
     setStatus("OTA check skipped: WiFi not connected.");
@@ -509,6 +522,8 @@ bool OtaUpdate_installPending(void) {
     setStatus("Install failed: WiFi not connected.");
     return false;
   }
+
+  s_installOfferPending = false;
 
   setStatus("Installing update...");
   otaEnsureInstallSyncPrimitives();
@@ -573,8 +588,9 @@ void OtaUpdate_runAutoFlow(void) {
   OtaCheckStatus st = OtaUpdate_checkNow();
   if (st != OTA_CHECK_UPDATE_AVAILABLE) return;
 
-  bool doInstall = AppState_getOtaAutoInstallEnabled() || s_pending.force;
-  if (doInstall) OtaUpdate_installPending();
+  /* Never block the device with a full-screen install from the background task. */
+  s_installOfferPending = true;
+  setStatus("Update available — Firmware updates: Yes to install or Not now.");
 }
 
 void OtaUpdate_autoFlowTask(void* arg) {

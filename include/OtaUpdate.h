@@ -67,4 +67,10 @@ void OtaUpdate_autoFlowTask(void* arg);
 /** Register display for install progress UI (after tft.init(); pass nullptr to disable). */
 void OtaUpdate_setInstallDisplay(SparkyTft* tft);
 
+/** Auto-check found an update; user has not dismissed the offer or started install yet. */
+bool OtaUpdate_isInstallOfferPending(void);
+
+/** Dismiss the update offer (device stays usable; pending version remains for "Install now"). */
+void OtaUpdate_dismissInstallOffer(void);
+
 #endif
