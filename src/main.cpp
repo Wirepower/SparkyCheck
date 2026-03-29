@@ -37,6 +37,7 @@ void setup() {
   SparkyRtc_earlyInitSharedI2c();
 #endif
   tft.init();
+  OtaUpdate_setInstallDisplay(&tft);
   SdConfig_initAndApply();
   SparkyRtc_init();
   /* NVS wall_utc first: CPU time resets every boot/OTA; restore last saved instant before optional RTC. */

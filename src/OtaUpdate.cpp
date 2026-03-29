@@ -37,6 +37,111 @@ static OtaManifest s_pending;
 static bool s_hasPending = false;
 static char s_lastStatus[OTA_STATUS_LEN] = "No OTA check yet.";
 
+static SparkyTft* s_installTft = nullptr;
+static unsigned long s_otaProgressLastMs = 0;
+static int s_otaProgressLastPct = -1;
+
+void OtaUpdate_setInstallDisplay(SparkyTft* tft) {
+  s_installTft = tft;
+}
+
+static void otaDrawInstallProgress(SparkyTft* tft, size_t cur, size_t total) {
+  if (!tft) return;
+  const int w = tft->width();
+  const int h = tft->height();
+  const int marginX = 40;
+  const int barY = h / 2 - 4;
+  const int barH = 32;
+  const int barW = w - 2 * marginX;
+  const uint16_t kTrack = 0x2965;
+  const uint16_t kFill = 0x07E0;
+
+  tft->fillScreen(TFT_BLACK);
+  tft->setTextWrap(false);
+  tft->setTextColor(TFT_WHITE, TFT_BLACK);
+  tft->setTextSize(2);
+  const char* headline = "Firmware update";
+  int tw = (int)strlen(headline) * 12;
+  tft->setCursor((w - tw) / 2, h / 4);
+  tft->print(headline);
+
+  char sub[72];
+  if (s_pending.version[0]) {
+    snprintf(sub, sizeof(sub), "Installing v%s", s_pending.version);
+  } else {
+    strncpy(sub, "Installing update", sizeof(sub) - 1);
+    sub[sizeof(sub) - 1] = '\0';
+  }
+  tft->setTextSize(1);
+  tw = (int)strlen(sub) * 6;
+  if (tw > w - 24) {
+    snprintf(sub, sizeof(sub), "v%s", s_pending.version);
+    tw = (int)strlen(sub) * 6;
+  }
+  tft->setCursor((w - tw) / 2, h / 4 + 26);
+  tft->print(sub);
+
+  tft->drawRoundRect(marginX, barY, barW, barH, 8, TFT_WHITE);
+  const int inner = barW - 4;
+  const int innerH = barH - 4;
+  tft->fillRect(marginX + 2, barY + 2, inner, innerH, kTrack);
+
+  if (total > 0) {
+    int fillW = (int)((uint64_t)cur * (uint64_t)inner / (uint64_t)total);
+    if (fillW > inner) fillW = inner;
+    if (fillW > 0) tft->fillRect(marginX + 2, barY + 2, fillW, innerH, kFill);
+  } else if (cur > 0) {
+    int chunk = inner / 5;
+    if (chunk < 12) chunk = 12;
+    int travel = inner - chunk;
+    if (travel < 1) travel = 1;
+    int pos = (int)((millis() / 100) % (travel * 2));
+    if (pos > travel) pos = 2 * travel - pos;
+    tft->fillRect(marginX + 2 + pos, barY + 2, chunk, innerH, kFill);
+  }
+
+  tft->setTextSize(2);
+  char pctb[16];
+  if (total > 0) {
+    int pct = (int)((uint64_t)cur * 100 / (uint64_t)total);
+    if (pct > 100) pct = 100;
+    snprintf(pctb, sizeof(pctb), "%d%%", pct);
+  } else if (cur == 0) {
+    strncpy(pctb, "Starting...", sizeof(pctb) - 1);
+    pctb[sizeof(pctb) - 1] = '\0';
+  } else {
+    strncpy(pctb, "Downloading", sizeof(pctb) - 1);
+    pctb[sizeof(pctb) - 1] = '\0';
+  }
+  tw = (int)strlen(pctb) * 12;
+  tft->setTextColor(TFT_WHITE, TFT_BLACK);
+  tft->setCursor((w - tw) / 2, barY + barH + 16);
+  tft->print(pctb);
+
+  tft->setTextSize(1);
+  const char* hint = "Do not power off";
+  tw = (int)strlen(hint) * 6;
+  tft->setCursor((w - tw) / 2, h - 40);
+  tft->print(hint);
+}
+
+static void otaOnProgress(size_t cur, size_t total) {
+  if (!s_installTft) return;
+  int pct = -1;
+  if (total > 0) pct = (int)((uint64_t)cur * 100 / (uint64_t)total);
+  if (pct > 100) pct = 100;
+
+  unsigned long ms = millis();
+  if (pct >= 0 && pct < 100) {
+    if (pct == s_otaProgressLastPct && (ms - s_otaProgressLastMs) < 200) return;
+  } else if (total == 0 && cur > 0 && (ms - s_otaProgressLastMs) < 100) return;
+
+  s_otaProgressLastPct = pct;
+  s_otaProgressLastMs = ms;
+  otaDrawInstallProgress(s_installTft, cur, total);
+  sparkyDisplayFlush(s_installTft);
+}
+
 static void setStatus(const char* text) {
   if (!text) text = "";
   strncpy(s_lastStatus, text, sizeof(s_lastStatus) - 1);
@@ -303,6 +408,15 @@ bool OtaUpdate_installPending(void) {
 #else
   if (s_pending.md5[0]) updater.setMD5(s_pending.md5);
 #endif
+
+  s_otaProgressLastPct = -1;
+  s_otaProgressLastMs = 0;
+  if (s_installTft) {
+    otaDrawInstallProgress(s_installTft, 0, 0);
+    sparkyDisplayFlush(s_installTft);
+    updater.onProgress([](size_t c, size_t t) { otaOnProgress(c, t); });
+  }
+
   t_httpUpdate_return ret = updater.update(client, s_pending.firmwareUrl, OtaUpdate_getCurrentVersion());
 
   if (ret == HTTP_UPDATE_OK) {

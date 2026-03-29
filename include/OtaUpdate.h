@@ -61,4 +61,10 @@ void OtaUpdate_autoFlowTask(void* arg);
 
 #ifdef __cplusplus
 }
+
+#include "SparkyDisplay.h"
+
+/** Register display for install progress UI (after tft.init(); pass nullptr to disable). */
+void OtaUpdate_setInstallDisplay(SparkyTft* tft);
+
 #endif
