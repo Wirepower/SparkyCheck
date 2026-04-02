@@ -1422,6 +1422,7 @@ static const char* syncTestKeyForId(int testId) {
     case VERIFY_SWP_DISCONNECT_RECONNECT_MOTOR: return "swp_disconnect_reconnect_motor";
     case VERIFY_SWP_DISCONNECT_RECONNECT_APPLIANCE: return "swp_disconnect_reconnect_appliance";
     case VERIFY_SWP_DISCONNECT_RECONNECT_HEATER_SHEATHED: return "swp_disconnect_reconnect_heater_sheathed";
+    case VERIFY_IN_SERVICE_3760: return "in_service_inspection_3760";
     default: return "";
   }
 }
@@ -3503,8 +3504,12 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
         const bool expectedYes = VerificationSteps_expectedYesForStep((VerifyTestId)s_selectedTestType, s_stepIndex);
         if (inRect(ix, iy, 20, btnY, half, 52)) {
           const bool answerYes = true;
-          if (s_stepIndex == 2 && s_selectedTestType == (int)VERIFY_INSULATION) s_resultIsSheathedHeating = true;
-          if (answerYes == expectedYes) {
+          /* Insulation: sheathed heating question is branching only, not pass/fail. */
+          if (s_selectedTestType == (int)VERIFY_INSULATION && s_stepIndex == 3) {
+            s_resultIsSheathedHeating = true;
+            s_stepIndex++;
+            syncTrainingFlowEvent("step_next", false, nullptr);
+          } else if (answerYes == expectedYes) {
             s_stepIndex++;
             if (s_stepIndex >= count) {
               s_flowPhase = 1;
@@ -3534,7 +3539,12 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
         }
         if (inRect(ix, iy, 30 + half, btnY, half, 52)) {
           const bool answerYes = false;
-          if (answerYes == expectedYes) {
+          /* Insulation: sheathed heating NO = standard wiring; still branch-only, not fail. */
+          if (s_selectedTestType == (int)VERIFY_INSULATION && s_stepIndex == 3) {
+            s_resultIsSheathedHeating = false;
+            s_stepIndex++;
+            syncTrainingFlowEvent("step_next", false, nullptr);
+          } else if (answerYes == expectedYes) {
             s_stepIndex++;
             if (s_stepIndex >= count) {
               s_flowPhase = 1;
@@ -3635,6 +3645,12 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
               VerifyResultKind kind = step.resultKind;
               if (kind == RESULT_IR_MOHM && s_resultIsSheathedHeating) kind = RESULT_IR_MOHM_SHEATHED;
               if (kind == RESULT_RCD_REQUIRED_MAX_MS) {
+                if (canonicalValue <= 0.0f) {
+                  Buzzer_beepFail();
+                  showPrompt(tft, "Required max must be", "greater than 0 ms", kRed);
+                  Screens_draw(tft, current, true);
+                  return handled(current);
+                }
                 s_rcdRequiredMaxMs = canonicalValue;
                 s_stepIndex++;
                 s_resultInputKind = RESULT_NONE;

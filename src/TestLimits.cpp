@@ -1,10 +1,11 @@
 #include "TestLimits.h"
 
 /**
- * Pass/fail limits from AS/NZS 3000, 3017 (and 3760 in Field mode).
- * UPDATABILITY / OTA: When standards are revised, update limits here. For OTA
- * updates, this file can be replaced or limits loaded from config; bump
- * Standards_getRulesVersion() when you ship new limits.
+ * Pass/fail limits aligned with AS/NZS 3000:2018 and AS/NZS 3017:2022 (installation
+ * verification). EFLI max is a configurable default — compare measured Zs to
+ * installation-specific tables. RCD measured trip is compared to the user-entered
+ * required maximum in the UI when present; TestLimits_rcdTripTimeMaxMs is fallback only.
+ * UPDATABILITY / OTA: bump Standards_getRulesVersion() when limits change.
  */
 
 float TestLimits_continuityMaxOhms(void) {
@@ -31,7 +32,7 @@ bool TestLimits_insulationPass(float mOhms, bool is_sheathed_heating) {
 }
 
 float TestLimits_rcdTripTimeMaxMs(void) {
-  return 30.0f;  /* Default fallback only; UI can capture installation-specific criteria (e.g. special locations). */
+  return 30.0f;  /* Fallback when no required max captured; typical Type A general 30 mA example — verify per installation. */
 }
 
 bool TestLimits_rcdTripTimePass(float ms) {
@@ -39,7 +40,7 @@ bool TestLimits_rcdTripTimePass(float ms) {
 }
 
 float TestLimits_efliMaxOhms(void) {
-  return 0.4f;   /* Example; varies by circuit – update from AS/NZS 3000 tables */
+  return 0.4f;   /* Default placeholder; Zs max is circuit-specific (3000:2018 / design). Override via Admin rules. */
 }
 
 bool TestLimits_efliPass(float ohms) {

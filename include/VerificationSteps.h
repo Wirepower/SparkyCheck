@@ -1,5 +1,6 @@
 /**
- * SparkyCheck – Verification coach steps from AS/NZS 3000 Section 8 & AS/NZS 3017.
+ * SparkyCheck – Verification coach steps from AS/NZS 3000:2018 Sec 8, AS/NZS 3017:2022,
+ * AS/NZS 4836:2023 (SWP), and optional AS/NZS 3760:2022 checklist.
  * Each test type has a sequence of steps; user cannot skip safety or verification steps.
  * Step content and clause refs are in VerificationSteps.cpp; update there (or via OTA
  * config) when standards are revised – see docs/STANDARDS_UPDATE.md.
@@ -25,6 +26,7 @@ typedef enum {
   VERIFY_SWP_DISCONNECT_RECONNECT_MOTOR,
   VERIFY_SWP_DISCONNECT_RECONNECT_APPLIANCE,
   VERIFY_SWP_DISCONNECT_RECONNECT_HEATER_SHEATHED,
+  VERIFY_IN_SERVICE_3760,
   VERIFY_TEST_COUNT
 } VerifyTestId;
 
