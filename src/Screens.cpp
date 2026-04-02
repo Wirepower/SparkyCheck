@@ -1519,6 +1519,38 @@ static void syncTrainingFlowEvent(const char* event, bool include_result, const 
     GoogleSync_sendResult(&gs);
 }
 
+/**
+ * Branch-only Yes/No (IR sheathed, RCD scenario): advance without PASS/FAIL.
+ * Returns true if handled.
+ */
+static bool sparkyTryYesNoBranchOnly(SparkyTft* tft, ScreenId current, VerifyTestId tid, int stepIndex, int count,
+                                     const VerifyStep* step, bool answerYes) {
+  if (!VerificationSteps_yesNoStepIsBranchOnly(tid, stepIndex, step)) return false;
+  if (tid == VERIFY_INSULATION) {
+    s_resultIsSheathedHeating = answerYes;
+  } else if (tid == VERIFY_RCD && step && step->title) {
+    if (strcmp(step->title, "Scenario: healthcare") == 0) s_rcdScenarioHealthcare = answerYes;
+    else if (strcmp(step->title, "Scenario: tester strength") == 0) s_rcdScenarioStrongTripTest = answerYes;
+    else if (strcmp(step->title, "Scenario: circuit") == 0) s_rcdScenarioStandardCircuitOnly = answerYes;
+  }
+  s_stepIndex++;
+  if (s_stepIndex >= count) {
+    s_flowPhase = 1;
+    s_resultPass = true;
+    s_resultLabel = VerificationSteps_getTestName(tid);
+    s_resultUnit = "";
+    VerifyStep lastStep{};
+    VerificationSteps_getStep(tid, count - 1, &lastStep);
+    s_resultClause = lastStep.clause;
+    s_testCompletedMs = millis();
+    syncTrainingFlowEvent("result_confirmed", true, nullptr);
+  } else {
+    syncTrainingFlowEvent("step_next", false, nullptr);
+  }
+  Screens_draw(tft, current);
+  return true;
+}
+
 void Screens_setReportSavedBasename(const char* basename) {
   strncpy(s_reportSavedBasename, basename ? basename : "", sizeof(s_reportSavedBasename) - 1);
   s_reportSavedBasename[sizeof(s_reportSavedBasename) - 1] = '\0';
@@ -3474,7 +3506,8 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
       if (inRect(ix, iy, w - 108, 8, 96, 36)) {
         if (s_flowPhase == 1) {
           s_flowPhase = 0;
-          s_stepIndex = (count > 0) ? count - 1 : 0;
+          /* Stay on the step that produced this result (e.g. failed Yes/No), not always the last step. */
+          if (s_stepIndex >= count) s_stepIndex = (count > 0) ? count - 1 : 0;
           s_testCompletedMs = 0;
           syncTrainingFlowEvent("step_back", false, nullptr);
           Screens_draw(tft, current);
@@ -3542,33 +3575,18 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
       } else if (step.type == STEP_VERIFY_YESNO) {
         int half = (w - 50) / 2, btnY = h - 56;
         const bool expectedYes = VerificationSteps_expectedYesForStep((VerifyTestId)s_selectedTestType, s_stepIndex);
+        VerifyTestId tid = (VerifyTestId)s_selectedTestType;
         if (inRect(ix, iy, 20, btnY, half, 52)) {
+          if (sparkyTryYesNoBranchOnly(tft, current, tid, s_stepIndex, count, &step, true)) return handled(current);
           const bool answerYes = true;
-          /* Insulation: sheathed heating question is branching only, not pass/fail. */
-          if (s_selectedTestType == (int)VERIFY_INSULATION && s_stepIndex == 3) {
-            s_resultIsSheathedHeating = true;
-            s_stepIndex++;
-            syncTrainingFlowEvent("step_next", false, nullptr);
-          } else if (s_selectedTestType == (int)VERIFY_RCD && s_stepIndex == 4) {
-            s_rcdScenarioHealthcare = true;
-            s_stepIndex++;
-            syncTrainingFlowEvent("step_next", false, nullptr);
-          } else if (s_selectedTestType == (int)VERIFY_RCD && s_stepIndex == 5) {
-            s_rcdScenarioStrongTripTest = true;
-            s_stepIndex++;
-            syncTrainingFlowEvent("step_next", false, nullptr);
-          } else if (s_selectedTestType == (int)VERIFY_RCD && s_stepIndex == 6) {
-            s_rcdScenarioStandardCircuitOnly = true;
-            s_stepIndex++;
-            syncTrainingFlowEvent("step_next", false, nullptr);
-          } else if (answerYes == expectedYes) {
+          if (answerYes == expectedYes) {
             s_stepIndex++;
             if (s_stepIndex >= count) {
               s_flowPhase = 1;
               s_resultPass = true;
-              s_resultLabel = VerificationSteps_getTestName((VerifyTestId)s_selectedTestType);
+              s_resultLabel = VerificationSteps_getTestName(tid);
               s_resultUnit = "";
-              VerificationSteps_getStep((VerifyTestId)s_selectedTestType, count - 1, &step);
+              VerificationSteps_getStep(tid, count - 1, &step);
               s_resultClause = step.clause;
               s_testCompletedMs = millis();
               syncTrainingFlowEvent("result_confirmed", true, nullptr);
@@ -3578,9 +3596,9 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
           } else {
             s_flowPhase = 1;
             s_resultPass = false;
-            s_resultLabel = VerificationSteps_getTestName((VerifyTestId)s_selectedTestType);
+            s_resultLabel = VerificationSteps_getTestName(tid);
             s_resultUnit = "";
-            VerificationSteps_getStep((VerifyTestId)s_selectedTestType, s_stepIndex, &step);
+            VerificationSteps_getStep(tid, s_stepIndex, &step);
             s_resultClause = step.clause;
             s_resultValue = 0.0f;
             s_testCompletedMs = millis();
@@ -3590,32 +3608,16 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
           return handled(current);
         }
         if (inRect(ix, iy, 30 + half, btnY, half, 52)) {
+          if (sparkyTryYesNoBranchOnly(tft, current, tid, s_stepIndex, count, &step, false)) return handled(current);
           const bool answerYes = false;
-          /* Insulation: sheathed heating NO = standard wiring; still branch-only, not fail. */
-          if (s_selectedTestType == (int)VERIFY_INSULATION && s_stepIndex == 3) {
-            s_resultIsSheathedHeating = false;
-            s_stepIndex++;
-            syncTrainingFlowEvent("step_next", false, nullptr);
-          } else if (s_selectedTestType == (int)VERIFY_RCD && s_stepIndex == 4) {
-            s_rcdScenarioHealthcare = false;
-            s_stepIndex++;
-            syncTrainingFlowEvent("step_next", false, nullptr);
-          } else if (s_selectedTestType == (int)VERIFY_RCD && s_stepIndex == 5) {
-            s_rcdScenarioStrongTripTest = false;
-            s_stepIndex++;
-            syncTrainingFlowEvent("step_next", false, nullptr);
-          } else if (s_selectedTestType == (int)VERIFY_RCD && s_stepIndex == 6) {
-            s_rcdScenarioStandardCircuitOnly = false;
-            s_stepIndex++;
-            syncTrainingFlowEvent("step_next", false, nullptr);
-          } else if (answerYes == expectedYes) {
+          if (answerYes == expectedYes) {
             s_stepIndex++;
             if (s_stepIndex >= count) {
               s_flowPhase = 1;
               s_resultPass = true;
-              s_resultLabel = VerificationSteps_getTestName((VerifyTestId)s_selectedTestType);
+              s_resultLabel = VerificationSteps_getTestName(tid);
               s_resultUnit = "";
-              VerificationSteps_getStep((VerifyTestId)s_selectedTestType, count - 1, &step);
+              VerificationSteps_getStep(tid, count - 1, &step);
               s_resultClause = step.clause;
               s_testCompletedMs = millis();
               syncTrainingFlowEvent("result_confirmed", true, nullptr);
@@ -3625,9 +3627,9 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
           } else {
             s_flowPhase = 1;
             s_resultPass = false;
-            s_resultLabel = VerificationSteps_getTestName((VerifyTestId)s_selectedTestType);
+            s_resultLabel = VerificationSteps_getTestName(tid);
             s_resultUnit = "";
-            VerificationSteps_getStep((VerifyTestId)s_selectedTestType, s_stepIndex, &step);
+            VerificationSteps_getStep(tid, s_stepIndex, &step);
             s_resultClause = step.clause;
             s_resultValue = 0.0f;
             s_testCompletedMs = millis();

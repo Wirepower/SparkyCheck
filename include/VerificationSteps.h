@@ -77,6 +77,13 @@ void VerificationSteps_getStep(VerifyTestId id, int stepIndex, VerifyStep* out);
 /** Expected answer for yes/no steps (true=Yes, false=No). Defaults to Yes. */
 bool VerificationSteps_expectedYesForStep(VerifyTestId id, int stepIndex);
 
+/**
+ * Yes/No steps that only choose a branch (IR sheathed vs general wiring; RCD scenario)
+ * must never record PASS/FAIL. Factory tests use titles; custom JSON may set
+ * expectedYesNo to "branch".
+ */
+bool VerificationSteps_yesNoStepIsBranchOnly(VerifyTestId id, int stepIndex, const VerifyStep* step);
+
 /** Validate entered value for a result step. Returns true if pass. */
 bool VerificationSteps_validateResult(VerifyResultKind kind, float value, bool isSheathedHeating);
 

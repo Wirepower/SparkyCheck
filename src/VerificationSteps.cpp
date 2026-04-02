@@ -51,6 +51,7 @@ typedef bool TestExpectedBuf[VERIFY_MAX_STEPS_PER_TEST];
 static std::unique_ptr<TestNameBuf[]> s_customTestNames;
 static std::unique_ptr<TestStepsBuf[]> s_customSteps;
 static std::unique_ptr<TestExpectedBuf[]> s_customExpectedYes;
+static std::unique_ptr<TestExpectedBuf[]> s_customYesNoBranchOnly;
 static std::unique_ptr<int[]> s_customStepCounts;
 static int s_customActiveTestCount = 0;
 static const int kDefaultTestCount = VERIFY_TEST_COUNT;
@@ -83,7 +84,7 @@ static const VerifyStep s_insulation[] = {
   { STEP_SAFETY, "Safety", "Do not touch live parts. Use 500 V DC rated leads where required. Isolate the circuit and disconnect electronic loads as applicable.", "3000:2018 Sec 8; 3017:2022 Cl.4.5", RESULT_NONE, NULL, NULL },
   { STEP_INFO, "IR test", "Insulation resistance is per 3000:2018 Cl.8.3.6; apply test voltage and stabilise reading per 3017:2022 Cl.4.5 and manufacturer instructions.", "3000:2018 Cl.8.3.6; 3017:2022 Cl.4.5", RESULT_NONE, NULL, NULL },
   { STEP_VERIFY_YESNO, "Isolation", "Is the circuit isolated and loads disconnected as required for the IR test?", "3000:2018 Cl.8.3.6; 3017:2022 Sec 4", RESULT_NONE, NULL, NULL },
-  { STEP_VERIFY_YESNO, "Sheathed heating", "Is this for sheathed heating elements? (Lower minimum IR applies.)", "3000:2018 Cl.8.3.6; 3017:2022 Cl.4.5", RESULT_NONE, NULL, NULL },
+  { STEP_VERIFY_YESNO, "Sheathed heating", "Is this for sheathed heating elements? (Lower minimum IR applies.) Yes/No only picks the limit — neither answer is a failure.", "3000:2018 Cl.8.3.6; 3017:2022 Cl.4.5", RESULT_NONE, NULL, NULL },
   { STEP_RESULT_ENTRY, "Insulation resistance", "Enter your reading (MOhm). The device shows PASS or FAIL using the rule below (sheathed heating uses the lower minimum).", "3000:2018 Cl.8.3.6; 3017:2022 Cl.4.5", RESULT_IR_MOHM, "Insulation resistance", "MOhm" },
 };
 
@@ -353,6 +354,18 @@ bool VerificationSteps_expectedYesForStep(VerifyTestId id, int stepIndex) {
   return true;  // factory defaults: yes/no checks expect "Yes" unless overridden by custom JSON
 }
 
+bool VerificationSteps_yesNoStepIsBranchOnly(VerifyTestId id, int stepIndex, const VerifyStep* step) {
+  if (!step || step->type != STEP_VERIFY_YESNO || stepIndex < 0) return false;
+  if (s_customActive) {
+    if (s_customYesNoBranchOnly && s_customStepCounts && id >= 0 && id < s_customActiveTestCount &&
+        stepIndex < s_customStepCounts[id] && s_customYesNoBranchOnly[id][stepIndex])
+      return true;
+  }
+  if (id == VERIFY_INSULATION && step->title && strcmp(step->title, "Sheathed heating") == 0) return true;
+  if (id == VERIFY_RCD && step->title && strncmp(step->title, "Scenario:", 9) == 0) return true;
+  return false;
+}
+
 static const char* criterionUnitSuffix(VerifyResultKind k) {
   switch (k) {
     case RESULT_CONTINUITY_OHM:
@@ -557,7 +570,10 @@ bool VerificationSteps_getConfigJson(char* buf, unsigned buf_size) {
       so["resultLabel"] = st.resultLabel ? st.resultLabel : "";
       so["unit"] = st.unit ? st.unit : "";
       if (st.type == STEP_VERIFY_YESNO) {
-        so["expectedYesNo"] = VerificationSteps_expectedYesForStep((VerifyTestId)i, s) ? "yes" : "no";
+        if (VerificationSteps_yesNoStepIsBranchOnly((VerifyTestId)i, s, &st))
+          so["expectedYesNo"] = "branch";
+        else
+          so["expectedYesNo"] = VerificationSteps_expectedYesForStep((VerifyTestId)i, s) ? "yes" : "no";
       }
     }
   }
@@ -588,8 +604,9 @@ bool VerificationSteps_activateConfigJson(const char* json, char* err, unsigned 
   std::unique_ptr<TestNameBuf[]> nextNames(new TestNameBuf[VERIFY_TEST_CAPACITY]());
   std::unique_ptr<TestStepsBuf[]> nextSteps(new TestStepsBuf[VERIFY_TEST_CAPACITY]());
   std::unique_ptr<TestExpectedBuf[]> nextExpectedYes(new TestExpectedBuf[VERIFY_TEST_CAPACITY]());
+  std::unique_ptr<TestExpectedBuf[]> nextYesNoBranch(new TestExpectedBuf[VERIFY_TEST_CAPACITY]());
   std::unique_ptr<int[]> nextCounts(new int[VERIFY_TEST_CAPACITY]());
-  if (!nextNames || !nextSteps || !nextExpectedYes || !nextCounts) {
+  if (!nextNames || !nextSteps || !nextExpectedYes || !nextYesNoBranch || !nextCounts) {
     if (err && err_size) snprintf(err, err_size, "Out of memory");
     return false;
   }
@@ -628,14 +645,24 @@ bool VerificationSteps_activateConfigJson(const char* json, char* err, unsigned 
         if (err && err_size) snprintf(err, err_size, "Invalid resultKind in test %d", id);
         return false;
       }
+      if (rkind == RESULT_RCD_REQUIRED_MAX_MS) {
+        /* Trip limit comes from RCD scenario answers only; ignore legacy manual-max steps in JSON. */
+        continue;
+      }
       CustomVerifyStep* cs = &nextSteps[id][idx++];
       cs->type = stype;
       bool expectedYes = true;
+      bool yesNoBranch = false;
       if (stype == STEP_VERIFY_YESNO) {
         const char* exp = so["expectedYesNo"] | "yes";
-        if (strcmp(exp, "no") == 0 || strcmp(exp, "false") == 0 || strcmp(exp, "0") == 0) expectedYes = false;
+        if (strcmp(exp, "branch") == 0) {
+          yesNoBranch = true;
+          expectedYes = true;
+        } else if (strcmp(exp, "no") == 0 || strcmp(exp, "false") == 0 || strcmp(exp, "0") == 0)
+          expectedYes = false;
       }
       nextExpectedYes[id][idx - 1] = expectedYes;
+      nextYesNoBranch[id][idx - 1] = yesNoBranch;
       cs->resultKind = rkind;
       strncpy(cs->title, so["title"] | "", VERIFY_MAX_TITLE_LEN - 1);
       strncpy(cs->instruction, so["instruction"] | "", VERIFY_MAX_INSTR_LEN - 1);
@@ -692,6 +719,7 @@ bool VerificationSteps_activateConfigJson(const char* json, char* err, unsigned 
   s_customTestNames = std::move(nextNames);
   s_customSteps = std::move(nextSteps);
   s_customExpectedYes = std::move(nextExpectedYes);
+  s_customYesNoBranchOnly = std::move(nextYesNoBranch);
   s_customStepCounts = std::move(nextCounts);
   s_customActiveTestCount = maxId + 1;
   memcpy(s_customOps, nextOps, sizeof(s_customOps));
@@ -707,6 +735,7 @@ void VerificationSteps_useFactoryDefaults(void) {
   s_customTestNames.reset();
   s_customSteps.reset();
   s_customExpectedYes.reset();
+  s_customYesNoBranchOnly.reset();
   s_customStepCounts.reset();
   for (int i = 0; i < RESULT_NONE; i++) {
     s_customOps[i] = CMP_DEFAULT;

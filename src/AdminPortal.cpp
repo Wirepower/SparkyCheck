@@ -1284,10 +1284,12 @@ static String testsPage(AsyncWebServerRequest* req) {
           b += "<select name='expected_yesno'>";
           b += "<option value='yes'"; if (strcmp(stExpectedYesNo, "yes") == 0) b += " selected"; b += ">Expected answer: Yes</option>";
           b += "<option value='no'"; if (strcmp(stExpectedYesNo, "no") == 0) b += " selected"; b += ">Expected answer: No</option>";
+          b += "<option value='branch'"; if (strcmp(stExpectedYesNo, "branch") == 0) b += " selected"; b += ">Branch only (no pass/fail)</option>";
           b += "</select>";
           b += "<input name='title' value='"; b += esc(stTitle); b += "' placeholder='Step title'/>";
           b += "<input name='instruction' value='"; b += esc(stInst); b += "' placeholder='Instruction'/>";
-          const char* stRk = st["resultKind"] | "none";
+          const char* stRkRaw = st["resultKind"] | "none";
+          const char* stRk = (strcmp(stRkRaw, "rcd_required_max_ms") == 0) ? "rcd_ms" : stRkRaw;
           String ruleOp = "<=";
           float ruleVal = 0.0f;
           float ruleValMax = 0.0f;
@@ -1302,7 +1304,6 @@ static String testsPage(AsyncWebServerRequest* req) {
           b += "<option value='continuity_ohm'"; if (strcmp(stRk, "continuity_ohm") == 0) b += " selected"; b += ">Continuity (ohm)</option>";
           b += "<option value='ir_mohm'"; if (strcmp(stRk, "ir_mohm") == 0) b += " selected"; b += ">Insulation resistance (MOhm)</option>";
           b += "<option value='ir_mohm_sheathed'"; if (strcmp(stRk, "ir_mohm_sheathed") == 0) b += " selected"; b += ">Insulation sheathed (MOhm)</option>";
-          b += "<option value='rcd_required_max_ms'"; if (strcmp(stRk, "rcd_required_max_ms") == 0) b += " selected"; b += ">RCD required max (ms)</option>";
           b += "<option value='rcd_ms'"; if (strcmp(stRk, "rcd_ms") == 0) b += " selected"; b += ">RCD trip time (ms)</option>";
           b += "<option value='efli_ohm'"; if (strcmp(stRk, "efli_ohm") == 0) b += " selected"; b += ">EFLI (ohm)</option>";
           b += "</select>";
@@ -2009,16 +2010,16 @@ void AdminPortal_init(void) {
       return;
     }
     if (type != "info" && type != "safety" && type != "verify_yesno" && type != "result_entry") type = "info";
-    if (expectedYesNo != "yes" && expectedYesNo != "no") expectedYesNo = "yes";
+    if (expectedYesNo != "yes" && expectedYesNo != "no" && expectedYesNo != "branch") expectedYesNo = "yes";
     JsonObject st = steps[stepId];
     st["type"] = type;
     if (type == "verify_yesno") st["expectedYesNo"] = expectedYesNo;
     else st.remove("expectedYesNo");
     st["title"] = title;
     st["instruction"] = instruction;
+    if (resultKind == "rcd_required_max_ms") resultKind = "rcd_ms";
     if (resultKind != "continuity_ohm" && resultKind != "ir_mohm" && resultKind != "ir_mohm_sheathed" &&
-        resultKind != "rcd_required_max_ms" && resultKind != "rcd_ms" && resultKind != "efli_ohm" &&
-        resultKind != "none") {
+        resultKind != "rcd_ms" && resultKind != "efli_ohm" && resultKind != "none") {
       resultKind = "none";
     }
     st["resultKind"] = resultKind;
