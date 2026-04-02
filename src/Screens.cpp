@@ -1234,6 +1234,8 @@ static void sparkyResultCriterionText(const VerifyStep* st, char* buf, size_t bu
   }
 }
 
+static void ensureResultEntryInputState(VerifyResultKind kind);
+
 /** After scenario questions: show chosen pass limit and clarify user enters only the tester reading. */
 static int sparkyDrawRcdTripCoachLines(SparkyTft* tft, int w, int yAfterInstr) {
   ensureResultEntryInputState(RESULT_RCD_MS);
