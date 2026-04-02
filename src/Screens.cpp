@@ -933,6 +933,9 @@ static bool s_rcdScenarioStrongTripTest = false;
 static bool s_rcdScenarioStandardCircuitOnly = true;
 /** True if user entered required max via a custom step (RESULT_RCD_REQUIRED_MAX_MS). */
 static bool s_rcdUsedManualRequiredMax = false;
+/** SWP factory flow: user chose disconnection-only (end after disconnect) or reconnection-only entry (skip to reconnect). */
+static bool s_swpDisconnectOnly = false;
+static bool s_swpReconnectOnly = false;
 /** Last numeric result kind shown on PASS/FAIL screen (for criterion line). */
 static VerifyResultKind s_lastVerifyResultKind = RESULT_NONE;
 static VerifyResultKind s_resultInputKind = RESULT_NONE;
@@ -1209,6 +1212,8 @@ static void resetResultEntryInput(void) {
   s_rcdScenarioStandardCircuitOnly = true;
   s_rcdUsedManualRequiredMax = false;
   s_lastVerifyResultKind = RESULT_NONE;
+  s_swpDisconnectOnly = false;
+  s_swpReconnectOnly = false;
 }
 
 /** Pass-rule line for measurement entry (Admin rules + scenario limits). */
@@ -1222,6 +1227,32 @@ static void sparkyResultCriterionText(const VerifyStep* st, char* buf, size_t bu
   if (st->resultKind == RESULT_RCD_MS && s_rcdRequiredMaxMs > 0.0f) rcdOv = s_rcdRequiredMaxMs;
   VerificationSteps_formatResultCriterion(st->resultKind, s_resultIsSheathedHeating, rcdOv, buf, (unsigned)bufLen);
   *showLine = (buf[0] != '\0');
+  /* RCD factory flow: coach lines (drawn separately) carry the limit; avoid a second cryptic rule strip. */
+  if (st->resultKind == RESULT_RCD_MS && s_selectedTestType == (int)VERIFY_RCD && !s_rcdUsedManualRequiredMax) {
+    if (buf && bufLen) buf[0] = '\0';
+    *showLine = false;
+  }
+}
+
+/** After scenario questions: show chosen pass limit and clarify user enters only the tester reading. */
+static int sparkyDrawRcdTripCoachLines(SparkyTft* tft, int w, int yAfterInstr) {
+  ensureResultEntryInputState(RESULT_RCD_MS);
+  float lim = s_rcdRequiredMaxMs;
+  if (lim <= 0.0f)
+    lim = TestLimits_rcdComputedMaxMs(s_rcdScenarioHealthcare, s_rcdScenarioStrongTripTest, s_rcdScenarioStandardCircuitOnly);
+  char line1[160];
+  snprintf(line1, sizeof(line1),
+           "From your answers, PASS means the trip time is no more than %.0f ms. You do not need to look that figure up elsewhere.",
+           (double)lim);
+  int y = sparkyDrawWrappedWordsCentered(tft, line1, w, yAfterInstr + 6, 20, 2, kAccent, kBg);
+  const char* line2 =
+      "Run the RCD test on your instrument, then type only the milliseconds it shows—not this limit.";
+  return sparkyDrawWrappedWordsCentered(tft, line2, w, y + 6, 20, 2, kWhite, kBg);
+}
+
+static bool sparkyRcdScenarioCoachEntryUi(const VerifyStep* st) {
+  return st && st->type == STEP_RESULT_ENTRY && st->resultKind == RESULT_RCD_MS && s_selectedTestType == (int)VERIFY_RCD &&
+         !s_rcdUsedManualRequiredMax;
 }
 
 /** Begin verification for test index `rowIndex`. */
@@ -1519,21 +1550,7 @@ static void syncTrainingFlowEvent(const char* event, bool include_result, const 
     GoogleSync_sendResult(&gs);
 }
 
-/**
- * Branch-only Yes/No (IR sheathed, RCD scenario): advance without PASS/FAIL.
- * Returns true if handled.
- */
-static bool sparkyTryYesNoBranchOnly(SparkyTft* tft, ScreenId current, VerifyTestId tid, int stepIndex, int count,
-                                     const VerifyStep* step, bool answerYes) {
-  if (!VerificationSteps_yesNoStepIsBranchOnly(tid, stepIndex, step)) return false;
-  if (tid == VERIFY_INSULATION) {
-    s_resultIsSheathedHeating = answerYes;
-  } else if (tid == VERIFY_RCD && step && step->title) {
-    if (strcmp(step->title, "Scenario: healthcare") == 0) s_rcdScenarioHealthcare = answerYes;
-    else if (strcmp(step->title, "Scenario: tester strength") == 0) s_rcdScenarioStrongTripTest = answerYes;
-    else if (strcmp(step->title, "Scenario: circuit") == 0) s_rcdScenarioStandardCircuitOnly = answerYes;
-  }
-  s_stepIndex++;
+static void sparkyBranchOnlyFinishAdvance(SparkyTft* tft, ScreenId current, VerifyTestId tid, int count) {
   if (s_stepIndex >= count) {
     s_flowPhase = 1;
     s_resultPass = true;
@@ -1548,6 +1565,57 @@ static bool sparkyTryYesNoBranchOnly(SparkyTft* tft, ScreenId current, VerifyTes
     syncTrainingFlowEvent("step_next", false, nullptr);
   }
   Screens_draw(tft, current);
+}
+
+/**
+ * Branch-only Yes/No (IR sheathed, RCD scenario, SWP entry): advance without PASS/FAIL.
+ * Returns true if handled.
+ */
+static bool sparkyTryYesNoBranchOnly(SparkyTft* tft, ScreenId current, VerifyTestId tid, int stepIndex, int count,
+                                     const VerifyStep* step, bool answerYes) {
+  if (!VerificationSteps_yesNoStepIsBranchOnly(tid, stepIndex, step)) return false;
+
+  if (VerificationSteps_isSwpFactoryTest(tid) && step && step->title) {
+    if (strcmp(step->title, "SWP: Reconnection only") == 0) {
+      if (answerYes) {
+        s_swpReconnectOnly = true;
+        s_swpDisconnectOnly = false;
+        if (VerificationSteps_isFactoryDefaultsActive()) {
+          int j = VerificationSteps_getSwpFactoryReconnectStartStep(tid);
+          if (j >= 0) s_stepIndex = j;
+          else s_stepIndex++;
+        } else
+          s_stepIndex++;
+      } else {
+        s_swpReconnectOnly = false;
+        s_stepIndex++;
+      }
+      sparkyBranchOnlyFinishAdvance(tft, current, tid, count);
+      return true;
+    }
+    if (strcmp(step->title, "SWP: Disconnection only") == 0) {
+      s_swpDisconnectOnly = answerYes;
+      s_stepIndex++;
+      sparkyBranchOnlyFinishAdvance(tft, current, tid, count);
+      return true;
+    }
+    return false;
+  }
+
+  if (tid == VERIFY_INSULATION) {
+    s_resultIsSheathedHeating = answerYes;
+  } else if (tid == VERIFY_RCD) {
+    if (step && step->title) {
+      if (strcmp(step->title, "Scenario: healthcare") == 0 || strcmp(step->title, "Scenario: medical / body-protected") == 0)
+        s_rcdScenarioHealthcare = answerYes;
+      else if (strcmp(step->title, "Scenario: tester strength") == 0) s_rcdScenarioStrongTripTest = answerYes;
+      else if (strcmp(step->title, "Scenario: circuit") == 0) s_rcdScenarioStandardCircuitOnly = answerYes;
+    }
+  } else {
+    return false;
+  }
+  s_stepIndex++;
+  sparkyBranchOnlyFinishAdvance(tft, current, tid, count);
   return true;
 }
 
@@ -1665,7 +1733,7 @@ static bool screens_try_partial_redraw(SparkyTft* tft, ScreenId id, int w, int h
       if (s_resultInputUnitIdx < 0 || s_resultInputUnitIdx >= unitCount) s_resultInputUnitIdx = defaultIdx;
       char critPartial[72];
       bool showCritP = false;
-      sparkyResultCriterionText(&step, critPartial, sizeof(critPartial), &showCritP);
+      if (!sparkyRcdScenarioCoachEntryUi(&step)) sparkyResultCriterionText(&step, critPartial, sizeof(critPartial), &showCritP);
       ResultEntryLayout rel;
       layoutResultEntry(w, h, s_resultEntryYAfterInstr, showCritP, unitCount, &rel);
       /* Only clear the value column — full width erase was wiping the Del button. */
@@ -1678,7 +1746,7 @@ static bool screens_try_partial_redraw(SparkyTft* tft, ScreenId id, int w, int h
       tft->setTextColor(kWhite, kBg);
       tft->setTextSize(2);
       tft->setCursor(20, rel.valueRowY);
-      tft->print("Value:");
+      tft->print(sparkyRcdScenarioCoachEntryUi(&step) ? "Tester shows:" : "Value:");
       tft->setCursor(20, rel.valueRowY + 22);
       tft->print(s_resultInputLen > 0 ? s_resultInput : "(none)");
       tft->print(" ");
@@ -2042,10 +2110,16 @@ static void screens_draw_impl(SparkyTft* tft, ScreenId id, bool fullClear) {
 
         char critBuf[72];
         bool showCrit = false;
-        sparkyResultCriterionText(&step, critBuf, sizeof(critBuf), &showCrit);
-        s_resultEntryYAfterInstr = yAfterInstr;
+        const bool rcdCoachRow = sparkyRcdScenarioCoachEntryUi(&step);
+        if (rcdCoachRow) {
+          s_resultEntryYAfterInstr = sparkyDrawRcdTripCoachLines(tft, w, yAfterInstr);
+          showCrit = false;
+        } else {
+          sparkyResultCriterionText(&step, critBuf, sizeof(critBuf), &showCrit);
+          s_resultEntryYAfterInstr = yAfterInstr;
+        }
         ResultEntryLayout rel;
-        layoutResultEntry(w, h, yAfterInstr, showCrit, unitCount, &rel);
+        layoutResultEntry(w, h, s_resultEntryYAfterInstr, showCrit, unitCount, &rel);
 
         tft->setTextColor(kWhite, kBg);
         tft->setTextSize(2);
@@ -2058,7 +2132,7 @@ static void screens_draw_impl(SparkyTft* tft, ScreenId id, bool fullClear) {
           tft->setTextColor(kWhite, kBg);
         }
         tft->setCursor(20, rel.valueRowY);
-        tft->print("Value:");
+        tft->print(rcdCoachRow ? "Tester shows:" : "Value:");
         tft->setCursor(20, rel.valueRowY + 22);
         tft->print(s_resultInputLen > 0 ? s_resultInput : "(none)");
         tft->print(" ");
@@ -3640,6 +3714,20 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
         }
       } else if (step.type == STEP_INFO) {
         if (inRect(ix, iy, 20, h - 56, w - 40, 52)) {
+          VerifyTestId tidSwp = (VerifyTestId)s_selectedTestType;
+          if (VerificationSteps_isFactoryDefaultsActive() && VerificationSteps_isSwpFactoryTest(tidSwp) && s_swpDisconnectOnly &&
+              !s_swpReconnectOnly && step.title && strcmp(step.title, "Disconnect and label") == 0) {
+            s_flowPhase = 1;
+            s_resultPass = true;
+            s_resultLabel = VerificationSteps_getTestName(tidSwp);
+            s_resultUnit = "";
+            s_resultClause = step.clause;
+            s_resultValue = 0.0f;
+            s_testCompletedMs = millis();
+            syncTrainingFlowEvent("result_confirmed", true, nullptr);
+            Screens_draw(tft, current);
+            return handled(current);
+          }
           s_stepIndex++;
           if (s_stepIndex >= count) {
             s_flowPhase = 1;

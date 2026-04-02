@@ -90,9 +90,11 @@ static const VerifyStep s_insulation[] = {
 
 static const VerifyStep s_polarity[] = {
   { STEP_SAFETY, "Safety", "Confirm isolation where required. Identify conductors clearly before declaring polarity.", "3000:2018 Cl.8.3.7; 3017:2022 Cl.4.7", RESULT_NONE, NULL, NULL },
-  { STEP_INFO, "Polarity check", "Verify at every relevant point that active and neutral are not transposed (3000:2018 Cl.8.3.7; 3017:2022 Cl.4.7). Answer the checks honestly—Yes only if correct; No records FAIL.", "3000:2018 Cl.8.3.7; 3017:2022 Cl.4.7", RESULT_NONE, NULL, NULL },
+  { STEP_INFO, "Polarity (Cl.8.3.7)", "AS/NZS 3000:2018 Cl.8.3.7 addresses **polarity** of the active and neutral at required points. The next Yes/No checks split common transposition faults so each is explicit. Answer honestly—No records FAIL for that check.", "3000:2018 Cl.8.3.7; 3017:2022 Cl.4.7", RESULT_NONE, NULL, NULL },
   { STEP_VERIFY_YESNO, "Isolation", "Is the circuit isolated from supply for your test method?", "3000:2018 Cl.8.3; 3017:2022 Sec 4", RESULT_NONE, NULL, NULL },
-  { STEP_VERIFY_YESNO, "Polarity correct", "Have you verified polarity is correct (active/neutral not transposed) at all required points?", "3000:2018 Cl.8.3.7; 3017:2022 Cl.4.7", RESULT_NONE, NULL, NULL },
+  { STEP_VERIFY_YESNO, "Active & neutral", "At every required test point, are **active and neutral** not transposed (not swapped with each other)?", "3000:2018 Cl.8.3.7; 3017:2022 Cl.4.7", RESULT_NONE, NULL, NULL },
+  { STEP_VERIFY_YESNO, "Active & earth", "At every required test point, are **active and protective earth** not transposed and not incorrectly identified as each other?", "3000:2018 Cl.8.3.7; 3017:2022 Cl.4.7", RESULT_NONE, NULL, NULL },
+  { STEP_VERIFY_YESNO, "Neutral & earth", "At every required test point, are **neutral and protective earth** not transposed and not incorrectly identified as each other?", "3000:2018 Cl.8.3.7; 3017:2022 Cl.4.7", RESULT_NONE, NULL, NULL },
 };
 
 static const VerifyStep s_earth_continuity[] = {
@@ -103,10 +105,11 @@ static const VerifyStep s_earth_continuity[] = {
 };
 
 static const VerifyStep s_circuit_connections[] = {
-  { STEP_SAFETY, "Safety", "Circuit isolated. Check neutral and protective earth are not transposed or combined incorrectly.", "3000:2018 Cl.8.3.8", RESULT_NONE, NULL, NULL },
-  { STEP_INFO, "Connections", "Correct circuit connections are confirmed per 3000:2018 Cl.8.3.8 (neutral/earth identification). Answer honestly—Yes only if correct; No records FAIL.", "3000:2018 Cl.8.3.8", RESULT_NONE, NULL, NULL },
+  { STEP_SAFETY, "Safety", "Circuit isolated where required. Confirm you can safely verify connections and identification.", "3000:2018 Cl.8.3.8", RESULT_NONE, NULL, NULL },
+  { STEP_INFO, "Correct connections (Cl.8.3.8)", "AS/NZS 3000:2018 Cl.8.3.8 confirms **correct circuit connections** and proper use of conductors—including neutral and protective earth **functions** at supply and load, PEN/MEN context, and that neutral is not used as earth where not permitted. This complements Cl.8.3.7 (polarity): polarity checks focus on active vs neutral; 8.3.8 focuses on **connection correctness and conductor roles**.", "3000:2018 Cl.8.3.8; 3017:2022 Cl.4.7", RESULT_NONE, NULL, NULL },
   { STEP_VERIFY_YESNO, "Isolation", "Is the circuit isolated from supply?", "3000:2018 Cl.8.3; 3017:2022 Sec 4", RESULT_NONE, NULL, NULL },
-  { STEP_VERIFY_YESNO, "Connections correct", "Have you verified correct circuit connections (neutral/earth not transposed)?", "3000:2018 Cl.8.3.8; 3017:2022 Cl.4.7", RESULT_NONE, NULL, NULL },
+  { STEP_VERIFY_YESNO, "Neutral & PE roles", "Are neutral and protective earth used in accordance with the installation type (correct function at terminations; not interchanged where separate conductors are required)?", "3000:2018 Cl.8.3.8; 3017:2022 Cl.4.7", RESULT_NONE, NULL, NULL },
+  { STEP_VERIFY_YESNO, "Conductors & terminations", "Are all required circuit conductors present, correctly identified (colours / labels / records), and securely terminated at accessories and equipment?", "3000:2018 Cl.8.3.8; 3017:2022 Cl.4.7", RESULT_NONE, NULL, NULL },
 };
 
 static const VerifyStep s_efli[] = {
@@ -118,20 +121,24 @@ static const VerifyStep s_efli[] = {
 
 static const VerifyStep s_rcd[] = {
   { STEP_SAFETY, "Safety", "RCD test may de-energise circuits. Warn occupants; avoid critical loads. Use RCD tester per manufacturer.", "3000:2018 Cl.8.3.10; 3017:2022 Cl.4.9", RESULT_NONE, NULL, NULL },
-  { STEP_INFO, "Before you test", "Use your RCD tester as appropriate for this installation. The next screens ask where the RCD is used and how you are testing—the coach then applies the matching pass rule.", "3017:2022 Cl.4.9; 3000:2018 Cl.8.3.10", RESULT_NONE, NULL, NULL },
+  { STEP_INFO, "Before you test", "Next you will answer where this RCD is installed and how you run the test. SparkyCheck uses only those answers to choose the trip-time pass rule (40 ms or 300 ms). You are not expected to look that limit up in the Wiring Rules yourself.", "3017:2022 Cl.4.9; 3000:2018 Cl.8.3.10", RESULT_NONE, NULL, NULL },
   { STEP_VERIFY_YESNO, "Ready to test", "Is the RCD tester connected correctly and the circuit energised where required?", "3000:2018 Cl.8.3.10; 3017:2022 Cl.4.9", RESULT_NONE, NULL, NULL },
-  { STEP_INFO, "Your scenario", "Answer honestly. Yes and No only pick which pass rule applies—you are not being graded on these questions.", "3000:2018 Cl.2.6; 3017:2022 Cl.4.9.5", RESULT_NONE, NULL, NULL },
-  { STEP_VERIFY_YESNO, "Scenario: healthcare", "Is this RCD in a hospital, clinic, dental surgery, or other patient / body-protected electrical area (AS/NZS 3003 type locations)?", "3003:2018; 3000:2018 Cl.2.6", RESULT_NONE, NULL, NULL },
+  { STEP_INFO, "Your scenario", "These questions are about installation location and test method. Each Yes or No only selects which pass rule the coach uses—they are not a pass or fail on their own.", "3000:2018 Cl.2.6; 3017:2022 Cl.4.9.5", RESULT_NONE, NULL, NULL },
+  { STEP_VERIFY_YESNO, "Scenario: medical / body-protected", "Is this RCD installed in a hospital, clinic, dental surgery, or other patient or body-protected electrical area (AS/NZS 3003 type locations)?", "3003:2018; 3000:2018 Cl.2.6", RESULT_NONE, NULL, NULL },
   { STEP_VERIFY_YESNO, "Scenario: tester strength", "On your RCD tester, are you using the stronger trip test (higher test current), not the gentler routine trip test?", "3017:2022 Cl.4.9.5.3", RESULT_NONE, NULL, NULL },
   { STEP_VERIFY_YESNO, "Scenario: circuit", "Is this only a standard final circuit in a normal house or office (not construction supply, caravan inlet, pool zone, or other special Wiring Rules location)?", "3000:2018 Cl.2.6", RESULT_NONE, NULL, NULL },
-  { STEP_RESULT_ENTRY, "RCD trip time", "Run the RCD test; enter the time (ms) your tester shows. PASS/FAIL uses the rule line above from your scenarios.", "3000:2018 Cl.8.3.10; 3017:2022 Cl.4.9.5.3", RESULT_RCD_MS, "RCD trip time", "ms" },
+  { STEP_RESULT_ENTRY, "Trip time reading", "Run the RCD test, then enter the trip time in milliseconds as shown on your tester. The coach already applied your scenario answers to set the pass limit—you only type what the instrument displays.", "3000:2018 Cl.8.3.10; 3017:2022 Cl.4.9.5.3", RESULT_RCD_MS, "RCD trip time", "ms" },
 };
 
+/* Factory SWP arrays share indices: 1–2 entry branches, 12 disconnect end, 13 reconnect start (see getters below). */
 static const VerifyStep s_swp_motor[] = {
   { STEP_SAFETY, "Start safe", "Wear PPE, control hazards, and notify nearby people before starting motor disconnect/reconnect work.", "4836:2023 Sec 2; Sec 11", RESULT_NONE, NULL, NULL },
+  { STEP_VERIFY_YESNO, "SWP: Reconnection only", "Is the motor **already** disconnected and isolated for your work, and are you **only** using this guide from the reconnection / verification stage onward?", "4836:2023 Sec 3; 3017:2022 Sec 4", RESULT_NONE, NULL, NULL },
+  { STEP_VERIFY_YESNO, "SWP: Disconnection only", "Will you **end this guided session after disconnection** (no reconnection steps in this run)?", "4836:2023 Sec 3", RESULT_NONE, NULL, NULL },
   { STEP_INFO, "Prepare tools", "Confirm approved voltage tester, continuity tester, IR tester, insulated tools, lock, and DANGER tags are ready.", "4836:2023 Sec 8; Sec 9", RESULT_NONE, NULL, NULL },
   { STEP_INFO, "Tester battery/check", "Check tester body/leads/fuse for damage and confirm battery/self-test is OK before use.", "4836:2023 Sec 9", RESULT_NONE, NULL, NULL },
   { STEP_INFO, "1) Positive ID", "Identify the correct motor, all isolation points, and all energy sources (mains, generators, batteries, capacitors, other feeds).", "4836:2023 Cl.3.1.2", RESULT_NONE, NULL, NULL },
+  { STEP_INFO, "All energy sources", "Beyond obvious mains, have you identified **every** source that could energise the work (control circuit, VSD DC link, capacitors, UPS, generators, parallel paths, plug-in equipment) per 4836:2023 Cl.3.1.2?", "4836:2023 Cl.3.1.2", RESULT_NONE, NULL, NULL },
   { STEP_INFO, "2) Isolate", "Open isolator/circuit breaker to physically disconnect supply. If multiple feeds exist, isolate every feed.", "4836:2023 Cl.3.2.1", RESULT_NONE, NULL, NULL },
   { STEP_INFO, "3) Lock + tag", "Apply personal lock and DANGER tag (name/date/reason). Keep key with you to prevent re-energisation.", "4836:2023 Cl.3.2.8", RESULT_NONE, NULL, NULL },
   { STEP_INFO, "4) Prove tester", "Test voltage detector on a known live source before dead-testing. Use approved detector only.", "4836:2023 Cl.3.2.6", RESULT_NONE, NULL, NULL },
@@ -150,9 +157,12 @@ static const VerifyStep s_swp_motor[] = {
 
 static const VerifyStep s_swp_appliance[] = {
   { STEP_SAFETY, "Start safe", "Wear PPE, control hazards, and notify nearby people before starting appliance disconnect/reconnect work.", "4836:2023 Sec 2; Sec 11", RESULT_NONE, NULL, NULL },
+  { STEP_VERIFY_YESNO, "SWP: Reconnection only", "Is the appliance **already** disconnected and isolated for your work, and are you **only** using this guide from the reconnection / verification stage onward?", "4836:2023 Sec 3; 3017:2022 Sec 4", RESULT_NONE, NULL, NULL },
+  { STEP_VERIFY_YESNO, "SWP: Disconnection only", "Will you **end this guided session after disconnection** (no reconnection steps in this run)?", "4836:2023 Sec 3", RESULT_NONE, NULL, NULL },
   { STEP_INFO, "Prepare tools", "Confirm approved voltage tester, continuity tester, IR tester, insulated tools, lock, and DANGER tags are ready.", "4836:2023 Sec 8; Sec 9", RESULT_NONE, NULL, NULL },
   { STEP_INFO, "Tester battery/check", "Check tester body/leads/fuse for damage and confirm battery/self-test is OK before use.", "4836:2023 Sec 9", RESULT_NONE, NULL, NULL },
   { STEP_INFO, "1) Positive ID", "Identify the correct appliance, all isolation points, and all energy sources feeding the equipment.", "4836:2023 Cl.3.1.2", RESULT_NONE, NULL, NULL },
+  { STEP_INFO, "All energy sources", "Beyond obvious mains, have you identified **every** source that could energise the work (control circuit, soft starters, capacitors, UPS, generators, parallel paths) per 4836:2023 Cl.3.1.2?", "4836:2023 Cl.3.1.2", RESULT_NONE, NULL, NULL },
   { STEP_INFO, "2) Isolate", "Open isolator/circuit breaker to physically disconnect supply. Isolate all feeds where multiple supplies exist.", "4836:2023 Cl.3.2.1", RESULT_NONE, NULL, NULL },
   { STEP_INFO, "3) Lock + tag", "Apply personal lock and DANGER tag (name/date/reason) at isolation point. Keep key in your control.", "4836:2023 Cl.3.2.8", RESULT_NONE, NULL, NULL },
   { STEP_INFO, "4) Prove tester", "Test voltage detector on known live source before testing for dead. Use approved detector only.", "4836:2023 Cl.3.2.6", RESULT_NONE, NULL, NULL },
@@ -171,9 +181,12 @@ static const VerifyStep s_swp_appliance[] = {
 
 static const VerifyStep s_swp_heater_sheathed[] = {
   { STEP_SAFETY, "Start safe", "Wear PPE, control hazards, and notify people before working on heater/sheathed element circuit.", "4836:2023 Sec 2; Sec 11", RESULT_NONE, NULL, NULL },
+  { STEP_VERIFY_YESNO, "SWP: Reconnection only", "Is the heater / sheathed element **already** disconnected and isolated for your work, and are you **only** using this guide from the reconnection / verification stage onward?", "4836:2023 Sec 3; 3017:2022 Sec 4", RESULT_NONE, NULL, NULL },
+  { STEP_VERIFY_YESNO, "SWP: Disconnection only", "Will you **end this guided session after disconnection** (no reconnection steps in this run)?", "4836:2023 Sec 3", RESULT_NONE, NULL, NULL },
   { STEP_INFO, "Prepare tools", "Confirm approved voltage tester, continuity tester, IR tester, insulated tools, lock, and DANGER tags are ready.", "4836:2023 Sec 8; Sec 9", RESULT_NONE, NULL, NULL },
   { STEP_INFO, "Tester battery/check", "Check tester body/leads/fuse for damage and confirm battery/self-test is OK before use.", "4836:2023 Sec 9", RESULT_NONE, NULL, NULL },
   { STEP_INFO, "1) Positive ID", "Identify correct heater/sheathed element, all isolation points, and all energy sources feeding it.", "4836:2023 Cl.3.1.2", RESULT_NONE, NULL, NULL },
+  { STEP_INFO, "All energy sources", "Beyond obvious mains, have you identified **every** source that could energise the work (control, capacitors, parallel feeds, plug-in equipment) per 4836:2023 Cl.3.1.2?", "4836:2023 Cl.3.1.2", RESULT_NONE, NULL, NULL },
   { STEP_INFO, "2) Isolate", "Open isolator/circuit breaker to physically disconnect supply. Isolate all feeds if more than one source.", "4836:2023 Cl.3.2.1", RESULT_NONE, NULL, NULL },
   { STEP_INFO, "3) Lock + tag", "Apply personal lock and DANGER tag (name/date/reason). Keep key with you to prevent re-energisation.", "4836:2023 Cl.3.2.8", RESULT_NONE, NULL, NULL },
   { STEP_INFO, "4) Prove tester", "Test voltage detector on known live source before dead-testing. Use approved detector only.", "4836:2023 Cl.3.2.6", RESULT_NONE, NULL, NULL },
@@ -354,6 +367,27 @@ bool VerificationSteps_expectedYesForStep(VerifyTestId id, int stepIndex) {
   return true;  // factory defaults: yes/no checks expect "Yes" unless overridden by custom JSON
 }
 
+bool VerificationSteps_isSwpFactoryTest(VerifyTestId id) {
+  return id == VERIFY_SWP_DISCONNECT_RECONNECT_MOTOR || id == VERIFY_SWP_DISCONNECT_RECONNECT_APPLIANCE ||
+         id == VERIFY_SWP_DISCONNECT_RECONNECT_HEATER_SHEATHE;
+}
+
+/* Keep in sync with s_swp_motor[] / s_swp_appliance[] / s_swp_heater_sheathed[] layout. */
+enum {
+  kSwpFactoryDisconnectEndIdx = 12,
+  kSwpFactoryReconnectStartIdx = 13
+};
+
+int VerificationSteps_getSwpFactoryReconnectStartStep(VerifyTestId id) {
+  if (!VerificationSteps_isSwpFactoryTest(id)) return -1;
+  return kSwpFactoryReconnectStartIdx;
+}
+
+int VerificationSteps_getSwpFactoryDisconnectEndStep(VerifyTestId id) {
+  if (!VerificationSteps_isSwpFactoryTest(id)) return -1;
+  return kSwpFactoryDisconnectEndIdx;
+}
+
 bool VerificationSteps_yesNoStepIsBranchOnly(VerifyTestId id, int stepIndex, const VerifyStep* step) {
   if (!step || step->type != STEP_VERIFY_YESNO || stepIndex < 0) return false;
   if (s_customActive) {
@@ -363,6 +397,9 @@ bool VerificationSteps_yesNoStepIsBranchOnly(VerifyTestId id, int stepIndex, con
   }
   if (id == VERIFY_INSULATION && step->title && strcmp(step->title, "Sheathed heating") == 0) return true;
   if (id == VERIFY_RCD && step->title && strncmp(step->title, "Scenario:", 9) == 0) return true;
+  if (VerificationSteps_isSwpFactoryTest(id) && step->title &&
+      (strcmp(step->title, "SWP: Reconnection only") == 0 || strcmp(step->title, "SWP: Disconnection only") == 0))
+    return true;
   return false;
 }
 
@@ -388,7 +425,7 @@ void VerificationSteps_formatResultCriterion(VerifyResultKind kind, bool isSheat
   if (kind == RESULT_RCD_REQUIRED_MAX_MS || kind == RESULT_NONE) return;
 
   if (kind == RESULT_RCD_MS && rcdMaxMsOverride > 0.0f) {
-    snprintf(buf, buf_size, "Pass if: <= %.4g ms", (double)rcdMaxMsOverride);
+    snprintf(buf, buf_size, "PASS if reading <= %.4g ms (from scenario answers)", (double)rcdMaxMsOverride);
     return;
   }
 
@@ -727,6 +764,10 @@ bool VerificationSteps_activateConfigJson(const char* json, char* err, unsigned 
   memcpy(s_customValsMax, nextValsMax, sizeof(s_customValsMax));
   s_customActive = true;
   return true;
+}
+
+bool VerificationSteps_isFactoryDefaultsActive(void) {
+  return !s_customActive;
 }
 
 void VerificationSteps_useFactoryDefaults(void) {

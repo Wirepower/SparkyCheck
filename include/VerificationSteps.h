@@ -84,6 +84,16 @@ bool VerificationSteps_expectedYesForStep(VerifyTestId id, int stepIndex);
  */
 bool VerificationSteps_yesNoStepIsBranchOnly(VerifyTestId id, int stepIndex, const VerifyStep* step);
 
+/** True for factory SWP disconnect/reconnect motor, appliance, or heater guides. */
+bool VerificationSteps_isSwpFactoryTest(VerifyTestId id);
+
+/**
+ * Factory SWP tests share one layout: 0=safety, 1–2=entry branches, … disconnect-and-label,
+ * then reconnect wiring. Indices are defined beside s_swp_motor[] in VerificationSteps.cpp.
+ */
+int VerificationSteps_getSwpFactoryReconnectStartStep(VerifyTestId id);
+int VerificationSteps_getSwpFactoryDisconnectEndStep(VerifyTestId id);
+
 /** Validate entered value for a result step. Returns true if pass. */
 bool VerificationSteps_validateResult(VerifyResultKind kind, float value, bool isSheathedHeating);
 
@@ -105,6 +115,9 @@ bool VerificationSteps_activateConfigJson(const char* json, char* err, unsigned 
 
 /** Disable custom override and use compiled-in factory defaults. */
 void VerificationSteps_useFactoryDefaults(void);
+
+/** True when no custom tests.json override is active (factory step order applies). */
+bool VerificationSteps_isFactoryDefaultsActive(void);
 
 #ifdef __cplusplus
 }
