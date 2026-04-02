@@ -76,7 +76,7 @@ static const VerifyStep s_continuity[] = {
   { STEP_SAFETY, "Safety", "Zero or compensate test leads so lead resistance is excluded. Use leads and instrument suitable for the circuit voltage.", "3000:2018 Sec 8; 3017:2022 Cl.4.4", RESULT_NONE, NULL, NULL },
   { STEP_INFO, "Method", "Continuity of protective earthing conductors is verified per 3000:2018 Cl.8.3.5 and tested in 3017:2022 Cl.4.4. Record the value after lead-zero.", "3000:2018 Cl.8.3.5; 3017:2022 Cl.4.4", RESULT_NONE, NULL, NULL },
   { STEP_VERIFY_YESNO, "Isolation", "Is the circuit isolated from supply before testing?", "3000:2018 Cl.8.3; 3017:2022 Sec 4", RESULT_NONE, NULL, NULL },
-  { STEP_RESULT_ENTRY, "Continuity reading", "Measure protective earthing conductor resistance (ohms). App pass limit default <=0.5 ohm (adjust in Admin rules if required).", "3000:2018 Cl.8.3.5; 3017:2022 Cl.4.4", RESULT_CONTINUITY_OHM, "Continuity", "ohm" },
+  { STEP_RESULT_ENTRY, "Continuity reading", "Enter your reading (ohms). The device shows PASS or FAIL using the rule below (Admin rules or factory default).", "3000:2018 Cl.8.3.5; 3017:2022 Cl.4.4", RESULT_CONTINUITY_OHM, "Continuity", "ohm" },
 };
 
 static const VerifyStep s_insulation[] = {
@@ -84,12 +84,12 @@ static const VerifyStep s_insulation[] = {
   { STEP_INFO, "IR test", "Insulation resistance is per 3000:2018 Cl.8.3.6; apply test voltage and stabilise reading per 3017:2022 Cl.4.5 and manufacturer instructions.", "3000:2018 Cl.8.3.6; 3017:2022 Cl.4.5", RESULT_NONE, NULL, NULL },
   { STEP_VERIFY_YESNO, "Isolation", "Is the circuit isolated and loads disconnected as required for the IR test?", "3000:2018 Cl.8.3.6; 3017:2022 Sec 4", RESULT_NONE, NULL, NULL },
   { STEP_VERIFY_YESNO, "Sheathed heating", "Is this for sheathed heating elements? (Lower minimum IR applies.)", "3000:2018 Cl.8.3.6; 3017:2022 Cl.4.5", RESULT_NONE, NULL, NULL },
-  { STEP_RESULT_ENTRY, "Insulation resistance", "Enter IR in MOhm. General wiring: min 1 MOhm; sheathed heating path: min 0.01 MOhm (app applies correct limit).", "3000:2018 Cl.8.3.6; 3017:2022 Cl.4.5", RESULT_IR_MOHM, "Insulation resistance", "MOhm" },
+  { STEP_RESULT_ENTRY, "Insulation resistance", "Enter your reading (MOhm). The device shows PASS or FAIL using the rule below (sheathed heating uses the lower minimum).", "3000:2018 Cl.8.3.6; 3017:2022 Cl.4.5", RESULT_IR_MOHM, "Insulation resistance", "MOhm" },
 };
 
 static const VerifyStep s_polarity[] = {
   { STEP_SAFETY, "Safety", "Confirm isolation where required. Identify conductors clearly before declaring polarity.", "3000:2018 Cl.8.3.7; 3017:2022 Cl.4.7", RESULT_NONE, NULL, NULL },
-  { STEP_INFO, "Polarity check", "Verify at every relevant point that active and neutral are not transposed (3000:2018 Cl.8.3.7; 3017:2022 Cl.4.7).", "3000:2018 Cl.8.3.7; 3017:2022 Cl.4.7", RESULT_NONE, NULL, NULL },
+  { STEP_INFO, "Polarity check", "Verify at every relevant point that active and neutral are not transposed (3000:2018 Cl.8.3.7; 3017:2022 Cl.4.7). Answer the checks honestly—Yes only if correct; No records FAIL.", "3000:2018 Cl.8.3.7; 3017:2022 Cl.4.7", RESULT_NONE, NULL, NULL },
   { STEP_VERIFY_YESNO, "Isolation", "Is the circuit isolated from supply for your test method?", "3000:2018 Cl.8.3; 3017:2022 Sec 4", RESULT_NONE, NULL, NULL },
   { STEP_VERIFY_YESNO, "Polarity correct", "Have you verified polarity is correct (active/neutral not transposed) at all required points?", "3000:2018 Cl.8.3.7; 3017:2022 Cl.4.7", RESULT_NONE, NULL, NULL },
 };
@@ -98,21 +98,21 @@ static const VerifyStep s_earth_continuity[] = {
   { STEP_SAFETY, "Safety", "Zero leads, isolate supply, confirm CPC continuity path is the one under test.", "3000:2018 Cl.8.3.5; 3017:2022 Cl.4.4", RESULT_NONE, NULL, NULL },
   { STEP_INFO, "CPC test", "Measure circuit protective conductor (CPC) resistance per 3000:2018 Cl.8.3.5 after lead compensation.", "3000:2018 Cl.8.3.5; 3017:2022 Cl.4.4", RESULT_NONE, NULL, NULL },
   { STEP_VERIFY_YESNO, "Isolation", "Is the circuit isolated from supply?", "3000:2018 Cl.8.3; 3017:2022 Sec 4", RESULT_NONE, NULL, NULL },
-  { STEP_RESULT_ENTRY, "Earth continuity", "Enter CPC resistance (ohm). Default pass <=0.5 ohm unless Admin rules specify otherwise.", "3000:2018 Cl.8.3.5; 3017:2022", RESULT_CONTINUITY_OHM, "Earth continuity", "ohm" },
+  { STEP_RESULT_ENTRY, "Earth continuity", "Enter your reading (ohms). The device shows PASS or FAIL using the rule below (Admin rules or factory default).", "3000:2018 Cl.8.3.5; 3017:2022", RESULT_CONTINUITY_OHM, "Earth continuity", "ohm" },
 };
 
 static const VerifyStep s_circuit_connections[] = {
   { STEP_SAFETY, "Safety", "Circuit isolated. Check neutral and protective earth are not transposed or combined incorrectly.", "3000:2018 Cl.8.3.8", RESULT_NONE, NULL, NULL },
-  { STEP_INFO, "Connections", "Correct circuit connections are confirmed per 3000:2018 Cl.8.3.8 (neutral/earth identification).", "3000:2018 Cl.8.3.8", RESULT_NONE, NULL, NULL },
+  { STEP_INFO, "Connections", "Correct circuit connections are confirmed per 3000:2018 Cl.8.3.8 (neutral/earth identification). Answer honestly—Yes only if correct; No records FAIL.", "3000:2018 Cl.8.3.8", RESULT_NONE, NULL, NULL },
   { STEP_VERIFY_YESNO, "Isolation", "Is the circuit isolated from supply?", "3000:2018 Cl.8.3; 3017:2022 Sec 4", RESULT_NONE, NULL, NULL },
   { STEP_VERIFY_YESNO, "Connections correct", "Have you verified correct circuit connections (neutral/earth not transposed)?", "3000:2018 Cl.8.3.8; 3017:2022 Cl.4.7", RESULT_NONE, NULL, NULL },
 };
 
 static const VerifyStep s_efli[] = {
   { STEP_SAFETY, "Safety", "Supply may be energised. Use an approved loop tester and leads rated for the installation voltage.", "3000:2018 Cl.8.3.9; 3017:2022 Cl.4.8", RESULT_NONE, NULL, NULL },
-  { STEP_INFO, "Zs criterion", "Obtain the maximum permitted earth-fault loop impedance (Zs) for this circuit from 3000:2018 Cl.8.3.9 (tabulated limits / installation design). App compares to a configurable default (see Admin rules).", "3000:2018 Cl.8.3.9; 3017:2022 Cl.4.8", RESULT_NONE, NULL, NULL },
+  { STEP_INFO, "Zs criterion", "Confirm your installation’s maximum permitted Zs from AS/NZS 3000:2018 / design tables. The device compares your measured value to the limit below (Admin rules or factory default).", "3000:2018 Cl.8.3.9; 3017:2022 Cl.4.8", RESULT_NONE, NULL, NULL },
   { STEP_VERIFY_YESNO, "Tester ready", "Is the circuit energised and the loop tester connected and set correctly?", "3000:2018 Cl.8.3.9", RESULT_NONE, NULL, NULL },
-  { STEP_RESULT_ENTRY, "EFLI reading", "Enter measured Zs (ohm). Pass/fail uses Admin rule max (default 0.4 ohm) — confirm against your tabulated limit.", "3000:2018 Cl.8.3.9; 3017:2022 Cl.4.8", RESULT_EFLI_OHM, "EFLI", "ohm" },
+  { STEP_RESULT_ENTRY, "EFLI reading", "Enter your measured Zs (ohms). The device shows PASS or FAIL using the rule below (set Admin rules to match your tabulated limit).", "3000:2018 Cl.8.3.9; 3017:2022 Cl.4.8", RESULT_EFLI_OHM, "EFLI", "ohm" },
 };
 
 static const VerifyStep s_rcd[] = {
@@ -143,7 +143,7 @@ static const VerifyStep s_swp_motor[] = {
   { STEP_INFO, "Common mistakes check", "Do not skip prove-live/dead/prove-live. Do not use neon screwdrivers/basic meters. Do not remove tags early.", "4836:2023 Cl.3.2.3, 3.2.6, 3.2.8", RESULT_NONE, NULL, NULL },
   { STEP_INFO, "Reassemble safely", "Refit covers/guards, check no tools left inside, and confirm terminals are protected.", "4836:2023 Cl.7.2", RESULT_NONE, NULL, NULL },
   { STEP_INFO, "Restore supply control", "Warn personnel, remove lock/tag only when safe and authorised, then restore supply.", "4836:2023 Sec 7", RESULT_NONE, NULL, NULL },
-  { STEP_VERIFY_YESNO, "Final motor check", "Did motor start and run correctly with no abnormal heat, sound, smell, or vibration?", "4836:2023 Sec 7", RESULT_NONE, NULL, NULL },
+  { STEP_VERIFY_YESNO, "Final motor check", "Did motor start and run correctly with no abnormal heat, sound, smell, or vibration? Answer honestly; No records FAIL.", "4836:2023 Sec 7", RESULT_NONE, NULL, NULL },
 };
 
 static const VerifyStep s_swp_appliance[] = {
@@ -164,7 +164,7 @@ static const VerifyStep s_swp_appliance[] = {
   { STEP_INFO, "Common mistakes check", "Never trust breaker OFF alone. Never skip prove-live/dead/prove-live. Never remove lock/tag early.", "4836:2023 Cl.3.2.1, 3.2.3, 3.2.6, 3.2.8", RESULT_NONE, NULL, NULL },
   { STEP_INFO, "Reassemble safely", "Secure covers and cable clamps/strain relief. Confirm no exposed live parts.", "4836:2023 Cl.7.2", RESULT_NONE, NULL, NULL },
   { STEP_INFO, "Restore supply control", "Warn personnel, remove lock/tag only when safe and authorised, then restore supply.", "4836:2023 Sec 7", RESULT_NONE, NULL, NULL },
-  { STEP_VERIFY_YESNO, "Final appliance check", "Is appliance operating correctly and safely with no abnormal heat, smell, noise, or faults?", "4836:2023 Sec 7", RESULT_NONE, NULL, NULL },
+  { STEP_VERIFY_YESNO, "Final appliance check", "Is appliance operating correctly and safely with no abnormal heat, smell, noise, or faults? Answer honestly; No records FAIL.", "4836:2023 Sec 7", RESULT_NONE, NULL, NULL },
 };
 
 static const VerifyStep s_swp_heater_sheathed[] = {
@@ -185,13 +185,13 @@ static const VerifyStep s_swp_heater_sheathed[] = {
   { STEP_INFO, "Common mistakes check", "Do not miss extra energy sources, do not use wrong tester, and do not remove tag before work is complete.", "4836:2023 Cl.3.1.2, 3.2.6, 3.2.8", RESULT_NONE, NULL, NULL },
   { STEP_INFO, "Reassemble safely", "Refit all covers and verify no exposed live parts remain.", "4836:2023 Cl.7.2", RESULT_NONE, NULL, NULL },
   { STEP_INFO, "Restore supply control", "Warn personnel, remove lock/tag only when safe and authorised, then restore supply.", "4836:2023 Sec 7", RESULT_NONE, NULL, NULL },
-  { STEP_VERIFY_YESNO, "Final heater check", "Does heater/sheathed element operate correctly and safely with no abnormal condition?", "4836:2023 Sec 7", RESULT_NONE, NULL, NULL },
+  { STEP_VERIFY_YESNO, "Final heater check", "Does heater/sheathed element operate correctly and safely with no abnormal condition? Answer honestly; No records FAIL.", "4836:2023 Sec 7", RESULT_NONE, NULL, NULL },
 };
 
 /** In-service checklist (training aid — use site test sheets for tabulated limits). */
 static const VerifyStep s_pat_3760[] = {
   { STEP_SAFETY, "Safety", "Isolate or disconnect equipment per site procedure before inspection. Use appropriate PPE and test instruments.", "3760:2022 Sec 2", RESULT_NONE, NULL, NULL },
-  { STEP_INFO, "Scope", "This guide aligns with AS/NZS 3760:2022 in-service safety inspection. Follow your employer forms for exact limits and test types.", "3760:2022 Sec 1", RESULT_NONE, NULL, NULL },
+  { STEP_INFO, "Scope", "This guide aligns with AS/NZS 3760:2022 in-service safety inspection. Your answers set PASS or FAIL on the result screen; use employer forms for tabulated limits.", "3760:2022 Sec 1", RESULT_NONE, NULL, NULL },
   { STEP_INFO, "Visual inspection", "Inspect flexible cords, plugs, guards, housings, and labels for damage, overheating signs, and strain.", "3760:2022 Sec 2.4.2", RESULT_NONE, NULL, NULL },
   { STEP_VERIFY_YESNO, "Visual outcome", "Is the item free from visible damage or defects that would make it unsafe?", "3760:2022 Sec 2.4.2", RESULT_NONE, NULL, NULL },
   { STEP_INFO, "Test selection", "Class I earthed items need protective earth continuity where applicable; Class II is double-insulated. Add IR/leakage per your procedure.", "3760:2022 Sec 2.4; 3000:2018 Sec 8", RESULT_NONE, NULL, NULL },
@@ -350,6 +350,95 @@ bool VerificationSteps_expectedYesForStep(VerifyTestId id, int stepIndex) {
     return s_customExpectedYes[id][stepIndex];
   }
   return true;  // factory defaults: yes/no checks expect "Yes" unless overridden by custom JSON
+}
+
+static const char* criterionUnitSuffix(VerifyResultKind k) {
+  switch (k) {
+    case RESULT_CONTINUITY_OHM:
+    case RESULT_EFLI_OHM:
+      return " ohm";
+    case RESULT_IR_MOHM:
+    case RESULT_IR_MOHM_SHEATHED:
+      return " MOhm";
+    case RESULT_RCD_MS:
+    case RESULT_RCD_REQUIRED_MAX_MS:
+      return " ms";
+    default:
+      return "";
+  }
+}
+
+void VerificationSteps_formatResultCriterion(VerifyResultKind kind, bool isSheathedHeating, float rcdMaxMsOverride, char* buf, unsigned buf_size) {
+  if (!buf || buf_size < 8) return;
+  buf[0] = '\0';
+  if (kind == RESULT_RCD_REQUIRED_MAX_MS || kind == RESULT_NONE) return;
+
+  if (kind == RESULT_RCD_MS && rcdMaxMsOverride > 0.0f) {
+    snprintf(buf, buf_size, "Pass if: <= %.4g ms", (double)rcdMaxMsOverride);
+    return;
+  }
+
+  VerifyResultKind eff = kind;
+  if (kind == RESULT_IR_MOHM && isSheathedHeating) eff = RESULT_IR_MOHM_SHEATHED;
+
+  if (eff >= 0 && eff < RESULT_NONE && s_customOps[eff] != CMP_DEFAULT) {
+    const char* u = criterionUnitSuffix(eff);
+    switch (s_customOps[eff]) {
+      case CMP_LT:
+        snprintf(buf, buf_size, "Pass if: < %.4g%s", (double)s_customVals[eff], u);
+        break;
+      case CMP_GT:
+        snprintf(buf, buf_size, "Pass if: > %.4g%s", (double)s_customVals[eff], u);
+        break;
+      case CMP_LE:
+        snprintf(buf, buf_size, "Pass if: <= %.4g%s", (double)s_customVals[eff], u);
+        break;
+      case CMP_GE:
+        snprintf(buf, buf_size, "Pass if: >= %.4g%s", (double)s_customVals[eff], u);
+        break;
+      case CMP_EQ:
+        snprintf(buf, buf_size, "Pass if: = %.4g%s", (double)s_customVals[eff], u);
+        break;
+      case CMP_BETWEEN: {
+        float lo = s_customVals[eff];
+        float hi = s_customValsMax[eff];
+        if (hi < lo) {
+          float t = lo;
+          lo = hi;
+          hi = t;
+        }
+        snprintf(buf, buf_size, "Pass if: %.4g – %.4g%s", (double)lo, (double)hi, u);
+        break;
+      }
+      default:
+        break;
+    }
+    if (buf[0]) return;
+  }
+
+  if (kind == RESULT_IR_MOHM && isSheathedHeating) {
+    snprintf(buf, buf_size, "Pass if: >= %.4g MOhm", (double)TestLimits_insulationMinMOhmsSheathedHeating());
+    return;
+  }
+  switch (kind) {
+    case RESULT_CONTINUITY_OHM:
+      snprintf(buf, buf_size, "Pass if: <= %.4g ohm", (double)TestLimits_continuityMaxOhms());
+      break;
+    case RESULT_IR_MOHM:
+      snprintf(buf, buf_size, "Pass if: >= %.4g MOhm", (double)TestLimits_insulationMinMOhms());
+      break;
+    case RESULT_IR_MOHM_SHEATHED:
+      snprintf(buf, buf_size, "Pass if: >= %.4g MOhm", (double)TestLimits_insulationMinMOhmsSheathedHeating());
+      break;
+    case RESULT_EFLI_OHM:
+      snprintf(buf, buf_size, "Pass if: <= %.4g ohm", (double)TestLimits_efliMaxOhms());
+      break;
+    case RESULT_RCD_MS:
+      snprintf(buf, buf_size, "Pass if: <= %.4g ms", (double)TestLimits_rcdTripTimeMaxMs());
+      break;
+    default:
+      break;
+  }
 }
 
 bool VerificationSteps_validateResult(VerifyResultKind kind, float value, bool isSheathedHeating) {

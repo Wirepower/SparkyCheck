@@ -736,7 +736,7 @@ static void sparkyBackLabelCoords(int backW, int backH, int backX, int backY, in
 
 /** Layout for test-flow numeric entry: shared by draw + touch (STEP_RESULT_ENTRY). */
 typedef struct {
-  int rcdLineY;   /* >= 0 if "Required max" line is shown */
+  int criterionLineY; /* >= 0 if pass-rule line is shown above the value */
   int valueRowY;
   int delX, delY, delW, delH;
   int uy, uh, uw, uGap;
@@ -744,7 +744,7 @@ typedef struct {
   uint8_t keypadTs;
 } ResultEntryLayout;
 
-static void layoutResultEntry(int w, int h, int yAfterInstr, bool showRcdReq, int unitCount, ResultEntryLayout* L) {
+static void layoutResultEntry(int w, int h, int yAfterInstr, bool showCriterionLine, int unitCount, ResultEntryLayout* L) {
   const int marginX = 20;
   const int bottomPad = 12;
   /* Narrow portrait: allow value/keypad block slightly higher to reclaim vertical space. */
@@ -752,11 +752,11 @@ static void layoutResultEntry(int w, int h, int yAfterInstr, bool showRcdReq, in
   int y = yAfterInstr + 8;
   if (y < minTop) y = minTop;
 
-  if (showRcdReq) {
-    L->rcdLineY = y;
+  if (showCriterionLine) {
+    L->criterionLineY = y;
     y += 26;
   } else {
-    L->rcdLineY = -1;
+    L->criterionLineY = -1;
   }
 
   const int valueRowH = 40;
@@ -931,6 +931,8 @@ static bool s_rcdScenario40msRule = false;
 static bool s_rcdScenario5xTest = false;
 /** True if user entered required max via a custom step (RESULT_RCD_REQUIRED_MAX_MS). */
 static bool s_rcdUsedManualRequiredMax = false;
+/** Last numeric result kind shown on PASS/FAIL screen (for criterion line). */
+static VerifyResultKind s_lastVerifyResultKind = RESULT_NONE;
 static VerifyResultKind s_resultInputKind = RESULT_NONE;
 static char s_resultInput[16] = "";
 static int s_resultInputLen = 0;
@@ -1203,6 +1205,20 @@ static void resetResultEntryInput(void) {
   s_rcdScenario40msRule = false;
   s_rcdScenario5xTest = false;
   s_rcdUsedManualRequiredMax = false;
+  s_lastVerifyResultKind = RESULT_NONE;
+}
+
+/** Pass-rule line for measurement entry (Admin rules + scenario limits). */
+static void sparkyResultCriterionText(const VerifyStep* st, char* buf, size_t bufLen, bool* showLine) {
+  *showLine = false;
+  if (!buf || bufLen < 4 || !st || st->type != STEP_RESULT_ENTRY) {
+    if (buf && bufLen) buf[0] = '\0';
+    return;
+  }
+  float rcdOv = 0.0f;
+  if (st->resultKind == RESULT_RCD_MS && s_rcdRequiredMaxMs > 0.0f) rcdOv = s_rcdRequiredMaxMs;
+  VerificationSteps_formatResultCriterion(st->resultKind, s_resultIsSheathedHeating, rcdOv, buf, (unsigned)bufLen);
+  *showLine = (buf[0] != '\0');
 }
 
 /** Begin verification for test index `rowIndex`. */
@@ -1611,9 +1627,11 @@ static bool screens_try_partial_redraw(SparkyTft* tft, ScreenId id, int w, int h
       int defaultIdx = 0;
       getResultUnitOptions(step.resultKind, &units, &unitCount, &defaultIdx);
       if (s_resultInputUnitIdx < 0 || s_resultInputUnitIdx >= unitCount) s_resultInputUnitIdx = defaultIdx;
-      const bool showRcdReq = (step.resultKind == RESULT_RCD_MS && s_rcdRequiredMaxMs > 0.0f);
+      char critPartial[72];
+      bool showCritP = false;
+      sparkyResultCriterionText(&step, critPartial, sizeof(critPartial), &showCritP);
       ResultEntryLayout rel;
-      layoutResultEntry(w, h, s_resultEntryYAfterInstr, showRcdReq, unitCount, &rel);
+      layoutResultEntry(w, h, s_resultEntryYAfterInstr, showCritP, unitCount, &rel);
       /* Only clear the value column — full width erase was wiping the Del button. */
       {
         int clearW = rel.delX - 28 - 18;
@@ -1871,14 +1889,17 @@ static void screens_draw_impl(SparkyTft* tft, ScreenId id, bool fullClear) {
             snprintf(buf, sizeof(buf), "%s: Verified", s_resultLabel ? s_resultLabel : "Test");
           yRes = sparkyDrawWrappedWordsCentered(tft, buf, w, yRes, 20, 2, kWhite, kBg);
         }
-        if (s_selectedTestType == (int)VERIFY_RCD && s_rcdRequiredMaxMs > 0.0f) {
-          char crit[64];
-          snprintf(crit, sizeof(crit), "Criterion: <= %.3f ms", (double)s_rcdRequiredMaxMs);
-          tft->setCursor(20, yRes + 4);
-          tft->setTextSize(1);
-          tft->setTextColor(kAccent, kBg);
-          tft->print(crit);
-          yRes += 20;
+        if (s_lastVerifyResultKind != RESULT_NONE) {
+          char critRes[80];
+          float rco = (s_lastVerifyResultKind == RESULT_RCD_MS && s_rcdRequiredMaxMs > 0.0f) ? s_rcdRequiredMaxMs : 0.0f;
+          VerificationSteps_formatResultCriterion(s_lastVerifyResultKind, s_resultIsSheathedHeating, rco, critRes, sizeof(critRes));
+          if (critRes[0]) {
+            tft->setCursor(20, yRes + 4);
+            tft->setTextSize(1);
+            tft->setTextColor(kAccent, kBg);
+            tft->print(critRes);
+            yRes += 20;
+          }
         }
         if (s_resultClause && s_resultClause[0]) {
           tft->setTextSize(1);
@@ -1983,18 +2004,22 @@ static void screens_draw_impl(SparkyTft* tft, ScreenId id, bool fullClear) {
         getResultUnitOptions(step.resultKind, &units, &unitCount, &defaultIdx);
         if (s_resultInputUnitIdx < 0 || s_resultInputUnitIdx >= unitCount) s_resultInputUnitIdx = defaultIdx;
 
-        const bool showRcdReq = (step.resultKind == RESULT_RCD_MS && s_rcdRequiredMaxMs > 0.0f);
+        char critBuf[72];
+        bool showCrit = false;
+        sparkyResultCriterionText(&step, critBuf, sizeof(critBuf), &showCrit);
         s_resultEntryYAfterInstr = yAfterInstr;
         ResultEntryLayout rel;
-        layoutResultEntry(w, h, yAfterInstr, showRcdReq, unitCount, &rel);
+        layoutResultEntry(w, h, yAfterInstr, showCrit, unitCount, &rel);
 
         tft->setTextColor(kWhite, kBg);
         tft->setTextSize(2);
-        if (rel.rcdLineY >= 0) {
-          char reqBuf[44];
-          snprintf(reqBuf, sizeof(reqBuf), "Required max: %.3f ms", (double)s_rcdRequiredMaxMs);
-          tft->setCursor(20, rel.rcdLineY);
-          tft->print(reqBuf);
+        if (rel.criterionLineY >= 0) {
+          tft->setTextSize(1);
+          tft->setTextColor(kAccent, kBg);
+          tft->setCursor(20, rel.criterionLineY);
+          tft->print(critBuf);
+          tft->setTextSize(2);
+          tft->setTextColor(kWhite, kBg);
         }
         tft->setCursor(20, rel.valueRowY);
         tft->print("Value:");
@@ -3625,9 +3650,11 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
         getResultUnitOptions(step.resultKind, &units, &unitCount, &defaultIdx);
         if (s_resultInputUnitIdx < 0 || s_resultInputUnitIdx >= unitCount) s_resultInputUnitIdx = defaultIdx;
 
-        const bool showRcdReq = (step.resultKind == RESULT_RCD_MS && s_rcdRequiredMaxMs > 0.0f);
+        char critTouch[72];
+        bool showCritT = false;
+        sparkyResultCriterionText(&step, critTouch, sizeof(critTouch), &showCritT);
         ResultEntryLayout rel;
-        layoutResultEntry(w, h, s_resultEntryYAfterInstr, showRcdReq, unitCount, &rel);
+        layoutResultEntry(w, h, s_resultEntryYAfterInstr, showCritT, unitCount, &rel);
 
         if (inRect(ix, iy, rel.delX, rel.delY, rel.delW, rel.delH)) {
           if (s_resultInputLen > 0) s_resultInput[--s_resultInputLen] = '\0';
@@ -3686,6 +3713,7 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
                 s_resultInput[0] = '\0';
                 if (s_stepIndex >= count) {
                   s_resultPass = true;
+                  s_lastVerifyResultKind = RESULT_RCD_REQUIRED_MAX_MS;
                   s_resultValue = rawValue;
                   s_resultLabel = step.resultLabel;
                   s_resultUnit = units[s_resultInputUnitIdx].label;
@@ -3706,6 +3734,7 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
                 s_resultPass = TestLimits_rcdTripTimePassWithMax(canonicalValue, s_rcdRequiredMaxMs);
               else
                 s_resultPass = VerificationSteps_validateResult(kind, canonicalValue, s_resultIsSheathedHeating);
+              if (kind != RESULT_RCD_REQUIRED_MAX_MS) s_lastVerifyResultKind = kind;
               s_resultValue = rawValue;
               s_resultLabel = step.resultLabel;
               s_resultUnit = units[s_resultInputUnitIdx].label;

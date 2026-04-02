@@ -83,6 +83,13 @@ bool VerificationSteps_validateResult(VerifyResultKind kind, float value, bool i
 /** Get pass/fail clause ref for report. */
 const char* VerificationSteps_getClauseForResult(VerifyResultKind kind);
 
+/**
+ * One-line pass rule for the measurement screen (active Admin rules or factory defaults).
+ * For RESULT_RCD_MS, pass rcdMaxMsOverride > 0 to show that limit (scenario-computed).
+ * Leaves buf empty for RESULT_RCD_REQUIRED_MAX_MS and unknown kinds.
+ */
+void VerificationSteps_formatResultCriterion(VerifyResultKind kind, bool isSheathedHeating, float rcdMaxMsOverride, char* buf, unsigned buf_size);
+
 /** Export current test config as JSON for admin editing. */
 bool VerificationSteps_getConfigJson(char* buf, unsigned buf_size);
 
