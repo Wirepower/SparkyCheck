@@ -75,52 +75,52 @@ static const char* s_testNames[] = {
 
 static const VerifyStep s_continuity[] = {
   { STEP_SAFETY, "Safety", "Zero or compensate test leads so lead resistance is excluded. Use leads and instrument suitable for the circuit voltage.", "3000:2018 Sec 8; 3017:2022 Cl.4.4", RESULT_NONE, NULL, NULL },
-  { STEP_INFO, "Method", "Continuity of protective earthing conductors is verified per 3000:2018 Cl.8.3.5 and tested in 3017:2022 Cl.4.4. Record the value after lead-zero.", "3000:2018 Cl.8.3.5; 3017:2022 Cl.4.4", RESULT_NONE, NULL, NULL },
+  { STEP_INFO, "Method", "3000:2018 Cl.8.3.5 tests continuity of the earthing system (MEC, PEC, PEN, bonding) so protective devices can operate on earth faults. Follow 3017:2022 Cl.4.4 for the test method. Record after lead-zero.", "3000:2018 Cl.8.3.5; 3017:2022 Cl.4.4", RESULT_NONE, NULL, NULL },
   { STEP_VERIFY_YESNO, "Isolation", "Is the circuit isolated from supply before testing?", "3000:2018 Cl.8.3; 3017:2022 Sec 4", RESULT_NONE, NULL, NULL },
-  { STEP_RESULT_ENTRY, "Continuity reading", "Enter your reading (ohms). The device shows PASS or FAIL using the rule below (Admin rules or factory default).", "3000:2018 Cl.8.3.5; 3017:2022 Cl.4.4", RESULT_CONTINUITY_OHM, "Continuity", "ohm" },
+  { STEP_RESULT_ENTRY, "Continuity reading", "Enter your reading (ohms). PASS/FAIL uses the rule below (Admin rules or factory default; 3000 Table 8.2 / 8.3.5.2).", "3000:2018 Cl.8.3.5; 3017:2022 Cl.4.4", RESULT_CONTINUITY_OHM, "Continuity", "ohm" },
 };
 
 static const VerifyStep s_insulation[] = {
-  { STEP_SAFETY, "Safety", "Do not touch live parts. Use 500 V DC rated leads where required. Isolate the circuit and disconnect electronic loads as applicable.", "3000:2018 Sec 8; 3017:2022 Cl.4.5", RESULT_NONE, NULL, NULL },
-  { STEP_INFO, "IR test", "Insulation resistance is per 3000:2018 Cl.8.3.6; apply test voltage and stabilise reading per 3017:2022 Cl.4.5 and manufacturer instructions.", "3000:2018 Cl.8.3.6; 3017:2022 Cl.4.5", RESULT_NONE, NULL, NULL },
+  { STEP_SAFETY, "Safety", "Do not touch live parts. Default test is 500 V d.c. per 3000:2018 Cl.8.3.6.2 (exceptions: 250 V or disconnect sensitive gear). Isolate and disconnect loads as applicable.", "3000:2018 Cl.8.3.6; 3017:2022 Cl.4.5", RESULT_NONE, NULL, NULL },
+  { STEP_INFO, "IR test", "3000:2018 Cl.8.3.6.3: not less than 1 MOhm (0.01 MOhm sheathed heating; other exceptions per Standard). Apply 3017:2022 Cl.4.5 and instrument instructions.", "3000:2018 Cl.8.3.6; 3017:2022 Cl.4.5", RESULT_NONE, NULL, NULL },
   { STEP_VERIFY_YESNO, "Isolation", "Is the circuit isolated and loads disconnected as required for the IR test?", "3000:2018 Cl.8.3.6; 3017:2022 Sec 4", RESULT_NONE, NULL, NULL },
   { STEP_VERIFY_YESNO, "Sheathed heating", "Is this for sheathed heating elements? (Lower minimum IR applies.) Yes/No only picks the limit — neither answer is a failure.", "3000:2018 Cl.8.3.6; 3017:2022 Cl.4.5", RESULT_NONE, NULL, NULL },
   { STEP_RESULT_ENTRY, "Insulation resistance", "Enter your reading (MOhm). The device shows PASS or FAIL using the rule below (sheathed heating uses the lower minimum).", "3000:2018 Cl.8.3.6; 3017:2022 Cl.4.5", RESULT_IR_MOHM, "Insulation resistance", "MOhm" },
 };
 
 static const VerifyStep s_polarity[] = {
-  { STEP_SAFETY, "Safety", "Confirm isolation where required. Identify conductors clearly before declaring polarity.", "3000:2018 Cl.8.3.7; 3017:2022 Cl.4.7", RESULT_NONE, NULL, NULL },
-  { STEP_INFO, "Polarity (Cl.8.3.7)", "AS/NZS 3000:2018 Cl.8.3.7 addresses **polarity** of the active and neutral at required points. The next Yes/No checks split common transposition faults so each is explicit. Answer honestly—No records FAIL for that check.", "3000:2018 Cl.8.3.7; 3017:2022 Cl.4.7", RESULT_NONE, NULL, NULL },
+  { STEP_SAFETY, "Safety", "Confirm isolation where required. Identify conductors clearly before testing.", "3000:2018 Cl.8.3.7; 3017:2022 Cl.4.7", RESULT_NONE, NULL, NULL },
+  { STEP_INFO, "Polarity (Cl.8.3.7)", "3000:2018 Cl.8.3.7 covers polarity and correct connections. Cl.8.3.7.1 lists risks (transposed A/N, wrong A-N-E, switches in N, multiphase, PEC current). Next steps split these. No = FAIL.", "3000:2018 Cl.8.3.7; 3017:2022 Cl.4.7", RESULT_NONE, NULL, NULL },
   { STEP_VERIFY_YESNO, "Isolation", "Is the circuit isolated from supply for your test method?", "3000:2018 Cl.8.3; 3017:2022 Sec 4", RESULT_NONE, NULL, NULL },
-  { STEP_VERIFY_YESNO, "Active & neutral", "At every required test point, are **active and neutral** not transposed (not swapped with each other)?", "3000:2018 Cl.8.3.7; 3017:2022 Cl.4.7", RESULT_NONE, NULL, NULL },
-  { STEP_VERIFY_YESNO, "Active & earth", "At every required test point, are **active and protective earth** not transposed and not incorrectly identified as each other?", "3000:2018 Cl.8.3.7; 3017:2022 Cl.4.7", RESULT_NONE, NULL, NULL },
-  { STEP_VERIFY_YESNO, "Neutral & earth", "At every required test point, are **neutral and protective earth** not transposed and not incorrectly identified as each other?", "3000:2018 Cl.8.3.7; 3017:2022 Cl.4.7", RESULT_NONE, NULL, NULL },
+  { STEP_VERIFY_YESNO, "Active & neutral", "At required points, are active and neutral not transposed (incl. Cl.8.3.7.1(a) type faults)?", "3000:2018 Cl.8.3.7; 3017:2022 Cl.4.7", RESULT_NONE, NULL, NULL },
+  { STEP_VERIFY_YESNO, "Active & earth", "At required points, are active and PEC not transposed or wrongly identified (Cl.8.3.7.1(b) style)?", "3000:2018 Cl.8.3.7; 3017:2022 Cl.4.7", RESULT_NONE, NULL, NULL },
+  { STEP_VERIFY_YESNO, "Neutral & earth", "At required points, are neutral and PEC correct; PEC not carrying normal current (Cl.8.3.7.1(e))?", "3000:2018 Cl.8.3.7; 3017:2022 Cl.4.7", RESULT_NONE, NULL, NULL },
 };
 
 static const VerifyStep s_earth_continuity[] = {
   { STEP_SAFETY, "Safety", "Zero leads, isolate supply, confirm CPC continuity path is the one under test.", "3000:2018 Cl.8.3.5; 3017:2022 Cl.4.4", RESULT_NONE, NULL, NULL },
   { STEP_INFO, "CPC test", "Measure circuit protective conductor (CPC) resistance per 3000:2018 Cl.8.3.5 after lead compensation.", "3000:2018 Cl.8.3.5; 3017:2022 Cl.4.4", RESULT_NONE, NULL, NULL },
   { STEP_VERIFY_YESNO, "Isolation", "Is the circuit isolated from supply?", "3000:2018 Cl.8.3; 3017:2022 Sec 4", RESULT_NONE, NULL, NULL },
-  { STEP_RESULT_ENTRY, "Earth continuity", "Enter your reading (ohms). The device shows PASS or FAIL using the rule below (Admin rules or factory default).", "3000:2018 Cl.8.3.5; 3017:2022", RESULT_CONTINUITY_OHM, "Earth continuity", "ohm" },
+  { STEP_RESULT_ENTRY, "Earth continuity", "Enter your reading (ohms). PASS/FAIL per rule below (3000 Cl.8.3.5.2; Admin or factory default).", "3000:2018 Cl.8.3.5; 3017:2022 Cl.4.4", RESULT_CONTINUITY_OHM, "Earth continuity", "ohm" },
 };
 
 static const VerifyStep s_circuit_connections[] = {
-  { STEP_SAFETY, "Safety", "Circuit isolated where required. Confirm you can safely verify connections and identification.", "3000:2018 Cl.8.3.8", RESULT_NONE, NULL, NULL },
-  { STEP_INFO, "Correct connections (Cl.8.3.8)", "AS/NZS 3000:2018 Cl.8.3.8 confirms **correct circuit connections** and proper use of conductors—including neutral and protective earth **functions** at supply and load, PEN/MEN context, and that neutral is not used as earth where not permitted. This complements Cl.8.3.7 (polarity): polarity checks focus on active vs neutral; 8.3.8 focuses on **connection correctness and conductor roles**.", "3000:2018 Cl.8.3.8; 3017:2022 Cl.4.7", RESULT_NONE, NULL, NULL },
+  { STEP_SAFETY, "Safety", "Circuit isolated where required. Confirm you can safely verify connections and identification.", "3000:2018 Cl.8.3.7; 3017:2022 Cl.4.7", RESULT_NONE, NULL, NULL },
+  { STEP_INFO, "Connections (Cl.8.3.7.2)", "In 3000:2018 Cl.8.3.8 is deleted. Correct connections are verified under Cl.8.3.7.2 (a)-(h). Next questions cover switch placement, PEC||N, shorts, and cross-circuit ties.", "3000:2018 Cl.8.3.7.2; 3017:2022 Cl.4.7", RESULT_NONE, NULL, NULL },
   { STEP_VERIFY_YESNO, "Isolation", "Is the circuit isolated from supply?", "3000:2018 Cl.8.3; 3017:2022 Sec 4", RESULT_NONE, NULL, NULL },
-  { STEP_VERIFY_YESNO, "Neutral & PE roles", "Are neutral and protective earth used in accordance with the installation type (correct function at terminations; not interchanged where separate conductors are required)?", "3000:2018 Cl.8.3.8; 3017:2022 Cl.4.7", RESULT_NONE, NULL, NULL },
-  { STEP_VERIFY_YESNO, "Conductors & terminations", "Are all required circuit conductors present, correctly identified (colours / labels / records), and securely terminated at accessories and equipment?", "3000:2018 Cl.8.3.8; 3017:2022 Cl.4.7", RESULT_NONE, NULL, NULL },
+  { STEP_VERIFY_YESNO, "Switches & devices", "Are switches/protective devices NOT in the protective earthing or PEN conductor, and NOT operating independently in the neutral only (3000:2018 Cl.8.3.7.2(b)(c))?", "3000:2018 Cl.8.3.7.2; 3017:2022 Cl.4.7", RESULT_NONE, NULL, NULL },
+  { STEP_VERIFY_YESNO, "Conductors & ties", "No PEC parallel with neutral; no shorts between conductors; no ties between circuits; multiphase sockets same sequence where required (Cl.8.3.7.2)?", "3000:2018 Cl.8.3.7.2; 3017:2022 Cl.4.7", RESULT_NONE, NULL, NULL },
 };
 
 static const VerifyStep s_efli[] = {
-  { STEP_SAFETY, "Safety", "Supply may be energised. Use an approved loop tester and leads rated for the installation voltage.", "3000:2018 Cl.8.3.9; 3017:2022 Cl.4.8", RESULT_NONE, NULL, NULL },
-  { STEP_INFO, "Zs criterion", "Confirm your installation’s maximum permitted Zs from AS/NZS 3000:2018 / design tables. The device compares your measured value to the limit below (Admin rules or factory default).", "3000:2018 Cl.8.3.9; 3017:2022 Cl.4.8", RESULT_NONE, NULL, NULL },
+  { STEP_SAFETY, "Safety", "Supply may be energised. Use an earth fault-loop impedance tester per 3000:2018 Cl.8.3.9; leads rated for installation voltage.", "3000:2018 Cl.8.3.9; 3017:2022 Cl.4.8", RESULT_NONE, NULL, NULL },
+  { STEP_INFO, "Zs criterion", "3000:2018 Cl.8.3.9.3: measured Zs shall satisfy Cl.5.7.4 (Table 8.1 / method per Cl.8.3.9.2). Set Admin rule to your tabulated limit. Note: Cl.8.3.9.1 applies to stated socket-outlet circuit cases.", "3000:2018 Cl.8.3.9; 3017:2022 Cl.4.8", RESULT_NONE, NULL, NULL },
   { STEP_VERIFY_YESNO, "Tester ready", "Is the circuit energised and the loop tester connected and set correctly?", "3000:2018 Cl.8.3.9", RESULT_NONE, NULL, NULL },
   { STEP_RESULT_ENTRY, "EFLI reading", "Enter your measured Zs (ohms). The device shows PASS or FAIL using the rule below (set Admin rules to match your tabulated limit).", "3000:2018 Cl.8.3.9; 3017:2022 Cl.4.8", RESULT_EFLI_OHM, "EFLI", "ohm" },
 };
 
 static const VerifyStep s_rcd[] = {
-  { STEP_SAFETY, "Safety", "RCD test may de-energise circuits. Warn occupants; avoid critical loads. Use RCD tester per manufacturer.", "3000:2018 Cl.8.3.10; 3017:2022 Cl.4.9", RESULT_NONE, NULL, NULL },
+  { STEP_SAFETY, "Safety", "3000:2018 Cl.8.3.10: verify each RCD with integral test device or RCD test equipment; after operation confirm all switched poles isolated (voltage or continuity). May de-energise circuits—warn occupants.", "3000:2018 Cl.8.3.10; 3017:2022 Cl.4.9", RESULT_NONE, NULL, NULL },
   { STEP_INFO, "Before you test", "Next you will answer where this RCD is installed and how you run the test. SparkyCheck uses only those answers to choose the trip-time pass rule (40 ms or 300 ms). You are not expected to look that limit up in the Wiring Rules yourself.", "3017:2022 Cl.4.9; 3000:2018 Cl.8.3.10", RESULT_NONE, NULL, NULL },
   { STEP_VERIFY_YESNO, "Ready to test", "Is the RCD tester connected correctly and the circuit energised where required?", "3000:2018 Cl.8.3.10; 3017:2022 Cl.4.9", RESULT_NONE, NULL, NULL },
   { STEP_INFO, "Your scenario", "These questions are about installation location and test method. Each Yes or No only selects which pass rule the coach uses—they are not a pass or fail on their own.", "3000:2018 Cl.2.6; 3017:2022 Cl.4.9.5", RESULT_NONE, NULL, NULL },
