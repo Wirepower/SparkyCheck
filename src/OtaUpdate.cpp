@@ -8,6 +8,7 @@
 #include <HTTPClient.h>
 #include <HTTPUpdate.h>
 #include <WiFi.h>
+#include <WiFiClient.h>
 #include <WiFiClientSecure.h>
 #include <esp_heap_caps.h>
 #include <freertos/FreeRTOS.h>
@@ -375,6 +376,9 @@ static uint8_t rolloutBucket(void) {
   return (uint8_t)(mac % 100ULL);
 }
 
+static bool manifestHostFromUrl(const char* url, char* host, unsigned hostLen);
+static bool dnsResolveManifest(const char* host);
+
 static void configureSecureClient(WiFiClientSecure& client) {
 #if OTA_TLS_INSECURE
   client.setInsecure();
@@ -385,11 +389,16 @@ static void configureSecureClient(WiFiClientSecure& client) {
   client.setTimeout((uint32_t)kOtaFirmwareHttpTimeoutMs);
 }
 
+/** Plain http:// must use WiFiClient; WiFiClientSecure to port 80 often yields "connection refused" / TLS failure. */
+static bool otaUrlIsHttps(const char* url) {
+  if (!url) return true;
+  if (strncmp(url, "http://", 7) == 0) return false;
+  return true;
+}
+
 static void otaInstallWorker(void* arg) {
   (void)arg;
   otaLogHeap("before_tls(firmware)");
-  WiFiClientSecure client;
-  configureSecureClient(client);
 
   /* Constructor uses int; library applies this to HTTPClient (may clamp on some cores). */
   HTTPUpdate updater(300000);
@@ -407,20 +416,39 @@ static void otaInstallWorker(void* arg) {
   /* Let AsyncTCP / admin sockets settle; mbedTLS needs a large contiguous block (see SSL -32512). */
   vTaskDelay(pdMS_TO_TICKS(400));
 
-  const String fwUrl(s_pending.firmwareUrl);
-  Serial.printf("[OTA] firmware GET (redirects OK) len_url=%u\n", (unsigned)fwUrl.length());
+  s_otaWorkerRet = HTTP_UPDATE_FAILED;
+  s_otaWorkerErrBuf[0] = '\0';
 
-  /* Request callback: do not call http->setTimeout here — Arduino 3.1 uses uint16_t (~65s max). */
-  s_otaWorkerRet =
-      updater.update(client, fwUrl, OtaUpdate_getCurrentVersion(), [](HTTPClient* http) {
-        if (!http) return;
-        http->setUserAgent(kOtaHttpUserAgent);
-        http->setConnectTimeout(30000);
-      });
-  if (s_otaWorkerRet != HTTP_UPDATE_OK) {
-    strCopy(s_otaWorkerErrBuf, sizeof(s_otaWorkerErrBuf), updater.getLastErrorString().c_str());
+  char host[96];
+  if (!manifestHostFromUrl(s_pending.firmwareUrl, host, sizeof(host))) {
+    strCopy(s_otaWorkerErrBuf, sizeof(s_otaWorkerErrBuf), "Firmware URL has no host.");
+  } else if (!dnsResolveManifest(host)) {
+    strCopy(s_otaWorkerErrBuf, sizeof(s_otaWorkerErrBuf), "Firmware host DNS failed (Wi-Fi / DNS).");
   } else {
-    s_otaWorkerErrBuf[0] = '\0';
+    const String fwUrl(s_pending.firmwareUrl);
+    const bool https = otaUrlIsHttps(s_pending.firmwareUrl);
+    Serial.printf("[OTA] firmware GET host=%s len=%u https=%d\n", host, (unsigned)fwUrl.length(), https ? 1 : 0);
+
+    auto httpCfg = [](HTTPClient* http) {
+      if (!http) return;
+      http->setUserAgent(kOtaHttpUserAgent);
+      http->setConnectTimeout(30000);
+      http->setReuse(false);
+    };
+
+    if (https) {
+      WiFiClientSecure client;
+      configureSecureClient(client);
+      s_otaWorkerRet = updater.update(client, fwUrl, OtaUpdate_getCurrentVersion(), httpCfg);
+    } else {
+      WiFiClient client;
+      client.setTimeout((uint32_t)kOtaFirmwareHttpTimeoutMs);
+      s_otaWorkerRet = updater.update(client, fwUrl, OtaUpdate_getCurrentVersion(), httpCfg);
+    }
+
+    if (s_otaWorkerRet != HTTP_UPDATE_OK) {
+      strCopy(s_otaWorkerErrBuf, sizeof(s_otaWorkerErrBuf), updater.getLastErrorString().c_str());
+    }
   }
 
   s_otaInstallInProgress = false;
@@ -507,38 +535,76 @@ static bool fetchManifestJson(char* jsonOut, unsigned jsonSize) {
   otaLogHeap("after_admin_pause(manifest)");
   bool ok = false;
   {
-    WiFiClientSecure client;
-    configureSecureClient(client);
-
-    HTTPClient http;
-    if (!http.begin(client, url)) {
-      setStatus("Unable to start manifest request.");
-    } else {
-      http.setTimeout(kOtaManifestHttpTimeoutMs);
-      http.setConnectTimeout(20000);
-      http.setUserAgent(kOtaHttpUserAgent);
-      http.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
-      http.setRedirectLimit(8);
-      Serial.printf("[OTA] manifest GET host=%s\n", host);
-      const int code = http.GET();
-      otaLogHeap("after_manifest_GET");
-      if (code != HTTP_CODE_OK) {
-        char msg[OTA_STATUS_LEN];
-        if (code < 0)
-          snprintf(msg, sizeof(msg), "Manifest: %s", http.errorToString(code).c_str());
-        else
-          snprintf(msg, sizeof(msg), "Manifest HTTP %d", code);
-        setStatus(msg);
-        http.end();
+    const bool https = otaUrlIsHttps(url);
+    Serial.printf("[OTA] manifest GET host=%s https=%d\n", host, https ? 1 : 0);
+    if (https) {
+      WiFiClientSecure client;
+      configureSecureClient(client);
+      HTTPClient http;
+      if (!http.begin(client, url)) {
+        setStatus("Unable to start manifest request.");
       } else {
-        const String body = http.getString();
-        http.end();
-        if (body.length() == 0) {
-          setStatus("Manifest response is empty.");
+        http.setTimeout(kOtaManifestHttpTimeoutMs);
+        http.setConnectTimeout(20000);
+        http.setUserAgent(kOtaHttpUserAgent);
+        http.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
+        http.setRedirectLimit(8);
+        http.setReuse(false);
+        const int code = http.GET();
+        otaLogHeap("after_manifest_GET");
+        if (code != HTTP_CODE_OK) {
+          char msg[OTA_STATUS_LEN];
+          if (code < 0)
+            snprintf(msg, sizeof(msg), "Manifest: %s", http.errorToString(code).c_str());
+          else
+            snprintf(msg, sizeof(msg), "Manifest HTTP %d", code);
+          setStatus(msg);
+          http.end();
         } else {
-          Serial.printf("[OTA] manifest OK bytes=%u\n", (unsigned)body.length());
-          strCopy(jsonOut, jsonSize, body.c_str());
-          ok = true;
+          const String body = http.getString();
+          http.end();
+          if (body.length() == 0) {
+            setStatus("Manifest response is empty.");
+          } else {
+            Serial.printf("[OTA] manifest OK bytes=%u\n", (unsigned)body.length());
+            strCopy(jsonOut, jsonSize, body.c_str());
+            ok = true;
+          }
+        }
+      }
+    } else {
+      WiFiClient client;
+      client.setTimeout((uint32_t)kOtaManifestHttpTimeoutMs);
+      HTTPClient http;
+      if (!http.begin(client, url)) {
+        setStatus("Unable to start manifest request.");
+      } else {
+        http.setTimeout(kOtaManifestHttpTimeoutMs);
+        http.setConnectTimeout(20000);
+        http.setUserAgent(kOtaHttpUserAgent);
+        http.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
+        http.setRedirectLimit(8);
+        http.setReuse(false);
+        const int code = http.GET();
+        otaLogHeap("after_manifest_GET");
+        if (code != HTTP_CODE_OK) {
+          char msg[OTA_STATUS_LEN];
+          if (code < 0)
+            snprintf(msg, sizeof(msg), "Manifest: %s", http.errorToString(code).c_str());
+          else
+            snprintf(msg, sizeof(msg), "Manifest HTTP %d", code);
+          setStatus(msg);
+          http.end();
+        } else {
+          const String body = http.getString();
+          http.end();
+          if (body.length() == 0) {
+            setStatus("Manifest response is empty.");
+          } else {
+            Serial.printf("[OTA] manifest OK bytes=%u\n", (unsigned)body.length());
+            strCopy(jsonOut, jsonSize, body.c_str());
+            ok = true;
+          }
         }
       }
     }
@@ -566,6 +632,10 @@ static bool parseManifest(const char* json, OtaManifest* out) {
 
   if (!version[0] || !fw[0]) {
     setStatus("Manifest missing version or firmware_url.");
+    return false;
+  }
+  if (strncmp(fw, "http://", 7) != 0 && strncmp(fw, "https://", 8) != 0) {
+    setStatus("Manifest firmware_url must start with http:// or https://");
     return false;
   }
   if (rollout < 1) rollout = 1;
