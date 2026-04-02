@@ -1578,7 +1578,7 @@ static bool sparkyTryYesNoBranchOnly(SparkyTft* tft, ScreenId current, VerifyTes
   if (!VerificationSteps_yesNoStepIsBranchOnly(tid, stepIndex, step)) return false;
 
   if (VerificationSteps_isSwpFactoryTest(tid) && step && step->title) {
-    if (strcmp(step->title, "SWP: Reconnection only") == 0) {
+    if (strcmp(step->title, "SWP: Reconnecting") == 0) {
       if (answerYes) {
         s_swpReconnectOnly = true;
         s_swpDisconnectOnly = false;
