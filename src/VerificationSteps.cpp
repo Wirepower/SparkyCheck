@@ -369,7 +369,7 @@ bool VerificationSteps_expectedYesForStep(VerifyTestId id, int stepIndex) {
 
 bool VerificationSteps_isSwpFactoryTest(VerifyTestId id) {
   return id == VERIFY_SWP_DISCONNECT_RECONNECT_MOTOR || id == VERIFY_SWP_DISCONNECT_RECONNECT_APPLIANCE ||
-         id == VERIFY_SWP_DISCONNECT_RECONNECT_HEATER_SHEATHE;
+         id == VERIFY_SWP_DISCONNECT_RECONNECT_HEATER_SHEATHED;
 }
 
 /* Keep in sync with s_swp_motor[] / s_swp_appliance[] / s_swp_heater_sheathed[] layout. */
