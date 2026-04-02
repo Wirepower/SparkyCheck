@@ -36,8 +36,9 @@ float TestLimits_rcdTripTimeMaxMs(void) {
   return 30.0f;  /* Legacy fallback only; factory RCD flow uses computed 40/300 ms. */
 }
 
-float TestLimits_rcdComputedMaxMs(bool circuitRequires40msAtTestCurrent, bool testAt5xIdn) {
-  if (circuitRequires40msAtTestCurrent || testAt5xIdn) return 40.0f;
+float TestLimits_rcdComputedMaxMs(bool patientOrBodyProtectedArea, bool highTripTestCurrent, bool standardHomeOrOfficeFinalOnly) {
+  const bool stricter = patientOrBodyProtectedArea || highTripTestCurrent || !standardHomeOrOfficeFinalOnly;
+  if (stricter) return 40.0f;
   return 300.0f;
 }
 

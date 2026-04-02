@@ -31,11 +31,11 @@ bool TestLimits_insulationPass(float mOhms, bool is_sheathed_heating);
 float TestLimits_rcdTripTimeMaxMs(void);
 
 /**
- * RCD operating-time limit (ms) from installation/test scenario (typical 3000:2018 values):
- * 40 ms when a 40 ms rule applies at the test current or when testing at 5 × IΔn;
- * otherwise 300 ms (common 1 × IΔn case for 30 mA additional protection). Verify unusual IΔn.
+ * RCD operating-time limit (ms) from coach scenarios (typical AS/NZS 3000:2018 / 3017:2022):
+ * stricter limit for patient/special locations, high trip-test mode, or non‑routine circuits;
+ * routine limit for a standard home/office final with gentle test and no patient/special rules.
  */
-float TestLimits_rcdComputedMaxMs(bool circuitRequires40msAtTestCurrent, bool testAt5xIdn);
+float TestLimits_rcdComputedMaxMs(bool patientOrBodyProtectedArea, bool highTripTestCurrent, bool standardHomeOrOfficeFinalOnly);
 
 /** Check if RCD trip time passes (value in ms) against an explicit max. */
 bool TestLimits_rcdTripTimePassWithMax(float ms, float maxMs);

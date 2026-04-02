@@ -117,12 +117,13 @@ static const VerifyStep s_efli[] = {
 
 static const VerifyStep s_rcd[] = {
   { STEP_SAFETY, "Safety", "RCD test may de-energise circuits. Warn occupants; avoid critical loads. Use RCD tester per manufacturer.", "3000:2018 Cl.8.3.10; 3017:2022 Cl.4.9", RESULT_NONE, NULL, NULL },
-  { STEP_INFO, "Test current", "Apply test current appropriate to the RCD type and rating. Operating-time limits below assume 1 × IΔn (300 ms) or 5 × IΔn (40 ms) per typical AS/NZS 3000:2018 / 3017:2022 requirements—confirm for your installation.", "3017:2022 Cl.4.9; 3000:2018 Cl.8.3.10", RESULT_NONE, NULL, NULL },
+  { STEP_INFO, "Before you test", "Use your RCD tester as appropriate for this installation. The next screens ask where the RCD is used and how you are testing—the coach then applies the matching pass rule.", "3017:2022 Cl.4.9; 3000:2018 Cl.8.3.10", RESULT_NONE, NULL, NULL },
   { STEP_VERIFY_YESNO, "Ready to test", "Is the RCD tester connected correctly and the circuit energised where required?", "3000:2018 Cl.8.3.10; 3017:2022 Cl.4.9", RESULT_NONE, NULL, NULL },
-  { STEP_INFO, "Installation scenario", "The next two questions describe how this RCD is installed and how you are testing it. The device picks the matching time limit (40 ms or 300 ms), then you enter only the reading from your tester—PASS/FAIL follows automatically.", "3000:2018 Cl.2.6; 3017:2022 Cl.4.9.5", RESULT_NONE, NULL, NULL },
-  { STEP_VERIFY_YESNO, "Scenario: 40 ms rule", "For this installation, does AS/NZS 3000 require a maximum disconnection time of 40 ms at your test current (e.g. certain socket-outlets or special locations)?", "3000:2018 Cl.2.6", RESULT_NONE, NULL, NULL },
-  { STEP_VERIFY_YESNO, "Scenario: test current", "Are you measuring operating time using the 5 × IΔn test (not 1 × IΔn)? 5 × IΔn uses the 40 ms style limit; 1 × IΔn typically uses 300 ms for common 30 mA RCDs.", "3017:2022 Cl.4.9.5.3", RESULT_NONE, NULL, NULL },
-  { STEP_RESULT_ENTRY, "RCD trip time", "Run the RCD test; enter measured time (ms) from the tester. PASS/FAIL uses the limit line above from your scenario answers.", "3000:2018 Cl.8.3.10; 3017:2022 Cl.4.9.5.3", RESULT_RCD_MS, "RCD trip time", "ms" },
+  { STEP_INFO, "Your scenario", "Answer honestly. Yes and No only pick which pass rule applies—you are not being graded on these questions.", "3000:2018 Cl.2.6; 3017:2022 Cl.4.9.5", RESULT_NONE, NULL, NULL },
+  { STEP_VERIFY_YESNO, "Scenario: healthcare", "Is this RCD in a hospital, clinic, dental surgery, or other patient / body-protected electrical area (AS/NZS 3003 type locations)?", "3003:2018; 3000:2018 Cl.2.6", RESULT_NONE, NULL, NULL },
+  { STEP_VERIFY_YESNO, "Scenario: tester strength", "On your RCD tester, are you using the stronger trip test (higher test current), not the gentler routine trip test?", "3017:2022 Cl.4.9.5.3", RESULT_NONE, NULL, NULL },
+  { STEP_VERIFY_YESNO, "Scenario: circuit", "Is this only a standard final circuit in a normal house or office (not construction supply, caravan inlet, pool zone, or other special Wiring Rules location)?", "3000:2018 Cl.2.6", RESULT_NONE, NULL, NULL },
+  { STEP_RESULT_ENTRY, "RCD trip time", "Run the RCD test; enter the time (ms) your tester shows. PASS/FAIL uses the rule line above from your scenarios.", "3000:2018 Cl.8.3.10; 3017:2022 Cl.4.9.5.3", RESULT_RCD_MS, "RCD trip time", "ms" },
 };
 
 static const VerifyStep s_swp_motor[] = {

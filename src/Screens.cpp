@@ -926,9 +926,11 @@ static int s_studentInputLen = 0;
 static unsigned long s_testStartedMs = 0;
 static unsigned long s_testCompletedMs = 0;
 static float s_rcdRequiredMaxMs = 0.0f;
-/** RCD scenario (factory flow): used to compute pass limit; both answers are branch-only (no quiz). */
-static bool s_rcdScenario40msRule = false;
-static bool s_rcdScenario5xTest = false;
+/** RCD scenario (factory VERIFY_RCD): branch-only answers; used to compute pass limit. */
+static bool s_rcdScenarioHealthcare = false;
+static bool s_rcdScenarioStrongTripTest = false;
+/** Standard house/office final only; default true until user answers scenario step (No = special location). */
+static bool s_rcdScenarioStandardCircuitOnly = true;
 /** True if user entered required max via a custom step (RESULT_RCD_REQUIRED_MAX_MS). */
 static bool s_rcdUsedManualRequiredMax = false;
 /** Last numeric result kind shown on PASS/FAIL screen (for criterion line). */
@@ -1202,8 +1204,9 @@ static void resetResultEntryInput(void) {
   s_resultInputLen = 0;
   s_resultInputUnitIdx = 0;
   s_rcdRequiredMaxMs = 0.0f;
-  s_rcdScenario40msRule = false;
-  s_rcdScenario5xTest = false;
+  s_rcdScenarioHealthcare = false;
+  s_rcdScenarioStrongTripTest = false;
+  s_rcdScenarioStandardCircuitOnly = true;
   s_rcdUsedManualRequiredMax = false;
   s_lastVerifyResultKind = RESULT_NONE;
 }
@@ -1250,7 +1253,8 @@ static void ensureResultEntryInputState(VerifyResultKind kind) {
   int defaultIdx = 0;
   getResultUnitOptions(kind, &units, &unitCount, &defaultIdx);
   if (kind == RESULT_RCD_MS && !s_rcdUsedManualRequiredMax) {
-    s_rcdRequiredMaxMs = TestLimits_rcdComputedMaxMs(s_rcdScenario40msRule, s_rcdScenario5xTest);
+    s_rcdRequiredMaxMs = TestLimits_rcdComputedMaxMs(
+        s_rcdScenarioHealthcare, s_rcdScenarioStrongTripTest, s_rcdScenarioStandardCircuitOnly);
   }
   if (s_resultInputKind != kind) {
     s_resultInputKind = kind;
@@ -3546,11 +3550,15 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
             s_stepIndex++;
             syncTrainingFlowEvent("step_next", false, nullptr);
           } else if (s_selectedTestType == (int)VERIFY_RCD && s_stepIndex == 4) {
-            s_rcdScenario40msRule = true;
+            s_rcdScenarioHealthcare = true;
             s_stepIndex++;
             syncTrainingFlowEvent("step_next", false, nullptr);
           } else if (s_selectedTestType == (int)VERIFY_RCD && s_stepIndex == 5) {
-            s_rcdScenario5xTest = true;
+            s_rcdScenarioStrongTripTest = true;
+            s_stepIndex++;
+            syncTrainingFlowEvent("step_next", false, nullptr);
+          } else if (s_selectedTestType == (int)VERIFY_RCD && s_stepIndex == 6) {
+            s_rcdScenarioStandardCircuitOnly = true;
             s_stepIndex++;
             syncTrainingFlowEvent("step_next", false, nullptr);
           } else if (answerYes == expectedYes) {
@@ -3589,11 +3597,15 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
             s_stepIndex++;
             syncTrainingFlowEvent("step_next", false, nullptr);
           } else if (s_selectedTestType == (int)VERIFY_RCD && s_stepIndex == 4) {
-            s_rcdScenario40msRule = false;
+            s_rcdScenarioHealthcare = false;
             s_stepIndex++;
             syncTrainingFlowEvent("step_next", false, nullptr);
           } else if (s_selectedTestType == (int)VERIFY_RCD && s_stepIndex == 5) {
-            s_rcdScenario5xTest = false;
+            s_rcdScenarioStrongTripTest = false;
+            s_stepIndex++;
+            syncTrainingFlowEvent("step_next", false, nullptr);
+          } else if (s_selectedTestType == (int)VERIFY_RCD && s_stepIndex == 6) {
+            s_rcdScenarioStandardCircuitOnly = false;
             s_stepIndex++;
             syncTrainingFlowEvent("step_next", false, nullptr);
           } else if (answerYes == expectedYes) {
