@@ -4,3 +4,6 @@
 .vs/
 *.pyc
 __pycache__/
+
+# Licensed standards PDFs (large); keep locally — see docs/standards-pdfs/README.md
+docs/standards-pdfs/*.pdf
