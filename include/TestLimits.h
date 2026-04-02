@@ -30,7 +30,17 @@ bool TestLimits_insulationPass(float mOhms, bool is_sheathed_heating);
 /** RCD trip time: max (ms) to pass – AS/NZS 3000 / 3017. */
 float TestLimits_rcdTripTimeMaxMs(void);
 
-/** Check if RCD trip time passes (value in ms). */
+/**
+ * RCD operating-time limit (ms) from installation/test scenario (typical 3000:2018 values):
+ * 40 ms when a 40 ms rule applies at the test current or when testing at 5 × IΔn;
+ * otherwise 300 ms (common 1 × IΔn case for 30 mA additional protection). Verify unusual IΔn.
+ */
+float TestLimits_rcdComputedMaxMs(bool circuitRequires40msAtTestCurrent, bool testAt5xIdn);
+
+/** Check if RCD trip time passes (value in ms) against an explicit max. */
+bool TestLimits_rcdTripTimePassWithMax(float ms, float maxMs);
+
+/** Check if RCD trip time passes (value in ms) using default TestLimits_rcdTripTimeMaxMs(). */
 bool TestLimits_rcdTripTimePass(float ms);
 
 /** EFLI: max impedance (Ω) to pass – reference from standards. */

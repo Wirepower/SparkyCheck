@@ -3,8 +3,9 @@
 /**
  * Pass/fail limits aligned with AS/NZS 3000:2018 Cl.8.3.5/8.3.6 and AS/NZS 3017:2022
  * Cl.4.4/4.5 (installation verification). EFLI max is a configurable default — compare measured Zs to
- * installation-specific tables. RCD measured trip is compared to the user-entered
- * required maximum in the UI when present; TestLimits_rcdTripTimeMaxMs is fallback only.
+ * installation-specific tables. RCD measured trip is compared to a limit computed from
+ * scenario answers on device, or to a user-entered max when a custom test still uses that step;
+ * TestLimits_rcdTripTimeMaxMs is fallback when no max is set.
  * UPDATABILITY / OTA: bump Standards_getRulesVersion() when limits change.
  */
 
@@ -32,11 +33,20 @@ bool TestLimits_insulationPass(float mOhms, bool is_sheathed_heating) {
 }
 
 float TestLimits_rcdTripTimeMaxMs(void) {
-  return 30.0f;  /* Fallback when no required max captured; typical Type A general 30 mA example — verify per installation. */
+  return 30.0f;  /* Legacy fallback only; factory RCD flow uses computed 40/300 ms. */
+}
+
+float TestLimits_rcdComputedMaxMs(bool circuitRequires40msAtTestCurrent, bool testAt5xIdn) {
+  if (circuitRequires40msAtTestCurrent || testAt5xIdn) return 40.0f;
+  return 300.0f;
+}
+
+bool TestLimits_rcdTripTimePassWithMax(float ms, float maxMs) {
+  return ms >= 0.0f && ms <= maxMs;
 }
 
 bool TestLimits_rcdTripTimePass(float ms) {
-  return ms >= 0.0f && ms <= TestLimits_rcdTripTimeMaxMs();
+  return TestLimits_rcdTripTimePassWithMax(ms, TestLimits_rcdTripTimeMaxMs());
 }
 
 float TestLimits_efliMaxOhms(void) {

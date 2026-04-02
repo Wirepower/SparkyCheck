@@ -117,12 +117,12 @@ static const VerifyStep s_efli[] = {
 
 static const VerifyStep s_rcd[] = {
   { STEP_SAFETY, "Safety", "RCD test may de-energise circuits. Warn occupants; avoid critical loads. Use RCD tester per manufacturer.", "3000:2018 Cl.8.3.10; 3017:2022 Cl.4.9", RESULT_NONE, NULL, NULL },
-  { STEP_INFO, "Test current", "Apply test current appropriate to the RCD type and rating (often 1x IΔn for time test). Follow 3017:2022 Cl.4.9 and tester instructions.", "3017:2022 Cl.4.9; 3000:2018 Cl.8.3.10", RESULT_NONE, NULL, NULL },
+  { STEP_INFO, "Test current", "Apply test current appropriate to the RCD type and rating. Operating-time limits below assume 1 × IΔn (300 ms) or 5 × IΔn (40 ms) per typical AS/NZS 3000:2018 / 3017:2022 requirements—confirm for your installation.", "3017:2022 Cl.4.9; 3000:2018 Cl.8.3.10", RESULT_NONE, NULL, NULL },
   { STEP_VERIFY_YESNO, "Ready to test", "Is the RCD tester connected correctly and the circuit energised where required?", "3000:2018 Cl.8.3.10; 3017:2022 Cl.4.9", RESULT_NONE, NULL, NULL },
-  { STEP_INFO, "Installation context", "Confirm required RCD type, rating, and maximum disconnection time per 3000:2018 Cl.2.6 and any special-location rules (e.g. medical).", "3000:2018 Cl.2.6; 3017:2022 Cl.4.9.5", RESULT_NONE, NULL, NULL },
-  { STEP_VERIFY_YESNO, "Requirements confirmed", "Have you identified the required maximum trip/disconnection time for this installation?", "3000:2018 Cl.2.6; 3017:2022 Cl.4.9.5", RESULT_NONE, NULL, NULL },
-  { STEP_RESULT_ENTRY, "Required maximum trip time", "Enter required maximum operating/disconnection time (ms) per 3000:2018 Cl.2.6. Must be > 0. Measured operating time is compared to this value (see 3017:2022 Cl.4.9.5.3).", "3000:2018 Cl.2.6; 3017:2022 Cl.4.9.5.3", RESULT_RCD_REQUIRED_MAX_MS, "RCD required maximum", "ms" },
-  { STEP_RESULT_ENTRY, "RCD trip time", "Run the RCD operation (residual current) test; measure operating time as the time between application of the test residual current and disconnection. Enter measured time (ms). Pass if <= required max from the previous step (3017:2022 Cl.4.9.5.3).", "3000:2018 Cl.8.3.10; 3017:2022 Cl.4.9.5.3", RESULT_RCD_MS, "RCD trip time", "ms" },
+  { STEP_INFO, "Scenario", "Answer the next two questions. The device sets the pass limit (40 ms or 300 ms)—you only enter your measured trip time from the tester.", "3000:2018 Cl.2.6; 3017:2022 Cl.4.9.5", RESULT_NONE, NULL, NULL },
+  { STEP_VERIFY_YESNO, "40 ms rule", "Does AS/NZS 3000 require a maximum disconnection time of 40 ms at your test current for this protected circuit (e.g. certain socket-outlets or special locations)?", "3000:2018 Cl.2.6", RESULT_NONE, NULL, NULL },
+  { STEP_VERIFY_YESNO, "5x I test", "Are you measuring operating time using the 5 × IΔn test (not 1 × IΔn)?", "3017:2022 Cl.4.9.5.3", RESULT_NONE, NULL, NULL },
+  { STEP_RESULT_ENTRY, "RCD trip time", "Run the RCD test; enter measured operating time (ms) from the tester. Pass/fail uses the limit shown (from your answers).", "3000:2018 Cl.8.3.10; 3017:2022 Cl.4.9.5.3", RESULT_RCD_MS, "RCD trip time", "ms" },
 };
 
 static const VerifyStep s_swp_motor[] = {

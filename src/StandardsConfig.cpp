@@ -56,7 +56,7 @@ void Standards_getInfo(StandardId id, StandardInfo* out) {
 void Standards_getRulesVersion(char* buf, unsigned buf_size) {
   if (!buf || buf_size == 0) return;
   /* Bundle version for reports; can be replaced by OTA or file later */
-  const char* v = "2026-04c";
+  const char* v = "2026-04d";
   unsigned i = 0;
   while (i < buf_size - 1 && v[i]) {
     buf[i] = v[i];
