@@ -1,8 +1,8 @@
 #include "TestLimits.h"
 
 /**
- * Pass/fail limits aligned with AS/NZS 3000:2018 and AS/NZS 3017:2022 (installation
- * verification). EFLI max is a configurable default — compare measured Zs to
+ * Pass/fail limits aligned with AS/NZS 3000:2018 Cl.8.3.5/8.3.6 and AS/NZS 3017:2022
+ * Cl.4.4/4.5 (installation verification). EFLI max is a configurable default — compare measured Zs to
  * installation-specific tables. RCD measured trip is compared to the user-entered
  * required maximum in the UI when present; TestLimits_rcdTripTimeMaxMs is fallback only.
  * UPDATABILITY / OTA: bump Standards_getRulesVersion() when limits change.
