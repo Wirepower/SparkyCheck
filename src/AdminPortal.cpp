@@ -835,6 +835,72 @@ static void ensureTestsJsonLoaded(void) {
   }
 }
 
+/** True if tests.json on flash is too large to hold in s_testsJson (must stream). */
+static bool testsJsonOnFsExceedsBuffer(void) {
+  if (!LittleFS.exists(kTestsPath)) return false;
+  File f = LittleFS.open(kTestsPath, "r");
+  if (!f || f.isDirectory()) {
+    if (f) f.close();
+    return false;
+  }
+  const size_t sz = f.size();
+  f.close();
+  return sz >= kTestsJsonCap;
+}
+
+/** Read /config/tests.json into s_testsJson when it fits (caller runs ensureTestsJsonLoaded after). */
+static void reloadTestsJsonFileIntoBuffer(void) {
+  if (!ensureTestsJsonBuf() || !s_testsJson) return;
+  if (!LittleFS.exists(kTestsPath)) return;
+  File f = LittleFS.open(kTestsPath, "r");
+  if (!f || f.isDirectory()) {
+    if (f) f.close();
+    return;
+  }
+  const size_t sz = f.size();
+  if (sz == 0 || sz >= kTestsJsonCap) {
+    f.close();
+    return;
+  }
+  const size_t n = f.read((uint8_t*)s_testsJson, kTestsJsonCap - 1);
+  f.close();
+  s_testsJson[n] = '\0';
+}
+
+static void sendTestsJsonLiveResponse(AsyncWebServerRequest* req) {
+  if (!isAuthorized(req)) {
+    req->send(403, "application/json", "{\"error\":\"not authorized\"}");
+    return;
+  }
+  if (!ensureTestsJsonBuf() || !s_testsJson) {
+    req->send(500, "application/json", "{\"error\":\"tests buffer unavailable\"}");
+    return;
+  }
+  /* LittleFS inline beginResponse has caused TCP resets / “Failed to fetch” on some ESP32 builds;
+   * serve from RAM after reloading the file into s_testsJson when it fits. */
+  if (testsJsonOnFsExceedsBuffer()) {
+    AsyncWebServerResponse* resp = req->beginResponse(LittleFS, String(kTestsPath), "application/json", false);
+    if (resp) {
+      resp->addHeader("Cache-Control", "no-store");
+      req->send(resp);
+      return;
+    }
+  }
+  reloadTestsJsonFileIntoBuffer();
+  ensureTestsJsonLoaded();
+  if (!s_testsJson[0]) {
+    req->send(500, "application/json", "{\"error\":\"tests buffer empty\"}");
+    return;
+  }
+  AsyncWebServerResponse* resp = req->beginResponse(200, "application/json", s_testsJson);
+  if (!resp) {
+    req->send(500, "text/plain", "out of memory building response");
+    return;
+  }
+  resp->addHeader("Cache-Control", "no-store");
+  req->send(resp);
+}
+
 static bool docHasRuleKind(DynamicJsonDocument& doc, const char* kind) {
   if (!kind || !kind[0]) return false;
   JsonArray rules = doc["rules"].as<JsonArray>();
@@ -1424,11 +1490,14 @@ static String testsPage(AsyncWebServerRequest* req) {
   b += "<form method='post' action='/admin/tests/activate'><label>Live JSON config (current tests.json)</label>";
   b += "<textarea id='liveJsonEditor' name='json' style='width:100%;min-height:380px;border-radius:8px;background:#0f172a;color:#fff;border:1px solid #8ecae6;' placeholder='Loading JSON from device…'></textarea>";
   b += "<script>(function(){var e=document.getElementById('liveJsonEditor');var btn=document.getElementById('liveJsonActivateBtn');if(!e)return;"
-       "e.value='Loading…';if(btn)btn.disabled=true;"
-       "fetch('/admin/tests-json-live',{credentials:'include',cache:'no-store'})"
+       "var url=(window.location.origin||'')+'/admin/tests-json-live';"
+       "function load(n){e.value='Loading…';if(btn)btn.disabled=true;"
+       "fetch(url,{credentials:'same-origin',cache:'no-store',mode:'same-origin'})"
        ".then(function(r){return r.text().then(function(t){if(!r.ok)throw new Error(t||('HTTP '+r.status));return t;});})"
        ".then(function(t){var s=(t||'').trim();if(s.length<2||s.charAt(0)!='{')throw new Error('not JSON');e.value=t;if(btn)btn.disabled=false;})"
-       ".catch(function(err){e.value='// Failed to load live tests.json: '+(err&&err.message?err.message:String(err))+'. Reload page or use Download tests.json.\\n';if(btn)btn.disabled=false;});})();</script>";
+       ".catch(function(err){if(n<2)setTimeout(function(){load(n+1);},500);"
+       "else{e.value='// Failed to load live tests.json: '+(err&&err.message?err.message:String(err))+'. Reload page or use Download tests.json.\\n';if(btn)btn.disabled=false;}});}"
+       "load(0);})();</script>";
   b += "<button class='btn' type='submit' id='liveJsonActivateBtn' disabled>Validate + Activate</button></form>";
   b += "</details>";
   b += "<form method='post' action='/admin/tests/rollback'><button class='btn btn2' type='submit'>Undo to previous saved version</button></form>";
@@ -1786,51 +1855,8 @@ void AdminPortal_init(void) {
     req->send(resp);
   });
 
-  s_server.on("/tests-json-live", HTTP_GET, [](AsyncWebServerRequest* req) {
-    if (!isAuthorized(req)) {
-      req->send(403, "application/json", "{\"error\":\"not authorized\"}");
-      return;
-    }
-    ensureTestsJsonLoaded();
-    if (!s_testsJson) {
-      req->send(500, "application/json", "{\"error\":\"tests buffer unavailable\"}");
-      return;
-    }
-    /* Stream from LittleFS like /admin/files/download — String(s_testsJson) OOMs on large configs. */
-    if (LittleFS.exists(kTestsPath)) {
-      AsyncWebServerResponse* resp = req->beginResponse(LittleFS, String(kTestsPath), "application/json", false);
-      if (resp) {
-        resp->addHeader("Cache-Control", "no-store");
-        req->send(resp);
-        return;
-      }
-    }
-    AsyncWebServerResponse* resp = req->beginResponse(200, "application/json", s_testsJson);
-    resp->addHeader("Cache-Control", "no-store");
-    req->send(resp);
-  });
-  s_server.on("/admin/tests-json-live", HTTP_GET, [](AsyncWebServerRequest* req) {
-    if (!isAuthorized(req)) {
-      req->send(403, "application/json", "{\"error\":\"not authorized\"}");
-      return;
-    }
-    ensureTestsJsonLoaded();
-    if (!s_testsJson) {
-      req->send(500, "application/json", "{\"error\":\"tests buffer unavailable\"}");
-      return;
-    }
-    if (LittleFS.exists(kTestsPath)) {
-      AsyncWebServerResponse* resp = req->beginResponse(LittleFS, String(kTestsPath), "application/json", false);
-      if (resp) {
-        resp->addHeader("Cache-Control", "no-store");
-        req->send(resp);
-        return;
-      }
-    }
-    AsyncWebServerResponse* resp = req->beginResponse(200, "application/json", s_testsJson);
-    resp->addHeader("Cache-Control", "no-store");
-    req->send(resp);
-  });
+  s_server.on("/tests-json-live", HTTP_GET, [](AsyncWebServerRequest* req) { sendTestsJsonLiveResponse(req); });
+  s_server.on("/admin/tests-json-live", HTTP_GET, [](AsyncWebServerRequest* req) { sendTestsJsonLiveResponse(req); });
   s_server.on("/admin/tests-download", HTTP_GET, [](AsyncWebServerRequest* req) {
     req->redirect("/tests-download-live");
   });
