@@ -874,6 +874,30 @@ static void stripUtf8BomInPlace(char* buf) {
   }
 }
 
+/** Skip ASCII whitespace and optional UTF-8 BOM (tests.json may be pretty-printed with leading newlines). */
+static const char* testsJsonContentStart(const char* buf) {
+  if (!buf) return buf;
+  const char* p = buf;
+  for (;;) {
+    while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r') p++;
+    if ((uint8_t)p[0] == 0xEF && (uint8_t)p[1] == 0xBB && (uint8_t)p[2] == 0xBF) {
+      p += 3;
+      continue;
+    }
+    break;
+  }
+  return p;
+}
+
+/** Move leading whitespace/BOM off s_testsJson so deserialize + rule merge see a normal object document. */
+static void normalizeTestsJsonBufferStartInPlace(char* buf) {
+  if (!buf) return;
+  stripUtf8BomInPlace(buf);
+  const char* p = testsJsonContentStart(buf);
+  if (p > buf) memmove(buf, p, strlen(p) + 1);
+  stripUtf8BomInPlace(buf);
+}
+
 static void sendTestsJsonLiveResponse(AsyncWebServerRequest* req) {
   if (!isAuthorized(req)) {
     req->send(403, "application/json", "{\"error\":\"not authorized\"}");
@@ -894,21 +918,23 @@ static void sendTestsJsonLiveResponse(AsyncWebServerRequest* req) {
     }
   }
   reloadTestsJsonFileIntoBuffer();
-  stripUtf8BomInPlace(s_testsJson);
+  normalizeTestsJsonBufferStartInPlace(s_testsJson);
+  /* Merges missing comparator rules into doc and re-serializes to s_testsJson when needed — response includes "rules". */
   ensureTestsJsonLoaded();
   stripUtf8BomInPlace(s_testsJson);
-  if (!s_testsJson[0]) {
+  const char* jsonStart = testsJsonContentStart(s_testsJson);
+  if (!jsonStart || !jsonStart[0]) {
     req->send(500, "application/json", "{\"error\":\"tests buffer empty\"}");
     return;
   }
-  const size_t jsonLen = strlen(s_testsJson);
-  if (jsonLen < 2 || s_testsJson[0] != '{') {
-    Serial.printf("[Admin] tests-json-live: buffer not object JSON (len=%u first=%02x)\n", (unsigned)jsonLen,
-                  jsonLen ? (unsigned)(uint8_t)s_testsJson[0] : 0u);
+  const size_t jsonLen = strlen(jsonStart);
+  if (jsonLen < 2 || jsonStart[0] != '{') {
+    Serial.printf("[Admin] tests-json-live: not object JSON (len=%u first=0x%02x)\n", (unsigned)jsonLen,
+                  jsonLen ? (unsigned)(uint8_t)jsonStart[0] : 0u);
     req->send(500, "application/json", "{\"error\":\"tests json invalid or empty in RAM\"}");
     return;
   }
-  AsyncWebServerResponse* resp = req->beginResponse(200, "application/json", s_testsJson);
+  AsyncWebServerResponse* resp = req->beginResponse(200, "application/json", jsonStart);
   if (!resp) {
     req->send(500, "text/plain", "out of memory building response");
     return;
