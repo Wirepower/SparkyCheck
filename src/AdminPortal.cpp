@@ -1214,8 +1214,8 @@ static String testsPage(AsyncWebServerRequest* req) {
     tests = doc["tests"].as<JsonArray>();
   }
   String b;
-  /* SWP tests have many steps; HTML per step is large — avoid fragmenting heap on small reserve. */
-  b.reserve(131072);
+  /* SWP / long tests: per-step HTML is huge; live JSON in-page doubles RAM — see fetch below. */
+  b.reserve(262144);
   b += "<h1>Tests & Questions</h1><p><a href='/admin' style='color:#93c5fd'>Back to admin</a></p>";
   b += "<div class='card'><h2>Easy editor</h2>";
   b += "<p class='small'>Use this page to build and maintain tests. You do not need JSON or IT knowledge.</p>";
@@ -1270,7 +1270,14 @@ static String testsPage(AsyncWebServerRequest* req) {
       b += "<button class='btn' style='margin-top:0' type='submit'>Add step to this test</button></form>";
       b += "<div class='small' style='margin-top:4px'>Tip: Add at least one step per test.</div>";
       JsonArray steps = t["steps"].as<JsonArray>();
-      if (!steps.isNull() && steps.size() > 0) {
+      const int stepCount = (!steps.isNull()) ? (int)steps.size() : 0;
+      /* Each step form is ~1–2 KiB HTML; 15+ steps often truncates the String and breaks the JSON editor below. */
+      constexpr int kEasyEditorMaxSteps = 14;
+      if (!steps.isNull() && stepCount > kEasyEditorMaxSteps) {
+        b += "<p class='small' style='margin-top:8px;padding:10px;border:1px solid #b45309;border-radius:8px;color:#fed7aa'>This test has ";
+        b += String(stepCount);
+        b += " steps. The per-step easy editor is skipped here to keep the admin page within device memory. Open <strong>Advanced editor (live tests.json)</strong> below and click <strong>Show JSON editor</strong> — the full JSON loads after the page opens.</p>";
+      } else if (!steps.isNull() && steps.size() > 0) {
         b += "<div style='margin-top:8px;padding:8px;border:1px solid #334155;border-radius:8px;max-height:min(80vh,720px);overflow-y:auto;overflow-x:hidden'>";
         b += "<div class='small' style='font-weight:600;margin-bottom:6px'>Steps in this test</div>";
         int stepIdx = 0;
@@ -1413,13 +1420,14 @@ static String testsPage(AsyncWebServerRequest* req) {
        "}\n"
        "</textarea></details>";
   b += "<form method='post' action='/admin/tests/activate'><label>Live JSON config (current tests.json)</label>";
-  String liveJson;
-  serializeJsonPretty(doc, liveJson);
-  if (!liveJson.length()) liveJson = s_testsJson;
-  b += "<textarea id='liveJsonEditor' name='json' style='width:100%;min-height:380px;border-radius:8px;background:#0f172a;color:#fff;border:1px solid #8ecae6;'>";
-  b += esc(liveJson.c_str());
-  b += "</textarea>";
-  b += "<button class='btn' type='submit'>Validate + Activate</button></form>";
+  b += "<textarea id='liveJsonEditor' name='json' style='width:100%;min-height:380px;border-radius:8px;background:#0f172a;color:#fff;border:1px solid #8ecae6;' placeholder='Loading JSON from device…'></textarea>";
+  b += "<script>(function(){var e=document.getElementById('liveJsonEditor');var btn=document.getElementById('liveJsonActivateBtn');if(!e)return;"
+       "e.value='Loading…';if(btn)btn.disabled=true;"
+       "fetch('/admin/tests-json-live',{credentials:'same-origin',cache:'no-store'})"
+       ".then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.text();})"
+       ".then(function(t){e.value=t;if(btn)btn.disabled=false;})"
+       ".catch(function(){e.value='// Failed to load JSON. Try refresh, or use Download tests.json.\\n';if(btn)btn.disabled=false;});})();</script>";
+  b += "<button class='btn' type='submit' id='liveJsonActivateBtn' disabled>Validate + Activate</button></form>";
   b += "</details>";
   b += "<form method='post' action='/admin/tests/rollback'><button class='btn btn2' type='submit'>Undo to previous saved version</button></form>";
   b += "<form method='get' action='/tests-download-live'><button class='btn btn2' type='submit'>Download tests.json</button></form>";
@@ -1766,6 +1774,10 @@ void AdminPortal_init(void) {
   s_server.on("/tests-download-live", HTTP_GET, [](AsyncWebServerRequest* req) {
     if (!isAuthorized(req)) { req->send(403, "text/plain", "Forbidden"); return; }
     ensureTestsJsonLoaded();
+    if (!s_testsJson) {
+      req->send(500, "text/plain", "tests buffer unavailable");
+      return;
+    }
     AsyncWebServerResponse* resp = req->beginResponse(200, "application/json", s_testsJson);
     resp->addHeader("Content-Disposition", "attachment; filename=\"tests.json\"");
     resp->addHeader("Cache-Control", "no-store");
@@ -1775,6 +1787,10 @@ void AdminPortal_init(void) {
   s_server.on("/tests-json-live", HTTP_GET, [](AsyncWebServerRequest* req) {
     if (!isAuthorized(req)) { req->send(403, "text/plain", "Forbidden"); return; }
     ensureTestsJsonLoaded();
+    if (!s_testsJson) {
+      req->send(500, "application/json", "{\"error\":\"tests buffer unavailable\"}");
+      return;
+    }
     AsyncWebServerResponse* resp = req->beginResponse(200, "application/json", String(s_testsJson));
     resp->addHeader("Cache-Control", "no-store");
     req->send(resp);
@@ -1786,6 +1802,10 @@ void AdminPortal_init(void) {
       return;
     }
     ensureTestsJsonLoaded();
+    if (!s_testsJson) {
+      req->send(500, "application/json", "{\"error\":\"tests buffer unavailable\"}");
+      return;
+    }
     AsyncWebServerResponse* resp = req->beginResponse(200, "application/json", String(s_testsJson));
     resp->addHeader("Cache-Control", "no-store");
     req->send(resp);

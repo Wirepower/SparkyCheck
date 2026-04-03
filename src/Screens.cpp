@@ -1837,16 +1837,16 @@ static void screens_draw_impl(SparkyTft* tft, ScreenId id, bool fullClear) {
         tft->setTextColor(TFT_BLACK, 0xFD20);
         char pv[OTA_VERSION_LEN];
         OtaUpdate_getPendingVersion(pv, sizeof(pv));
-        char line[56];
+        char line[96];
         if (pv[0])
-          snprintf(line, sizeof(line), "Firmware v%s available — tap for Yes/No", pv);
+          snprintf(line, sizeof(line), "Firmware %s is available, Tap to install", pv);
         else
-          strncpy(line, "Firmware update — tap here", sizeof(line) - 1);
+          strncpy(line, "Firmware update is available, Tap to install", sizeof(line) - 1);
         line[sizeof(line) - 1] = '\0';
         tft->setTextWrap(false);
         int twl = (int)strlen(line) * 6;
         if (twl > w - 48) {
-          strncpy(line, "Update ready — tap here", sizeof(line) - 1);
+          strncpy(line, "Update ready - Tap to install", sizeof(line) - 1);
           line[sizeof(line) - 1] = '\0';
         }
         twl = (int)strlen(line) * 6;
