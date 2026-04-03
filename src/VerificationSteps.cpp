@@ -136,7 +136,7 @@ static const VerifyStep s_rcd[] = {
 /* Factory SWP: 0=safety, 1–2=branch Yes/No, 12=disconnect end, 13=reconnect start (see getters). */
 static const VerifyStep s_swp_motor[] = {
   { STEP_SAFETY, "Start safe", "Wear PPE, control hazards, and notify nearby people before starting motor disconnect/reconnect work.", "4836:2023 Sec 2; Sec 11", RESULT_NONE, NULL, NULL },
-  { STEP_VERIFY_YESNO, "SWP: Disconnect or reconnect?", "RECONNECTING (wiring already off, isolated): tap Yes — guide starts at Reconnect wiring. DISCONNECTING (full isolate/test-dead/disconnect from the start): tap No — then answer disconnect-only if needed.", "4836:2023 Sec 3; 3017:2022 Sec 4", RESULT_NONE, NULL, NULL },
+  { STEP_VERIFY_YESNO, "What are you doing?", "Tap Reconnecting if wiring is already off and isolated (starts at Reconnect wiring). Tap Disconnecting for full isolate / test dead / disconnect from prepare tools; then disconnect-only if needed.", "4836:2023 Sec 3; 3017:2022 Sec 4", RESULT_NONE, NULL, NULL },
   { STEP_VERIFY_YESNO, "SWP: Disconnect only", "DISCONNECT path only: end this guide after disconnect and label with NO reconnect steps this session? Yes = stop when done; No = continue through reconnect and checks.", "4836:2023 Sec 3", RESULT_NONE, NULL, NULL },
   { STEP_INFO, "Prepare tools", "Confirm approved voltage tester, continuity tester, IR tester, insulated tools, lock, and DANGER tags are ready.", "4836:2023 Sec 8; Sec 9", RESULT_NONE, NULL, NULL },
   { STEP_INFO, "Tester battery/check", "Check tester body/leads/fuse for damage and confirm battery/self-test is OK before use.", "4836:2023 Sec 9", RESULT_NONE, NULL, NULL },
@@ -160,7 +160,7 @@ static const VerifyStep s_swp_motor[] = {
 
 static const VerifyStep s_swp_appliance[] = {
   { STEP_SAFETY, "Start safe", "Wear PPE, control hazards, and notify nearby people before starting appliance disconnect/reconnect work.", "4836:2023 Sec 2; Sec 11", RESULT_NONE, NULL, NULL },
-  { STEP_VERIFY_YESNO, "SWP: Disconnect or reconnect?", "RECONNECTING (wiring already off, isolated): tap Yes — guide starts at Reconnect wiring. DISCONNECTING (full procedure from prepare tools): tap No — then answer disconnect-only if needed.", "4836:2023 Sec 3; 3017:2022 Sec 4", RESULT_NONE, NULL, NULL },
+  { STEP_VERIFY_YESNO, "What are you doing?", "Tap Reconnecting if wiring is already off and isolated. Tap Disconnecting for full procedure from prepare tools; then disconnect-only if needed.", "4836:2023 Sec 3; 3017:2022 Sec 4", RESULT_NONE, NULL, NULL },
   { STEP_VERIFY_YESNO, "SWP: Disconnect only", "DISCONNECT path only: end after disconnect and label with NO reconnect this session? Yes = stop when done; No = full D+R.", "4836:2023 Sec 3", RESULT_NONE, NULL, NULL },
   { STEP_INFO, "Prepare tools", "Confirm approved voltage tester, continuity tester, IR tester, insulated tools, lock, and DANGER tags are ready.", "4836:2023 Sec 8; Sec 9", RESULT_NONE, NULL, NULL },
   { STEP_INFO, "Tester battery/check", "Check tester body/leads/fuse for damage and confirm battery/self-test is OK before use.", "4836:2023 Sec 9", RESULT_NONE, NULL, NULL },
@@ -184,7 +184,7 @@ static const VerifyStep s_swp_appliance[] = {
 
 static const VerifyStep s_swp_heater_sheathed[] = {
   { STEP_SAFETY, "Start safe", "Wear PPE, control hazards, and notify people before working on heater/sheathed element circuit.", "4836:2023 Sec 2; Sec 11", RESULT_NONE, NULL, NULL },
-  { STEP_VERIFY_YESNO, "SWP: Disconnect or reconnect?", "RECONNECTING (element isolated, wiring off): tap Yes — start at Reconnect wiring. DISCONNECTING (full isolate/disconnect from the start): tap No — then disconnect-only if needed.", "4836:2023 Sec 3; 3017:2022 Sec 4", RESULT_NONE, NULL, NULL },
+  { STEP_VERIFY_YESNO, "What are you doing?", "Tap Reconnecting if element is isolated and wiring off. Tap Disconnecting for full isolate/disconnect from prepare tools; then disconnect-only if needed.", "4836:2023 Sec 3; 3017:2022 Sec 4", RESULT_NONE, NULL, NULL },
   { STEP_VERIFY_YESNO, "SWP: Disconnect only", "DISCONNECT path only: end after disconnect and label with NO reconnect this session? Yes = stop when done; No = full D+R.", "4836:2023 Sec 3", RESULT_NONE, NULL, NULL },
   { STEP_INFO, "Prepare tools", "Confirm approved voltage tester, continuity tester, IR tester, insulated tools, lock, and DANGER tags are ready.", "4836:2023 Sec 8; Sec 9", RESULT_NONE, NULL, NULL },
   { STEP_INFO, "Tester battery/check", "Check tester body/leads/fuse for damage and confirm battery/self-test is OK before use.", "4836:2023 Sec 9", RESULT_NONE, NULL, NULL },
@@ -401,7 +401,7 @@ bool VerificationSteps_yesNoStepIsBranchOnly(VerifyTestId id, int stepIndex, con
   if (id == VERIFY_INSULATION && step->title && strcmp(step->title, "Sheathed heating") == 0) return true;
   if (id == VERIFY_RCD && step->title && strncmp(step->title, "Scenario:", 9) == 0) return true;
   if (VerificationSteps_isSwpFactoryTest(id) && step->title &&
-      (strcmp(step->title, "SWP: Disconnect or reconnect?") == 0 || strcmp(step->title, "SWP: Disconnect only") == 0))
+      (strcmp(step->title, "What are you doing?") == 0 || strcmp(step->title, "SWP: Disconnect only") == 0))
     return true;
   return false;
 }

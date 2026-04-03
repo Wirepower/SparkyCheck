@@ -1578,8 +1578,8 @@ static bool sparkyTryYesNoBranchOnly(SparkyTft* tft, ScreenId current, VerifyTes
   if (!VerificationSteps_yesNoStepIsBranchOnly(tid, stepIndex, step)) return false;
 
   if (VerificationSteps_isSwpFactoryTest(tid) && step && step->title) {
-    /* Yes = RECONNECT path: jump to Reconnect wiring. No = DISCONNECT path: continue to disconnect-only question then Prepare tools. */
-    if (strcmp(step->title, "SWP: Disconnect or reconnect?") == 0) {
+    /* Left button (Yes) = Reconnecting: jump to Reconnect wiring. Right (No) = Disconnecting: disconnect-only then Prepare tools. */
+    if (strcmp(step->title, "What are you doing?") == 0) {
       if (answerYes) {
         s_swpReconnectOnly = true;
         s_swpDisconnectOnly = false;
@@ -2089,14 +2089,17 @@ static void screens_draw_impl(SparkyTft* tft, ScreenId id, bool fullClear) {
       } else if (step.type == STEP_VERIFY_YESNO) {
         int btnY = h - 56, half = (w - 50) / 2;
         bool wide = (w >= 700) || (h >= 700);
+        const bool swpRolePick = step.title && strcmp(step.title, "What are you doing?") == 0;
+        const char* leftLbl = swpRolePick ? "Reconnecting" : "Yes";
+        const char* rightLbl = swpRolePick ? "Disconnecting" : "No";
         tft->fillRoundRect(20, btnY, half, 52, 8, kGreen);
         tft->drawRoundRect(20, btnY, half, 52, 8, kWhite);
         tft->setTextColor(kWhite, kGreen);
-        sparkyDrawBtnLabel(tft, 20, btnY, half, 52, "Yes", wide ? 3 : 2);
+        sparkyDrawBtnLabel(tft, 20, btnY, half, 52, leftLbl, wide ? 3 : 2);
         tft->fillRoundRect(30 + half, btnY, half, 52, 8, kBtn);
         tft->drawRoundRect(30 + half, btnY, half, 52, 8, kWhite);
         tft->setTextColor(kWhite, kBtn);
-        sparkyDrawBtnLabel(tft, 30 + half, btnY, half, 52, "No", wide ? 3 : 2);
+        sparkyDrawBtnLabel(tft, 30 + half, btnY, half, 52, rightLbl, wide ? 3 : 2);
       } else if (step.type == STEP_INFO) {
         int btnY = h - 56;
         tft->fillRoundRect(20, btnY, w - 40, 52, 8, kGreen);
