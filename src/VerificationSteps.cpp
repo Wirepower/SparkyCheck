@@ -16,7 +16,6 @@
 #include <stdio.h>
 #include <memory>
 
-#define VERIFY_MAX_STEPS_PER_TEST 24
 #define VERIFY_MAX_NAME_LEN 48
 #define VERIFY_MAX_TITLE_LEN 64
 #define VERIFY_MAX_INSTR_LEN 256

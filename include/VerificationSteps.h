@@ -33,6 +33,9 @@ typedef enum {
 /** Maximum custom test slots supported by runtime config. */
 #define VERIFY_TEST_CAPACITY 24
 
+/** Max steps stored per test in runtime config (custom JSON and buffers). */
+#define VERIFY_MAX_STEPS_PER_TEST 30
+
 /** Step type – determines UI (safety ack, Yes/No, result entry, or OK). */
 typedef enum {
   STEP_SAFETY,       /* Must acknowledge (e.g. "I have zeroed") */

@@ -210,7 +210,7 @@ static String webFriendlyTestName(const char* name) {
 
 static String htmlPage(const String& title, const String& body) {
   String h;
-  h.reserve(6200);
+  h.reserve(7200u + body.length());
   h += "<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>";
   h += "<title>";
   h += title;
@@ -1214,8 +1214,8 @@ static String testsPage(AsyncWebServerRequest* req) {
     tests = doc["tests"].as<JsonArray>();
   }
   String b;
-  /* SWP / long tests: per-step HTML is huge; live JSON in-page doubles RAM — see fetch below. */
-  b.reserve(262144);
+  /* Per-step easy editor: ~1.5-4 KiB/step (escaped text); max VERIFY_MAX_STEPS_PER_TEST steps + cards/JSON UI. Live JSON is fetched (not inlined). */
+  b.reserve(589824);
   b += "<h1>Tests & Questions</h1><p><a href='/admin' style='color:#93c5fd'>Back to admin</a></p>";
   b += "<div class='card'><h2>Easy editor</h2>";
   b += "<p class='small'>Use this page to build and maintain tests. You do not need JSON or IT knowledge.</p>";
@@ -1271,17 +1271,19 @@ static String testsPage(AsyncWebServerRequest* req) {
       b += "<div class='small' style='margin-top:4px'>Tip: Add at least one step per test.</div>";
       JsonArray steps = t["steps"].as<JsonArray>();
       const int stepCount = (!steps.isNull()) ? (int)steps.size() : 0;
-      /* Each step form is ~1–2 KiB HTML; 15+ steps often truncates the String and breaks the JSON editor below. */
-      constexpr int kEasyEditorMaxSteps = 14;
-      if (!steps.isNull() && stepCount > kEasyEditorMaxSteps) {
+      if (!steps.isNull() && stepCount > VERIFY_MAX_STEPS_PER_TEST) {
         b += "<p class='small' style='margin-top:8px;padding:10px;border:1px solid #b45309;border-radius:8px;color:#fed7aa'>This test has ";
         b += String(stepCount);
-        b += " steps. The per-step easy editor is skipped here to keep the admin page within device memory. Open <strong>Advanced editor (live tests.json)</strong> below and click <strong>Show JSON editor</strong> — the full JSON loads after the page opens.</p>";
-      } else if (!steps.isNull() && steps.size() > 0) {
+        b += " steps; firmware loads at most ";
+        b += String((int)VERIFY_MAX_STEPS_PER_TEST);
+        b += " per test. Remove extra steps in <strong>Show JSON editor</strong> below or delete the test.</p>";
+      }
+      if (!steps.isNull() && steps.size() > 0) {
         b += "<div style='margin-top:8px;padding:8px;border:1px solid #334155;border-radius:8px;max-height:min(80vh,720px);overflow-y:auto;overflow-x:hidden'>";
         b += "<div class='small' style='font-weight:600;margin-bottom:6px'>Steps in this test</div>";
         int stepIdx = 0;
         for (JsonObject st : steps) {
+          if (stepIdx >= VERIFY_MAX_STEPS_PER_TEST) break;
           const char* stType = st["type"] | "info";
           const char* stTitle = st["title"] | "";
           const char* stInst = st["instruction"] | "";
@@ -1361,10 +1363,10 @@ static String testsPage(AsyncWebServerRequest* req) {
           b += "<input name='to' type='number' min='1' max='"; b += String((int)steps.size()); b += "' value='"; b += String(stepIdx + 1); b += "' style='width:68px;padding:4px'/>";
           b += "<button class='btn btn2' style='margin-top:0' type='submit'>Move</button></form> ";
           b += "<form method='post' action='/admin/tests/step_delete' style='display:inline'><input type='hidden' name='test_id' value='"; b += String(idx); b += "'/><input type='hidden' name='step_id' value='"; b += String(stepIdx); b += "'/><button class='btn btn2' style='margin-top:6px;background:#7f1d1d' type='submit' onclick='return confirm(\"Delete this step?\")'>Delete Step</button></form>";
-          b += "<div class='small' style='margin-top:4px'>Step up/down = move this step one place. Move = jump to the number entered. Delete Step = delete this step only.</div>";
           b += "</div>";
           stepIdx++;
         }
+        b += "<div class='small' style='margin-top:8px'>Step up/down = move one place. Move = jump to the number entered. Delete Step = remove this step only.</div>";
         b += "</div>";
       }
       b += "<form method='post' action='/admin/tests/reorder' style='display:inline'><input type='hidden' name='id' value='"; b += String(idx); b += "'/><input type='hidden' name='dir' value='up'/><button class='btn btn2' style='margin-top:6px' type='submit'>Move Test Up</button></form> ";
@@ -1423,10 +1425,10 @@ static String testsPage(AsyncWebServerRequest* req) {
   b += "<textarea id='liveJsonEditor' name='json' style='width:100%;min-height:380px;border-radius:8px;background:#0f172a;color:#fff;border:1px solid #8ecae6;' placeholder='Loading JSON from device…'></textarea>";
   b += "<script>(function(){var e=document.getElementById('liveJsonEditor');var btn=document.getElementById('liveJsonActivateBtn');if(!e)return;"
        "e.value='Loading…';if(btn)btn.disabled=true;"
-       "fetch('/admin/tests-json-live',{credentials:'same-origin',cache:'no-store'})"
-       ".then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.text();})"
-       ".then(function(t){e.value=t;if(btn)btn.disabled=false;})"
-       ".catch(function(){e.value='// Failed to load JSON. Try refresh, or use Download tests.json.\\n';if(btn)btn.disabled=false;});})();</script>";
+       "fetch('/admin/tests-json-live',{credentials:'include',cache:'no-store'})"
+       ".then(function(r){return r.text().then(function(t){if(!r.ok)throw new Error(t||('HTTP '+r.status));return t;});})"
+       ".then(function(t){var s=(t||'').trim();if(s.length<2||s.charAt(0)!='{')throw new Error('not JSON');e.value=t;if(btn)btn.disabled=false;})"
+       ".catch(function(err){e.value='// Failed to load live tests.json: '+(err&&err.message?err.message:String(err))+'. Reload page or use Download tests.json.\\n';if(btn)btn.disabled=false;});})();</script>";
   b += "<button class='btn' type='submit' id='liveJsonActivateBtn' disabled>Validate + Activate</button></form>";
   b += "</details>";
   b += "<form method='post' action='/admin/tests/rollback'><button class='btn btn2' type='submit'>Undo to previous saved version</button></form>";
@@ -1785,20 +1787,31 @@ void AdminPortal_init(void) {
   });
 
   s_server.on("/tests-json-live", HTTP_GET, [](AsyncWebServerRequest* req) {
-    if (!isAuthorized(req)) { req->send(403, "text/plain", "Forbidden"); return; }
+    if (!isAuthorized(req)) {
+      req->send(403, "application/json", "{\"error\":\"not authorized\"}");
+      return;
+    }
     ensureTestsJsonLoaded();
     if (!s_testsJson) {
       req->send(500, "application/json", "{\"error\":\"tests buffer unavailable\"}");
       return;
     }
-    AsyncWebServerResponse* resp = req->beginResponse(200, "application/json", String(s_testsJson));
+    /* Stream from LittleFS like /admin/files/download — String(s_testsJson) OOMs on large configs. */
+    if (LittleFS.exists(kTestsPath)) {
+      AsyncWebServerResponse* resp = req->beginResponse(LittleFS, String(kTestsPath), "application/json", false);
+      if (resp) {
+        resp->addHeader("Cache-Control", "no-store");
+        req->send(resp);
+        return;
+      }
+    }
+    AsyncWebServerResponse* resp = req->beginResponse(200, "application/json", s_testsJson);
     resp->addHeader("Cache-Control", "no-store");
     req->send(resp);
   });
   s_server.on("/admin/tests-json-live", HTTP_GET, [](AsyncWebServerRequest* req) {
     if (!isAuthorized(req)) {
-      /* Keep response JSON for client-side parser stability. */
-      req->send(200, "application/json", "{\"tests\":[],\"rules\":[]}");
+      req->send(403, "application/json", "{\"error\":\"not authorized\"}");
       return;
     }
     ensureTestsJsonLoaded();
@@ -1806,7 +1819,15 @@ void AdminPortal_init(void) {
       req->send(500, "application/json", "{\"error\":\"tests buffer unavailable\"}");
       return;
     }
-    AsyncWebServerResponse* resp = req->beginResponse(200, "application/json", String(s_testsJson));
+    if (LittleFS.exists(kTestsPath)) {
+      AsyncWebServerResponse* resp = req->beginResponse(LittleFS, String(kTestsPath), "application/json", false);
+      if (resp) {
+        resp->addHeader("Cache-Control", "no-store");
+        req->send(resp);
+        return;
+      }
+    }
+    AsyncWebServerResponse* resp = req->beginResponse(200, "application/json", s_testsJson);
     resp->addHeader("Cache-Control", "no-store");
     req->send(resp);
   });
