@@ -592,7 +592,8 @@ void VerificationSteps_appendRulesJsonArray(JsonArray rules) {
 
 bool VerificationSteps_getConfigJson(char* buf, unsigned buf_size) {
   if (!buf || buf_size < 64) return false;
-  DynamicJsonDocument doc(524288);
+  /* Pool must match large admin configs (many steps); 512 KiB overflowed and corrupted export (no tests[]). */
+  DynamicJsonDocument doc(720896);
   JsonArray tests = doc.createNestedArray("tests");
   for (int i = 0; i < VerificationSteps_getActiveTestCount(); i++) {
     JsonObject t = tests.createNestedObject();
@@ -621,16 +622,24 @@ bool VerificationSteps_getConfigJson(char* buf, unsigned buf_size) {
   }
   JsonArray rules = doc.createNestedArray("rules");
   VerificationSteps_appendRulesJsonArray(rules);
-  /* If the buffer is too small, ArduinoJson truncates but can still return n < buf_size — invalid JSON. */
+  if (doc.overflowed()) return false;
+  /* measure* vs serialize* can differ by a byte on some ArduinoJson builds; strict n==lenP caused permanent failure. */
   size_t lenP = measureJsonPretty(doc);
   if (lenP + 1 <= buf_size) {
     size_t n = serializeJsonPretty(doc, buf, buf_size);
-    return n == lenP;
+    if (n > 0 && n < buf_size) {
+      buf[n] = '\0';
+      return true;
+    }
   }
   size_t lenC = measureJson(doc);
   if (lenC + 1 > buf_size) return false;
   size_t n = serializeJson(doc, buf, buf_size);
-  return n == lenC;
+  if (n > 0 && n < buf_size) {
+    buf[n] = '\0';
+    return true;
+  }
+  return false;
 }
 
 bool VerificationSteps_activateConfigJson(const char* json, char* err, unsigned err_size) {

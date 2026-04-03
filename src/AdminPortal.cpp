@@ -110,6 +110,8 @@ static void recoverCorruptTestsJsonBuffer(void);
 static void testsJsonPersistBufferToFlash(void);
 static bool testsJsonApplySerializedDoc(DynamicJsonDocument& doc);
 static bool testsJsonOnFsExceedsBuffer(void);
+static bool testsJsonInstallMinimalWithDefaultRules(void);
+static bool getFactoryTestsJson(String* outJson);
 
 static const unsigned long kSessionTtlMs = 120UL * 60UL * 1000UL; /* 2 h; PIN pages stay usable while configuring */
 static const unsigned long kPortalTickMs = 5000UL;
@@ -858,7 +860,10 @@ static void ensureTestsJsonLoaded(void) {
       s_testsJson[kTestsJsonCap - 1] = '\0';
       doc.clear();
       derr = deserializeJson(doc, s_testsJson);
-      if (derr || doc.overflowed() || !testsJsonDocHasTestsArray(doc)) return;
+      if (derr || doc.overflowed() || !testsJsonDocHasTestsArray(doc)) {
+        testsJsonInstallMinimalWithDefaultRules();
+        return;
+      }
       testsJsonPersistBufferToFlash();
     }
   }
@@ -913,6 +918,8 @@ static void testsJsonPersistBufferToFlash(void) {
   if (fw) {
     fw.print(s_testsJson);
     fw.close();
+  } else {
+    Serial.println("[Admin] testsJsonPersistBufferToFlash: open /config/tests.json failed");
   }
 }
 
@@ -985,26 +992,38 @@ static void recoverCorruptTestsJsonBuffer(void) {
     }
     return;
   }
+
   VerificationSteps_useFactoryDefaults();
-  if (!VerificationSteps_getConfigJson(s_testsJson, kTestsJsonCap)) {
-    if (!buildTestsJsonFromActive(s_testsJson, kTestsJsonCap)) {
-      strncpy(s_testsJson, "{\"tests\":[],\"rules\":[]}", kTestsJsonCap - 1);
-      s_testsJson[kTestsJsonCap - 1] = '\0';
-    }
-  }
-  normalizeTestsJsonBufferStartInPlace(s_testsJson);
-  doc.clear();
-  e = deserializeJson(doc, s_testsJson);
-  if (e || doc.overflowed() || !testsJsonDocHasTestsArray(doc)) {
-    Serial.println("[Admin] recover: rebuilt buffer invalid; retry buildTestsJsonFromActive");
-    VerificationSteps_useFactoryDefaults();
-    if (!buildTestsJsonFromActive(s_testsJson, kTestsJsonCap) && !VerificationSteps_getConfigJson(s_testsJson, kTestsJsonCap)) {
-      strncpy(s_testsJson, "{\"tests\":[],\"rules\":[]}", kTestsJsonCap - 1);
-      s_testsJson[kTestsJsonCap - 1] = '\0';
-    }
+  bool haveValid = false;
+  if (VerificationSteps_getConfigJson(s_testsJson, kTestsJsonCap)) {
     normalizeTestsJsonBufferStartInPlace(s_testsJson);
+    doc.clear();
+    e = deserializeJson(doc, s_testsJson);
+    haveValid = !e && !doc.overflowed() && testsJsonDocHasTestsArray(doc);
   }
-  testsJsonPersistBufferToFlash();
+  if (!haveValid && buildTestsJsonFromActive(s_testsJson, kTestsJsonCap)) {
+    normalizeTestsJsonBufferStartInPlace(s_testsJson);
+    doc.clear();
+    e = deserializeJson(doc, s_testsJson);
+    haveValid = !e && !doc.overflowed() && testsJsonDocHasTestsArray(doc);
+  }
+  if (!haveValid) {
+    Serial.println("[Admin] recover: factory export invalid; emergency minimal shell + default rules");
+    (void)testsJsonInstallMinimalWithDefaultRules();
+    /* With larger JSON pool + relaxed serialize, retry embedded factory export onto RAM + flash. */
+    VerificationSteps_useFactoryDefaults();
+    String fac;
+    if (getFactoryTestsJson(&fac) && fac.length() > 0 && (size_t)fac.length() < kTestsJsonCap) {
+      strncpy(s_testsJson, fac.c_str(), kTestsJsonCap - 1);
+      s_testsJson[kTestsJsonCap - 1] = '\0';
+      normalizeTestsJsonBufferStartInPlace(s_testsJson);
+      doc.clear();
+      e = deserializeJson(doc, s_testsJson);
+      if (!e && !doc.overflowed() && testsJsonDocHasTestsArray(doc)) testsJsonPersistBufferToFlash();
+    }
+  } else {
+    testsJsonPersistBufferToFlash();
+  }
 }
 
 static void sendTestsJsonLiveResponse(AsyncWebServerRequest* req) {
@@ -1093,6 +1112,39 @@ static bool ensureDefaultRulesInDoc(DynamicJsonDocument& doc) {
   addIfMissing("rcd_required_max_ms", "<=", TestLimits_rcdTripTimeMaxMs(), 0.0f);
   addIfMissing("rcd_ms", "<=", TestLimits_rcdTripTimeMaxMs(), 0.0f);
   return changed;
+}
+
+/** Last-resort valid document: tests[] + merged comparator rules (always fits RAM). */
+static bool testsJsonInstallMinimalWithDefaultRules(void) {
+  if (!ensureTestsJsonBuf() || !s_testsJson) return false;
+  constexpr size_t kShellPool = 32768;
+  DynamicJsonDocument d(kShellPool);
+  DeserializationError err = deserializeJson(d, "{\"tests\":[],\"rules\":[]}");
+  if (err || d.overflowed()) {
+    strncpy(s_testsJson, "{\"tests\":[],\"rules\":[]}", kTestsJsonCap - 1);
+    s_testsJson[kTestsJsonCap - 1] = '\0';
+    testsJsonPersistBufferToFlash();
+    return true;
+  }
+  (void)ensureDefaultRulesInDoc(d);
+  if (d.overflowed()) {
+    strncpy(s_testsJson, "{\"tests\":[],\"rules\":[]}", kTestsJsonCap - 1);
+    s_testsJson[kTestsJsonCap - 1] = '\0';
+    testsJsonPersistBufferToFlash();
+    return true;
+  }
+  size_t n = serializeJsonPretty(d, s_testsJson, kTestsJsonCap);
+  if (n == 0 || n >= kTestsJsonCap) {
+    n = serializeJson(d, s_testsJson, kTestsJsonCap);
+  }
+  if (n == 0 || n >= kTestsJsonCap) {
+    strncpy(s_testsJson, "{\"tests\":[],\"rules\":[]}", kTestsJsonCap - 1);
+    s_testsJson[kTestsJsonCap - 1] = '\0';
+  } else {
+    s_testsJson[n] = '\0';
+  }
+  testsJsonPersistBufferToFlash();
+  return true;
 }
 
 static bool activateAndPersistTestsJson(const String& json, String* outErr) {
@@ -1213,7 +1265,7 @@ static bool buildTestsJsonFromActive(char* out, unsigned outSize) {
   }
   j += "],\"rules\":";
   {
-    DynamicJsonDocument ruleDoc(6144);
+    DynamicJsonDocument ruleDoc(32768);
     JsonArray rules = ruleDoc.createNestedArray("rules");
     VerificationSteps_appendRulesJsonArray(rules);
     /* serializeJson(variant, String) replaces the whole String — must append into a temp. */
