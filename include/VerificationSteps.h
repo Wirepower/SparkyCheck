@@ -88,7 +88,7 @@ bool VerificationSteps_yesNoStepIsBranchOnly(VerifyTestId id, int stepIndex, con
 bool VerificationSteps_isSwpFactoryTest(VerifyTestId id);
 
 /**
- * Factory SWP tests share one layout: 0=safety, 1=path INFO, 2–3=entry branches, … disconnect-and-label,
+ * Factory SWP tests share one layout: 0=safety, 1–2=Disconnect-or-reconnect? + Disconnect-only?, … disconnect-and-label,
  * then reconnect wiring. Indices are defined beside s_swp_motor[] in VerificationSteps.cpp.
  */
 int VerificationSteps_getSwpFactoryReconnectStartStep(VerifyTestId id);

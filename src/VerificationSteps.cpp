@@ -133,12 +133,11 @@ static const VerifyStep s_rcd[] = {
   { STEP_RESULT_ENTRY, "Trip time reading", "Run the RCD test, then enter the trip time in milliseconds as shown on your tester. The coach already applied your scenario answers to set the pass limit—you only type what the instrument displays.", "3000:2018 Cl.8.3.10; 3017:2022 Cl.4.9.5.3", RESULT_RCD_MS, "RCD trip time", "ms" },
 };
 
-/* Factory SWP arrays share indices: 2–3 entry branches, 13 disconnect end, 14 reconnect start (see getters below). */
+/* Factory SWP: 0=safety, 1–2=branch Yes/No, 12=disconnect end, 13=reconnect start (see getters). */
 static const VerifyStep s_swp_motor[] = {
   { STEP_SAFETY, "Start safe", "Wear PPE, control hazards, and notify nearby people before starting motor disconnect/reconnect work.", "4836:2023 Sec 2; Sec 11", RESULT_NONE, NULL, NULL },
-  { STEP_INFO, "SWP: Disconnection or reconnection", "You will choose how you use this guide. (1) RECONNECTION only: equipment already isolated - Yes skips to reconnect steps. (2) DISCONNECTION only: Yes ends after disconnect and label. No to both = full disconnect then reconnect.", "4836:2023 Sec 3; 3017:2022 Sec 4", RESULT_NONE, NULL, NULL },
-  { STEP_VERIFY_YESNO, "SWP: Reconnect only", "RECONNECTION path: Is the motor already disconnected and isolated, and will you ONLY reconnect and verify (skip all disconnection steps)? Yes = jump to reconnect.", "4836:2023 Sec 3; 3017:2022 Sec 4", RESULT_NONE, NULL, NULL },
-  { STEP_VERIFY_YESNO, "SWP: Disconnect only", "DISCONNECTION path: Will you finish this guide after disconnect and label with NO reconnection steps in this session? Yes = stop there when done.", "4836:2023 Sec 3", RESULT_NONE, NULL, NULL },
+  { STEP_VERIFY_YESNO, "SWP: Disconnect or reconnect?", "RECONNECTING (wiring already off, isolated): tap Yes — guide starts at Reconnect wiring. DISCONNECTING (full isolate/test-dead/disconnect from the start): tap No — then answer disconnect-only if needed.", "4836:2023 Sec 3; 3017:2022 Sec 4", RESULT_NONE, NULL, NULL },
+  { STEP_VERIFY_YESNO, "SWP: Disconnect only", "DISCONNECT path only: end this guide after disconnect and label with NO reconnect steps this session? Yes = stop when done; No = continue through reconnect and checks.", "4836:2023 Sec 3", RESULT_NONE, NULL, NULL },
   { STEP_INFO, "Prepare tools", "Confirm approved voltage tester, continuity tester, IR tester, insulated tools, lock, and DANGER tags are ready.", "4836:2023 Sec 8; Sec 9", RESULT_NONE, NULL, NULL },
   { STEP_INFO, "Tester battery/check", "Check tester body/leads/fuse for damage and confirm battery/self-test is OK before use.", "4836:2023 Sec 9", RESULT_NONE, NULL, NULL },
   { STEP_INFO, "1) Positive ID", "Identify the correct motor, all isolation points, and all energy sources (mains, generators, batteries, capacitors, other feeds).", "4836:2023 Cl.3.1.2", RESULT_NONE, NULL, NULL },
@@ -161,9 +160,8 @@ static const VerifyStep s_swp_motor[] = {
 
 static const VerifyStep s_swp_appliance[] = {
   { STEP_SAFETY, "Start safe", "Wear PPE, control hazards, and notify nearby people before starting appliance disconnect/reconnect work.", "4836:2023 Sec 2; Sec 11", RESULT_NONE, NULL, NULL },
-  { STEP_INFO, "SWP: Disconnection or reconnection", "You will choose how you use this guide. (1) RECONNECTION only: equipment already isolated - Yes skips to reconnect steps. (2) DISCONNECTION only: Yes ends after disconnect and label. No to both = full disconnect then reconnect.", "4836:2023 Sec 3; 3017:2022 Sec 4", RESULT_NONE, NULL, NULL },
-  { STEP_VERIFY_YESNO, "SWP: Reconnect only", "RECONNECTION path: Is the appliance already disconnected and isolated, and will you ONLY reconnect and verify (skip all disconnection steps)? Yes = jump to reconnect.", "4836:2023 Sec 3; 3017:2022 Sec 4", RESULT_NONE, NULL, NULL },
-  { STEP_VERIFY_YESNO, "SWP: Disconnect only", "DISCONNECTION path: Will you finish this guide after disconnect and label with NO reconnection steps in this session? Yes = stop there when done.", "4836:2023 Sec 3", RESULT_NONE, NULL, NULL },
+  { STEP_VERIFY_YESNO, "SWP: Disconnect or reconnect?", "RECONNECTING (wiring already off, isolated): tap Yes — guide starts at Reconnect wiring. DISCONNECTING (full procedure from prepare tools): tap No — then answer disconnect-only if needed.", "4836:2023 Sec 3; 3017:2022 Sec 4", RESULT_NONE, NULL, NULL },
+  { STEP_VERIFY_YESNO, "SWP: Disconnect only", "DISCONNECT path only: end after disconnect and label with NO reconnect this session? Yes = stop when done; No = full D+R.", "4836:2023 Sec 3", RESULT_NONE, NULL, NULL },
   { STEP_INFO, "Prepare tools", "Confirm approved voltage tester, continuity tester, IR tester, insulated tools, lock, and DANGER tags are ready.", "4836:2023 Sec 8; Sec 9", RESULT_NONE, NULL, NULL },
   { STEP_INFO, "Tester battery/check", "Check tester body/leads/fuse for damage and confirm battery/self-test is OK before use.", "4836:2023 Sec 9", RESULT_NONE, NULL, NULL },
   { STEP_INFO, "1) Positive ID", "Identify the correct appliance, all isolation points, and all energy sources feeding the equipment.", "4836:2023 Cl.3.1.2", RESULT_NONE, NULL, NULL },
@@ -186,9 +184,8 @@ static const VerifyStep s_swp_appliance[] = {
 
 static const VerifyStep s_swp_heater_sheathed[] = {
   { STEP_SAFETY, "Start safe", "Wear PPE, control hazards, and notify people before working on heater/sheathed element circuit.", "4836:2023 Sec 2; Sec 11", RESULT_NONE, NULL, NULL },
-  { STEP_INFO, "SWP: Disconnection or reconnection", "You will choose how you use this guide. (1) RECONNECTION only: equipment already isolated - Yes skips to reconnect steps. (2) DISCONNECTION only: Yes ends after disconnect and label. No to both = full disconnect then reconnect.", "4836:2023 Sec 3; 3017:2022 Sec 4", RESULT_NONE, NULL, NULL },
-  { STEP_VERIFY_YESNO, "SWP: Reconnect only", "RECONNECTION path: Is the heater/sheathed element already disconnected and isolated, and will you ONLY reconnect and verify (skip all disconnection steps)? Yes = jump to reconnect.", "4836:2023 Sec 3; 3017:2022 Sec 4", RESULT_NONE, NULL, NULL },
-  { STEP_VERIFY_YESNO, "SWP: Disconnect only", "DISCONNECTION path: Will you finish this guide after disconnect and label with NO reconnection steps in this session? Yes = stop there when done.", "4836:2023 Sec 3", RESULT_NONE, NULL, NULL },
+  { STEP_VERIFY_YESNO, "SWP: Disconnect or reconnect?", "RECONNECTING (element isolated, wiring off): tap Yes — start at Reconnect wiring. DISCONNECTING (full isolate/disconnect from the start): tap No — then disconnect-only if needed.", "4836:2023 Sec 3; 3017:2022 Sec 4", RESULT_NONE, NULL, NULL },
+  { STEP_VERIFY_YESNO, "SWP: Disconnect only", "DISCONNECT path only: end after disconnect and label with NO reconnect this session? Yes = stop when done; No = full D+R.", "4836:2023 Sec 3", RESULT_NONE, NULL, NULL },
   { STEP_INFO, "Prepare tools", "Confirm approved voltage tester, continuity tester, IR tester, insulated tools, lock, and DANGER tags are ready.", "4836:2023 Sec 8; Sec 9", RESULT_NONE, NULL, NULL },
   { STEP_INFO, "Tester battery/check", "Check tester body/leads/fuse for damage and confirm battery/self-test is OK before use.", "4836:2023 Sec 9", RESULT_NONE, NULL, NULL },
   { STEP_INFO, "1) Positive ID", "Identify correct heater/sheathed element, all isolation points, and all energy sources feeding it.", "4836:2023 Cl.3.1.2", RESULT_NONE, NULL, NULL },
@@ -404,7 +401,7 @@ bool VerificationSteps_yesNoStepIsBranchOnly(VerifyTestId id, int stepIndex, con
   if (id == VERIFY_INSULATION && step->title && strcmp(step->title, "Sheathed heating") == 0) return true;
   if (id == VERIFY_RCD && step->title && strncmp(step->title, "Scenario:", 9) == 0) return true;
   if (VerificationSteps_isSwpFactoryTest(id) && step->title &&
-      (strcmp(step->title, "SWP: Reconnect only") == 0 || strcmp(step->title, "SWP: Disconnect only") == 0))
+      (strcmp(step->title, "SWP: Disconnect or reconnect?") == 0 || strcmp(step->title, "SWP: Disconnect only") == 0))
     return true;
   return false;
 }
