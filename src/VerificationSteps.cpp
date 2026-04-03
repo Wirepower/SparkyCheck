@@ -90,11 +90,11 @@ static const VerifyStep s_insulation[] = {
 
 static const VerifyStep s_polarity[] = {
   { STEP_SAFETY, "Safety", "Confirm isolation where required. Identify conductors clearly before testing.", "3000:2018 Cl.8.3.7; 3017:2022 Cl.4.7", RESULT_NONE, NULL, NULL },
-  { STEP_INFO, "Polarity (Cl.8.3.7)", "3000:2018 Cl.8.3.7: check every required point—not a single outlet only. Next three steps: no active–neutral, neutral–earth, or earth–active transposition. No = FAIL.", "3000:2018 Cl.8.3.7; 3017:2022 Cl.4.7", RESULT_NONE, NULL, NULL },
+  { STEP_INFO, "Polarity (Cl.8.3.7)", "3000:2018 Cl.8.3.7: verify at every required point (not one outlet only). Three checks: Active/Neutral, Active/Earth, Neutral/Earth - each must NOT be transposed. No = FAIL.", "3000:2018 Cl.8.3.7; 3017:2022 Cl.4.7", RESULT_NONE, NULL, NULL },
   { STEP_VERIFY_YESNO, "Isolation", "Is the circuit isolated from supply for your test method?", "3000:2018 Cl.8.3; 3017:2022 Sec 4", RESULT_NONE, NULL, NULL },
-  { STEP_VERIFY_YESNO, "A–N transposition", "At every required terminal, accessory, and test point on this circuit: are active and neutral not transposed with each other?", "3000:2018 Cl.8.3.7; 3017:2022 Cl.4.7", RESULT_NONE, NULL, NULL },
-  { STEP_VERIFY_YESNO, "N–E transposition", "At every required point on this circuit: are neutral and protective earth (PEC) not transposed with each other?", "3000:2018 Cl.8.3.7; 3017:2022 Cl.4.7", RESULT_NONE, NULL, NULL },
-  { STEP_VERIFY_YESNO, "E–A transposition", "At every required point on this circuit: are protective earth (PEC) and active not transposed with each other?", "3000:2018 Cl.8.3.7; 3017:2022 Cl.4.7", RESULT_NONE, NULL, NULL },
+  { STEP_VERIFY_YESNO, "Active / Neutral", "At every required terminal, accessory, and test point on this circuit: are active and neutral NOT transposed with each other?", "3000:2018 Cl.8.3.7; 3017:2022 Cl.4.7", RESULT_NONE, NULL, NULL },
+  { STEP_VERIFY_YESNO, "Active / Earth", "At every required point on this circuit: are active and protective earth (PEC) NOT transposed with each other?", "3000:2018 Cl.8.3.7; 3017:2022 Cl.4.7", RESULT_NONE, NULL, NULL },
+  { STEP_VERIFY_YESNO, "Neutral / Earth", "At every required point on this circuit: are neutral and protective earth (PEC) NOT transposed with each other?", "3000:2018 Cl.8.3.7; 3017:2022 Cl.4.7", RESULT_NONE, NULL, NULL },
 };
 
 static const VerifyStep s_earth_continuity[] = {
@@ -106,11 +106,11 @@ static const VerifyStep s_earth_continuity[] = {
 
 static const VerifyStep s_circuit_connections[] = {
   { STEP_SAFETY, "Safety", "Circuit isolated where required. Confirm you can safely verify connections and identification.", "3000:2018 Cl.8.3.7; 3017:2022 Cl.4.7", RESULT_NONE, NULL, NULL },
-  { STEP_INFO, "Connections (Cl.8.3.7.2)", "In 3000:2018 Cl.8.3.8 is deleted. Use Cl.8.3.7.2. First confirm no A–N, N–E, or E–A transpositions at every required point; then switches/devices and conductor rules.", "3000:2018 Cl.8.3.7.2; 3017:2022 Cl.4.7", RESULT_NONE, NULL, NULL },
+  { STEP_INFO, "Connections (Cl.8.3.7.2)", "3000:2018 Cl.8.3.8 is deleted; use Cl.8.3.7.2. First confirm at every required point: Active/Neutral, Active/Earth, Neutral/Earth are NOT transposed; then switches/devices and ties.", "3000:2018 Cl.8.3.7.2; 3017:2022 Cl.4.7", RESULT_NONE, NULL, NULL },
   { STEP_VERIFY_YESNO, "Isolation", "Is the circuit isolated from supply?", "3000:2018 Cl.8.3; 3017:2022 Sec 4", RESULT_NONE, NULL, NULL },
-  { STEP_VERIFY_YESNO, "A–N transposition", "At every required terminal, accessory, and test point on this circuit: are active and neutral not transposed with each other?", "3000:2018 Cl.8.3.7.2; 3017:2022 Cl.4.7", RESULT_NONE, NULL, NULL },
-  { STEP_VERIFY_YESNO, "N–E transposition", "At every required point on this circuit: are neutral and protective earth (PEC) not transposed with each other?", "3000:2018 Cl.8.3.7.2; 3017:2022 Cl.4.7", RESULT_NONE, NULL, NULL },
-  { STEP_VERIFY_YESNO, "E–A transposition", "At every required point on this circuit: are protective earth (PEC) and active not transposed with each other?", "3000:2018 Cl.8.3.7.2; 3017:2022 Cl.4.7", RESULT_NONE, NULL, NULL },
+  { STEP_VERIFY_YESNO, "Active / Neutral", "At every required terminal, accessory, and test point on this circuit: are active and neutral NOT transposed with each other?", "3000:2018 Cl.8.3.7.2; 3017:2022 Cl.4.7", RESULT_NONE, NULL, NULL },
+  { STEP_VERIFY_YESNO, "Active / Earth", "At every required point on this circuit: are active and protective earth (PEC) NOT transposed with each other?", "3000:2018 Cl.8.3.7.2; 3017:2022 Cl.4.7", RESULT_NONE, NULL, NULL },
+  { STEP_VERIFY_YESNO, "Neutral / Earth", "At every required point on this circuit: are neutral and protective earth (PEC) NOT transposed with each other?", "3000:2018 Cl.8.3.7.2; 3017:2022 Cl.4.7", RESULT_NONE, NULL, NULL },
   { STEP_VERIFY_YESNO, "Switches & devices", "Are switches/protective devices NOT in the protective earthing or PEN conductor, and NOT operating independently in the neutral only (3000:2018 Cl.8.3.7.2(b)(c))?", "3000:2018 Cl.8.3.7.2; 3017:2022 Cl.4.7", RESULT_NONE, NULL, NULL },
   { STEP_VERIFY_YESNO, "Conductors & ties", "No PEC parallel with neutral; no shorts between conductors; no ties between circuits; multiphase sockets same sequence where required (Cl.8.3.7.2)?", "3000:2018 Cl.8.3.7.2; 3017:2022 Cl.4.7", RESULT_NONE, NULL, NULL },
 };
@@ -136,9 +136,9 @@ static const VerifyStep s_rcd[] = {
 /* Factory SWP arrays share indices: 2–3 entry branches, 13 disconnect end, 14 reconnect start (see getters below). */
 static const VerifyStep s_swp_motor[] = {
   { STEP_SAFETY, "Start safe", "Wear PPE, control hazards, and notify nearby people before starting motor disconnect/reconnect work.", "4836:2023 Sec 2; Sec 11", RESULT_NONE, NULL, NULL },
-  { STEP_INFO, "SWP: Your task", "Next two questions set the path. Reconnecting only = equipment already isolated; Yes jumps to reconnect steps. Disconnect only = Yes ends after disconnect and label. No to both = full disconnect then reconnect.", "4836:2023 Sec 3; 3017:2022 Sec 4", RESULT_NONE, NULL, NULL },
-  { STEP_VERIFY_YESNO, "SWP: Reconnecting", "This motor is already disconnected and isolated. Are you only reconnecting and verifying now (skip all disconnection steps)?", "4836:2023 Sec 3; 3017:2022 Sec 4", RESULT_NONE, NULL, NULL },
-  { STEP_VERIFY_YESNO, "SWP: Disconnect only", "Will you finish this guide after disconnect and label with no reconnection steps in this session?", "4836:2023 Sec 3", RESULT_NONE, NULL, NULL },
+  { STEP_INFO, "SWP: Disconnection or reconnection", "You will choose how you use this guide. (1) RECONNECTION only: equipment already isolated - Yes skips to reconnect steps. (2) DISCONNECTION only: Yes ends after disconnect and label. No to both = full disconnect then reconnect.", "4836:2023 Sec 3; 3017:2022 Sec 4", RESULT_NONE, NULL, NULL },
+  { STEP_VERIFY_YESNO, "SWP: Reconnect only", "RECONNECTION path: Is the motor already disconnected and isolated, and will you ONLY reconnect and verify (skip all disconnection steps)? Yes = jump to reconnect.", "4836:2023 Sec 3; 3017:2022 Sec 4", RESULT_NONE, NULL, NULL },
+  { STEP_VERIFY_YESNO, "SWP: Disconnect only", "DISCONNECTION path: Will you finish this guide after disconnect and label with NO reconnection steps in this session? Yes = stop there when done.", "4836:2023 Sec 3", RESULT_NONE, NULL, NULL },
   { STEP_INFO, "Prepare tools", "Confirm approved voltage tester, continuity tester, IR tester, insulated tools, lock, and DANGER tags are ready.", "4836:2023 Sec 8; Sec 9", RESULT_NONE, NULL, NULL },
   { STEP_INFO, "Tester battery/check", "Check tester body/leads/fuse for damage and confirm battery/self-test is OK before use.", "4836:2023 Sec 9", RESULT_NONE, NULL, NULL },
   { STEP_INFO, "1) Positive ID", "Identify the correct motor, all isolation points, and all energy sources (mains, generators, batteries, capacitors, other feeds).", "4836:2023 Cl.3.1.2", RESULT_NONE, NULL, NULL },
@@ -161,9 +161,9 @@ static const VerifyStep s_swp_motor[] = {
 
 static const VerifyStep s_swp_appliance[] = {
   { STEP_SAFETY, "Start safe", "Wear PPE, control hazards, and notify nearby people before starting appliance disconnect/reconnect work.", "4836:2023 Sec 2; Sec 11", RESULT_NONE, NULL, NULL },
-  { STEP_INFO, "SWP: Your task", "Next two questions set the path. Reconnecting only = equipment already isolated; Yes jumps to reconnect steps. Disconnect only = Yes ends after disconnect and label. No to both = full disconnect then reconnect.", "4836:2023 Sec 3; 3017:2022 Sec 4", RESULT_NONE, NULL, NULL },
-  { STEP_VERIFY_YESNO, "SWP: Reconnecting", "This appliance is already disconnected and isolated. Are you only reconnecting and verifying now (skip all disconnection steps)?", "4836:2023 Sec 3; 3017:2022 Sec 4", RESULT_NONE, NULL, NULL },
-  { STEP_VERIFY_YESNO, "SWP: Disconnect only", "Will you finish this guide after disconnect and label with no reconnection steps in this session?", "4836:2023 Sec 3", RESULT_NONE, NULL, NULL },
+  { STEP_INFO, "SWP: Disconnection or reconnection", "You will choose how you use this guide. (1) RECONNECTION only: equipment already isolated - Yes skips to reconnect steps. (2) DISCONNECTION only: Yes ends after disconnect and label. No to both = full disconnect then reconnect.", "4836:2023 Sec 3; 3017:2022 Sec 4", RESULT_NONE, NULL, NULL },
+  { STEP_VERIFY_YESNO, "SWP: Reconnect only", "RECONNECTION path: Is the appliance already disconnected and isolated, and will you ONLY reconnect and verify (skip all disconnection steps)? Yes = jump to reconnect.", "4836:2023 Sec 3; 3017:2022 Sec 4", RESULT_NONE, NULL, NULL },
+  { STEP_VERIFY_YESNO, "SWP: Disconnect only", "DISCONNECTION path: Will you finish this guide after disconnect and label with NO reconnection steps in this session? Yes = stop there when done.", "4836:2023 Sec 3", RESULT_NONE, NULL, NULL },
   { STEP_INFO, "Prepare tools", "Confirm approved voltage tester, continuity tester, IR tester, insulated tools, lock, and DANGER tags are ready.", "4836:2023 Sec 8; Sec 9", RESULT_NONE, NULL, NULL },
   { STEP_INFO, "Tester battery/check", "Check tester body/leads/fuse for damage and confirm battery/self-test is OK before use.", "4836:2023 Sec 9", RESULT_NONE, NULL, NULL },
   { STEP_INFO, "1) Positive ID", "Identify the correct appliance, all isolation points, and all energy sources feeding the equipment.", "4836:2023 Cl.3.1.2", RESULT_NONE, NULL, NULL },
@@ -186,9 +186,9 @@ static const VerifyStep s_swp_appliance[] = {
 
 static const VerifyStep s_swp_heater_sheathed[] = {
   { STEP_SAFETY, "Start safe", "Wear PPE, control hazards, and notify people before working on heater/sheathed element circuit.", "4836:2023 Sec 2; Sec 11", RESULT_NONE, NULL, NULL },
-  { STEP_INFO, "SWP: Your task", "Next two questions set the path. Reconnecting only = equipment already isolated; Yes jumps to reconnect steps. Disconnect only = Yes ends after disconnect and label. No to both = full disconnect then reconnect.", "4836:2023 Sec 3; 3017:2022 Sec 4", RESULT_NONE, NULL, NULL },
-  { STEP_VERIFY_YESNO, "SWP: Reconnecting", "Heater/sheathed element is already disconnected and isolated. Are you only reconnecting and verifying now (skip all disconnection steps)?", "4836:2023 Sec 3; 3017:2022 Sec 4", RESULT_NONE, NULL, NULL },
-  { STEP_VERIFY_YESNO, "SWP: Disconnect only", "Will you finish this guide after disconnect and label with no reconnection steps in this session?", "4836:2023 Sec 3", RESULT_NONE, NULL, NULL },
+  { STEP_INFO, "SWP: Disconnection or reconnection", "You will choose how you use this guide. (1) RECONNECTION only: equipment already isolated - Yes skips to reconnect steps. (2) DISCONNECTION only: Yes ends after disconnect and label. No to both = full disconnect then reconnect.", "4836:2023 Sec 3; 3017:2022 Sec 4", RESULT_NONE, NULL, NULL },
+  { STEP_VERIFY_YESNO, "SWP: Reconnect only", "RECONNECTION path: Is the heater/sheathed element already disconnected and isolated, and will you ONLY reconnect and verify (skip all disconnection steps)? Yes = jump to reconnect.", "4836:2023 Sec 3; 3017:2022 Sec 4", RESULT_NONE, NULL, NULL },
+  { STEP_VERIFY_YESNO, "SWP: Disconnect only", "DISCONNECTION path: Will you finish this guide after disconnect and label with NO reconnection steps in this session? Yes = stop there when done.", "4836:2023 Sec 3", RESULT_NONE, NULL, NULL },
   { STEP_INFO, "Prepare tools", "Confirm approved voltage tester, continuity tester, IR tester, insulated tools, lock, and DANGER tags are ready.", "4836:2023 Sec 8; Sec 9", RESULT_NONE, NULL, NULL },
   { STEP_INFO, "Tester battery/check", "Check tester body/leads/fuse for damage and confirm battery/self-test is OK before use.", "4836:2023 Sec 9", RESULT_NONE, NULL, NULL },
   { STEP_INFO, "1) Positive ID", "Identify correct heater/sheathed element, all isolation points, and all energy sources feeding it.", "4836:2023 Cl.3.1.2", RESULT_NONE, NULL, NULL },
@@ -404,7 +404,7 @@ bool VerificationSteps_yesNoStepIsBranchOnly(VerifyTestId id, int stepIndex, con
   if (id == VERIFY_INSULATION && step->title && strcmp(step->title, "Sheathed heating") == 0) return true;
   if (id == VERIFY_RCD && step->title && strncmp(step->title, "Scenario:", 9) == 0) return true;
   if (VerificationSteps_isSwpFactoryTest(id) && step->title &&
-      (strcmp(step->title, "SWP: Reconnecting") == 0 || strcmp(step->title, "SWP: Disconnect only") == 0))
+      (strcmp(step->title, "SWP: Reconnect only") == 0 || strcmp(step->title, "SWP: Disconnect only") == 0))
     return true;
   return false;
 }
