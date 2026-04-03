@@ -867,6 +867,13 @@ static void reloadTestsJsonFileIntoBuffer(void) {
   s_testsJson[n] = '\0';
 }
 
+static void stripUtf8BomInPlace(char* buf) {
+  if (!buf || !buf[0]) return;
+  if ((uint8_t)buf[0] == 0xEF && (uint8_t)buf[1] == 0xBB && (uint8_t)buf[2] == 0xBF) {
+    memmove(buf, buf + 3, strlen(buf + 3) + 1);
+  }
+}
+
 static void sendTestsJsonLiveResponse(AsyncWebServerRequest* req) {
   if (!isAuthorized(req)) {
     req->send(403, "application/json", "{\"error\":\"not authorized\"}");
@@ -887,9 +894,18 @@ static void sendTestsJsonLiveResponse(AsyncWebServerRequest* req) {
     }
   }
   reloadTestsJsonFileIntoBuffer();
+  stripUtf8BomInPlace(s_testsJson);
   ensureTestsJsonLoaded();
+  stripUtf8BomInPlace(s_testsJson);
   if (!s_testsJson[0]) {
     req->send(500, "application/json", "{\"error\":\"tests buffer empty\"}");
+    return;
+  }
+  const size_t jsonLen = strlen(s_testsJson);
+  if (jsonLen < 2 || s_testsJson[0] != '{') {
+    Serial.printf("[Admin] tests-json-live: buffer not object JSON (len=%u first=%02x)\n", (unsigned)jsonLen,
+                  jsonLen ? (unsigned)(uint8_t)s_testsJson[0] : 0u);
+    req->send(500, "application/json", "{\"error\":\"tests json invalid or empty in RAM\"}");
     return;
   }
   AsyncWebServerResponse* resp = req->beginResponse(200, "application/json", s_testsJson);
@@ -1492,9 +1508,17 @@ static String testsPage(AsyncWebServerRequest* req) {
   b += "<script>(function(){var e=document.getElementById('liveJsonEditor');var btn=document.getElementById('liveJsonActivateBtn');if(!e)return;"
        "var url=(window.location.origin||'')+'/admin/tests-json-live';"
        "function load(n){e.value='Loading…';if(btn)btn.disabled=true;"
-       "fetch(url,{credentials:'same-origin',cache:'no-store',mode:'same-origin'})"
-       ".then(function(r){return r.text().then(function(t){if(!r.ok)throw new Error(t||('HTTP '+r.status));return t;});})"
-       ".then(function(t){var s=(t||'').trim();if(s.length<2||s.charAt(0)!='{')throw new Error('not JSON');e.value=t;if(btn)btn.disabled=false;})"
+       "fetch(url,{credentials:'same-origin',cache:'no-store',mode:'same-origin',redirect:'follow'})"
+       ".then(function(r){return r.text().then(function(t){"
+       "if(!r.ok)throw new Error(t||('HTTP '+r.status));"
+       "var ct=(r.headers.get('content-type')||'').toLowerCase();"
+       "var body=(t||'').replace(/^\\uFEFF/,'');var s=body.trim();"
+       "if(!s.length)throw new Error('Empty body from device.');"
+       "if(ct.indexOf('text/html')>=0||s.charAt(0)==='<')throw new Error('Got a web page instead of JSON (session expired?). Close this tab, open Admin, log in with PIN, then open Tests again.');"
+       "var c=s.charAt(0);if(c!='{'&&c!='[')throw new Error('Body does not look like JSON (first char: '+c+').');"
+       "try{JSON.parse(s);}catch(x){throw new Error('Invalid JSON: '+x.message);}"
+       "e.value=body;if(btn)btn.disabled=false;"
+       "});})"
        ".catch(function(err){if(n<2)setTimeout(function(){load(n+1);},500);"
        "else{e.value='// Failed to load live tests.json: '+(err&&err.message?err.message:String(err))+'. Reload page or use Download tests.json.\\n';if(btn)btn.disabled=false;}});}"
        "load(0);})();</script>";
