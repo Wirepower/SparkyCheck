@@ -841,7 +841,7 @@ static void ensureTestsJsonLoaded(void) {
     return;
   }
   if (!derr && !testsJsonDocHasTestsArray(doc)) {
-    Serial.println("[Admin] ensureTestsJsonLoaded: root is not a tests object (truncated File.readString or corrupt file)");
+    Serial.println("[Admin] ensureTestsJsonLoaded: invalid tests root (truncated file, corrupt JSON, or tests[] empty)");
     derr = DeserializationError::InvalidInput;
   }
   if (derr) {
@@ -855,7 +855,7 @@ static void ensureTestsJsonLoaded(void) {
     }
     if (derr || !testsJsonDocHasTestsArray(doc)) {
       if (!derr)
-        Serial.println("[Admin] ensureTestsJsonLoaded: after recovery JSON parses but tests[] is missing or not an array");
+        Serial.println("[Admin] ensureTestsJsonLoaded: after recovery JSON parses but tests[] is missing, not an array, or empty");
       else
         Serial.printf("[Admin] ensureTestsJsonLoaded: still bad after recovery: %s\n", derr.c_str());
       strncpy(s_testsJson, "{\"tests\":[],\"rules\":[]}", kTestsJsonCap - 1);
@@ -985,11 +985,10 @@ static void normalizeTestsJsonBufferStartInPlace(char* buf) {
   stripUtf8BomInPlace(buf);
 }
 
+/** True when config has at least one test (empty tests[] is not valid — same as VerificationSteps_activateConfigJson). */
 static bool testsJsonDocHasTestsArray(const DynamicJsonDocument& doc) {
-  if (doc["tests"].is<JsonArray>()) return true;
-  JsonObjectConst root = doc.as<JsonObjectConst>();
-  if (root.isNull()) return false;
-  return root.containsKey("tests") && root.containsKey("rules");
+  JsonArrayConst tests = doc["tests"].as<JsonArrayConst>();
+  return !tests.isNull() && tests.size() > 0;
 }
 
 /** Export factory JSON from embedded steps and install only if it parses to an object with tests[]. */
