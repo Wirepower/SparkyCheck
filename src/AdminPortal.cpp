@@ -987,7 +987,7 @@ static void normalizeTestsJsonBufferStartInPlace(char* buf) {
 
 static bool testsJsonDocHasTestsArray(const DynamicJsonDocument& doc) {
   if (doc["tests"].is<JsonArray>()) return true;
-  JsonObject root = doc.as<JsonObject>();
+  JsonObjectConst root = doc.as<JsonObjectConst>();
   if (root.isNull()) return false;
   return root.containsKey("tests") && root.containsKey("rules");
 }
