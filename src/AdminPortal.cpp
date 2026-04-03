@@ -78,8 +78,9 @@ static char s_flashMsg[120] = "";
 static bool s_flashErr = false;
 static WifiNetwork s_scanResults[WIFI_MAX_SSIDS];
 static int s_scanCount = 0;
-/* Full tests.json (many tests/steps) exceeds 128 KiB; keep in PSRAM. */
-static constexpr size_t kTestsJsonCap = 524288;
+/* Full tests.json (embedded factory steps) can be >512 KiB once rules are merged.
+ * Keep in PSRAM so we can export the complete tests[] tree for the admin UI. */
+static constexpr size_t kTestsJsonCap = 720896;
 /* ArduinoJson pool must hold nested tree — typically > raw file size for large configs. */
 static constexpr size_t kTestsJsonDocCap = 720896;
 static char* s_testsJson = nullptr;
@@ -2799,6 +2800,7 @@ void AdminPortal_init(void) {
   // Build baseline JSON from embedded defaults (firmware baseline).
   String factoryJson;
   getFactoryTestsJson(&factoryJson);
+  Serial.printf("[Admin] factory tests.json exported length=%u\n", (unsigned)factoryJson.length());
 
   /* Single-file model: load /config/tests.json if valid; else install embedded factory baseline (VerificationSteps). */
   bool flashOk = false;
