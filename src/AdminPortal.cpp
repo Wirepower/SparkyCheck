@@ -969,6 +969,13 @@ static const char* testsJsonContentStart(const char* buf) {
   return p;
 }
 
+/** Lightweight shape check for full config object (tests + steps + rules). */
+static bool testsJsonLooksLikeFullConfigObject(const char* json) {
+  const char* p = testsJsonContentStart(json);
+  if (!p || p[0] != '{') return false;
+  return strstr(p, "\"tests\"") && strstr(p, "\"rules\"") && strstr(p, "\"steps\"");
+}
+
 /** Move leading whitespace/BOM off s_testsJson so deserialize + rule merge see a normal object document. */
 static void normalizeTestsJsonBufferStartInPlace(char* buf) {
   if (!buf) return;
@@ -978,7 +985,12 @@ static void normalizeTestsJsonBufferStartInPlace(char* buf) {
   stripUtf8BomInPlace(buf);
 }
 
-static bool testsJsonDocHasTestsArray(const DynamicJsonDocument& doc) { return doc["tests"].is<JsonArray>(); }
+static bool testsJsonDocHasTestsArray(const DynamicJsonDocument& doc) {
+  if (doc["tests"].is<JsonArray>()) return true;
+  JsonObject root = doc.as<JsonObject>();
+  if (root.isNull()) return false;
+  return root.containsKey("tests") && root.containsKey("rules");
+}
 
 /** Export factory JSON from embedded steps and install only if it parses to an object with tests[]. */
 static bool testsJsonLoadValidatedFactoryIntoBuffer(void) {
@@ -986,6 +998,7 @@ static bool testsJsonLoadValidatedFactoryIntoBuffer(void) {
   VerificationSteps_useFactoryDefaults();
   String fac;
   if (!getFactoryTestsJson(&fac) || fac.length() == 0 || (size_t)fac.length() >= kTestsJsonCap) return false;
+  if (!testsJsonLooksLikeFullConfigObject(fac.c_str())) return false;
   DynamicJsonDocument verify(kTestsJsonDocCap);
   DeserializationError e = deserializeJson(verify, fac);
   if (e || verify.overflowed() || !testsJsonDocHasTestsArray(verify)) return false;
@@ -1293,7 +1306,10 @@ static bool getFactoryTestsJson(String* outJson) {
   VerificationSteps_useFactoryDefaults();
   std::unique_ptr<char[]> buf(new char[kTestsJsonCap]);
   if (!buf) return false;
-  if (VerificationSteps_getConfigJson(buf.get(), kTestsJsonCap) || buildTestsJsonFromActive(buf.get(), kTestsJsonCap)) {
+  bool ok = false;
+  if (VerificationSteps_getConfigJson(buf.get(), kTestsJsonCap) && testsJsonLooksLikeFullConfigObject(buf.get())) ok = true;
+  if (!ok && buildTestsJsonFromActive(buf.get(), kTestsJsonCap) && testsJsonLooksLikeFullConfigObject(buf.get())) ok = true;
+  if (ok) {
     *outJson = String(buf.get());
     return outJson->length() > 0;
   }
