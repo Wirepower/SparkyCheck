@@ -50,6 +50,22 @@ static std::atomic<bool> s_pendingHttpRebind{false};
 /** Worker-thread pause must not call s_server.end() off loopTask; loop runs end() and signals this sem. */
 static std::atomic<bool> s_httpPausePending{false};
 static SemaphoreHandle_t s_otaPauseDoneSem = nullptr;
+/** Serializes concurrent admin handlers that share s_testsJson (avoids torn reads + bogus live JSON). */
+static SemaphoreHandle_t s_testsJsonMutex = nullptr;
+
+static void testsJsonMutexTake(void) {
+  if (!s_testsJsonMutex) s_testsJsonMutex = xSemaphoreCreateMutex();
+  if (s_testsJsonMutex) (void)xSemaphoreTake(s_testsJsonMutex, portMAX_DELAY);
+}
+
+static void testsJsonMutexGive(void) {
+  if (s_testsJsonMutex) (void)xSemaphoreGive(s_testsJsonMutex);
+}
+
+struct TestsJsonMutexGuard {
+  TestsJsonMutexGuard() { testsJsonMutexTake(); }
+  ~TestsJsonMutexGuard() { testsJsonMutexGive(); }
+};
 
 static bool arduinoOnLoopTask(void) {
   TaskHandle_t loop = xTaskGetHandle("loopTask");
@@ -96,6 +112,9 @@ static void reloadTestsJsonFileIntoBuffer(void);
 static void normalizeTestsJsonBufferStartInPlace(char* buf);
 static bool testsJsonDocHasTestsArray(const DynamicJsonDocument& doc);
 static void recoverCorruptTestsJsonBuffer(void);
+static void testsJsonPersistBufferToFlash(void);
+static bool testsJsonApplySerializedDoc(DynamicJsonDocument& doc);
+static bool testsJsonOnFsExceedsBuffer(void);
 
 static const unsigned long kSessionTtlMs = 120UL * 60UL * 1000UL; /* 2 h; PIN pages stay usable while configuring */
 static const unsigned long kPortalTickMs = 5000UL;
@@ -800,6 +819,8 @@ static String filesPage(void) {
 
 static void ensureTestsJsonLoaded(void) {
   if (!ensureTestsJsonBuf() || !s_testsJson) return;
+  TestsJsonMutexGuard testsJsonGuard;
+  if (!testsJsonOnFsExceedsBuffer()) reloadTestsJsonFileIntoBuffer();
   if (!s_testsJson[0]) {
     if (!VerificationSteps_getConfigJson(s_testsJson, kTestsJsonCap)) {
       VerificationSteps_useFactoryDefaults();
@@ -833,29 +854,21 @@ static void ensureTestsJsonLoaded(void) {
       return;
     }
     if (derr || !testsJsonDocHasTestsArray(doc)) {
-      Serial.printf("[Admin] ensureTestsJsonLoaded: still bad after recovery: %s\n", derr.c_str());
+      if (!derr)
+        Serial.println("[Admin] ensureTestsJsonLoaded: after recovery JSON parses but tests[] is missing or not an array");
+      else
+        Serial.printf("[Admin] ensureTestsJsonLoaded: still bad after recovery: %s\n", derr.c_str());
       strncpy(s_testsJson, "{\"tests\":[],\"rules\":[]}", kTestsJsonCap - 1);
       s_testsJson[kTestsJsonCap - 1] = '\0';
       doc.clear();
       derr = deserializeJson(doc, s_testsJson);
       if (derr || doc.overflowed() || !testsJsonDocHasTestsArray(doc)) return;
+      testsJsonPersistBufferToFlash();
     }
   }
   if (ensureDefaultRulesInDoc(doc)) {
-    String fixed;
-    serializeJsonPretty(doc, fixed);
-    if (fixed.length() >= kTestsJsonCap) {
-      Serial.printf("[Admin] merged tests.json length %u exceeds kTestsJsonCap\n", (unsigned)fixed.length());
-      return;
-    }
-    strncpy(s_testsJson, fixed.c_str(), kTestsJsonCap - 1);
-    s_testsJson[kTestsJsonCap - 1] = '\0';
-    if (!LittleFS.exists("/config")) LittleFS.mkdir("/config");
-    File fw = LittleFS.open(kTestsPath, "w");
-    if (fw) {
-      fw.print(fixed);
-      fw.close();
-    }
+    if (!testsJsonApplySerializedDoc(doc))
+      Serial.printf("[Admin] ensureTestsJsonLoaded: merged rules JSON exceeds kTestsJsonCap after compact serialize\n");
   }
 }
 
@@ -882,13 +895,51 @@ static void reloadTestsJsonFileIntoBuffer(void) {
     return;
   }
   const size_t sz = f.size();
-  if (sz == 0 || sz >= kTestsJsonCap) {
+  if (sz >= kTestsJsonCap) {
     f.close();
+    return;
+  }
+  if (sz == 0) {
+    f.close();
+    s_testsJson[0] = '\0';
     return;
   }
   const size_t n = f.read((uint8_t*)s_testsJson, kTestsJsonCap - 1);
   f.close();
   s_testsJson[n] = '\0';
+}
+
+/** Write current s_testsJson to flash (caller ensures content is valid JSON). */
+static void testsJsonPersistBufferToFlash(void) {
+  if (!s_testsJson || !s_testsJson[0]) return;
+  if (!LittleFS.exists("/config")) LittleFS.mkdir("/config");
+  File fw = LittleFS.open(kTestsPath, "w");
+  if (fw) {
+    fw.print(s_testsJson);
+    fw.close();
+  }
+}
+
+/** Pretty, then compact if needed, into s_testsJson + flash. Returns false if doc cannot fit kTestsJsonCap. */
+static bool testsJsonApplySerializedDoc(DynamicJsonDocument& doc) {
+  if (!ensureTestsJsonBuf() || !s_testsJson) return false;
+  String fixed;
+  serializeJsonPretty(doc, fixed);
+  if (fixed.length() >= kTestsJsonCap) {
+    fixed = "";
+    serializeJson(doc, fixed);
+  }
+  if (fixed.length() >= kTestsJsonCap) {
+    if (measureJson(doc) + 1 > kTestsJsonCap) return false;
+    size_t n = serializeJson(doc, s_testsJson, kTestsJsonCap);
+    if (n == 0 || n >= kTestsJsonCap) return false;
+    s_testsJson[n] = '\0';
+  } else {
+    strncpy(s_testsJson, fixed.c_str(), kTestsJsonCap - 1);
+    s_testsJson[kTestsJsonCap - 1] = '\0';
+  }
+  testsJsonPersistBufferToFlash();
+  return true;
 }
 
 static void stripUtf8BomInPlace(char* buf) {
@@ -933,18 +984,8 @@ static void recoverCorruptTestsJsonBuffer(void) {
   DeserializationError e = deserializeJson(doc, s_testsJson);
   if (!e && !doc.overflowed() && testsJsonDocHasTestsArray(doc)) {
     if (ensureDefaultRulesInDoc(doc)) {
-      String fixed;
-      serializeJsonPretty(doc, fixed);
-      if (fixed.length() < kTestsJsonCap) {
-        strncpy(s_testsJson, fixed.c_str(), kTestsJsonCap - 1);
-        s_testsJson[kTestsJsonCap - 1] = '\0';
-        if (!LittleFS.exists("/config")) LittleFS.mkdir("/config");
-        File fw = LittleFS.open(kTestsPath, "w");
-        if (fw) {
-          fw.print(fixed);
-          fw.close();
-        }
-      }
+      if (!testsJsonApplySerializedDoc(doc))
+        Serial.println("[Admin] recover: merged rules exceed buffer after compact serialize");
     }
     return;
   }
@@ -954,6 +995,7 @@ static void recoverCorruptTestsJsonBuffer(void) {
     s_testsJson[kTestsJsonCap - 1] = '\0';
   }
   normalizeTestsJsonBufferStartInPlace(s_testsJson);
+  testsJsonPersistBufferToFlash();
 }
 
 static void sendTestsJsonLiveResponse(AsyncWebServerRequest* req) {
@@ -975,13 +1017,13 @@ static void sendTestsJsonLiveResponse(AsyncWebServerRequest* req) {
       return;
     }
   }
-  reloadTestsJsonFileIntoBuffer();
-  normalizeTestsJsonBufferStartInPlace(s_testsJson);
-  /* Merges missing comparator rules into doc and re-serializes to s_testsJson when needed — response includes "rules". */
+  /* Reload + validate + rule merge run inside ensureTestsJsonLoaded (mutex); heals corrupt flash when possible. */
   ensureTestsJsonLoaded();
+  testsJsonMutexTake();
   stripUtf8BomInPlace(s_testsJson);
   const char* jsonStart = testsJsonContentStart(s_testsJson);
   if (!jsonStart || !jsonStart[0]) {
+    testsJsonMutexGive();
     req->send(500, "application/json", "{\"error\":\"tests buffer empty\"}");
     return;
   }
@@ -989,10 +1031,19 @@ static void sendTestsJsonLiveResponse(AsyncWebServerRequest* req) {
   if (jsonLen < 2 || jsonStart[0] != '{') {
     Serial.printf("[Admin] tests-json-live: not object JSON (len=%u first=0x%02x)\n", (unsigned)jsonLen,
                   jsonLen ? (unsigned)(uint8_t)jsonStart[0] : 0u);
+    testsJsonMutexGive();
     req->send(500, "application/json", "{\"error\":\"tests json invalid or empty in RAM\"}");
     return;
   }
-  AsyncWebServerResponse* resp = req->beginResponse(200, "application/json", jsonStart);
+  /* Copy while locked so another handler cannot mutate s_testsJson during String allocation. */
+  String payload(jsonStart);
+  testsJsonMutexGive();
+  if ((size_t)payload.length() != jsonLen) {
+    Serial.println("[Admin] tests-json-live: could not copy JSON snapshot (out of memory?)");
+    req->send(500, "application/json", "{\"error\":\"tests json snapshot failed\"}");
+    return;
+  }
+  AsyncWebServerResponse* resp = req->beginResponse(200, "application/json", payload);
   if (!resp) {
     req->send(500, "text/plain", "out of memory building response");
     return;

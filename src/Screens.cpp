@@ -47,7 +47,7 @@ static bool sparkyReadableUi(int w, int h) {
   return (w >= 700) || (h >= 700) || (w >= 480 && h >= 600);
 }
 
-/** Narrow width (e.g. portrait 480×800): title must sit below Back, not on the same row. */
+/** Narrow width (e.g. portrait 480×800): title must sit below Exit/Back, not on the same row. */
 static bool sparkyTestFlowNarrowHeader(int w) {
   return w < 600;
 }
@@ -734,6 +734,27 @@ static void sparkyBackLabelCoords(int backW, int backH, int backX, int backY, in
   if (*outTy < backY + 2) *outTy = backY + 2;
 }
 
+/** Exit (left) and Back (right) during SCREEN_TEST_FLOW; must match touch targets. */
+static void sparkyTestFlowTopNavLayout(int w, int* outExitX, int* outBackX, int* outY, int* outBtnW, int* outBtnH) {
+  const int btnW = 96, btnH = 36, gap = 8, rightPad = 12;
+  *outBackX = w - btnW - rightPad;
+  *outExitX = *outBackX - gap - btnW;
+  *outY = 8;
+  *outBtnW = btnW;
+  *outBtnH = btnH;
+}
+
+static void sparkyDrawTestFlowTopNav(SparkyTft* tft, int w) {
+  int ex = 0, bx = 0, ny = 0, bw = 0, bh = 0;
+  sparkyTestFlowTopNavLayout(w, &ex, &bx, &ny, &bw, &bh);
+  tft->fillRoundRect(ex, ny, bw, bh, 6, kBtn);
+  tft->drawRoundRect(ex, ny, bw, bh, 6, kWhite);
+  sparkyDrawBtnLabel(tft, ex, ny, bw, bh, "Exit", 2);
+  tft->fillRoundRect(bx, ny, bw, bh, 6, kBtn);
+  tft->drawRoundRect(bx, ny, bw, bh, 6, kWhite);
+  sparkyDrawBtnLabel(tft, bx, ny, bw, bh, "Back", 2);
+}
+
 /** Layout for test-flow numeric entry: shared by draw + touch (STEP_RESULT_ENTRY). */
 typedef struct {
   int criterionLineY; /* >= 0 if pass-rule line is shown above the value */
@@ -1214,6 +1235,16 @@ static void resetResultEntryInput(void) {
   s_lastVerifyResultKind = RESULT_NONE;
   s_swpDisconnectOnly = false;
   s_swpReconnectOnly = false;
+}
+
+static ScreenId sparkyTestFlowExitToTestSelect(void) {
+  syncTrainingFlowEvent("test_cancelled", false, nullptr);
+  resetResultEntryInput();
+  s_flowPhase = 0;
+  s_stepIndex = 0;
+  s_testCompletedMs = 0;
+  s_testSelectPage = 0;
+  return handled(SCREEN_TEST_SELECT);
 }
 
 /** Pass-rule line for measurement entry (Admin rules + scenario limits). */
@@ -1955,23 +1986,13 @@ static void screens_draw_impl(SparkyTft* tft, ScreenId id, bool fullClear) {
     }
     case SCREEN_TEST_FLOW: {
       if (s_flowPhase == 1) {
-        const int backW = 96, backH = 36;
-        const int backX = w - backW - 12;
-        const int backY = 8;
-        tft->fillRoundRect(backX, backY, backW, backH, 6, kBtn);
-        tft->drawRoundRect(backX, backY, backW, backH, 6, kWhite);
-        tft->setTextSize(2);
-        tft->setTextColor(kWhite, kBtn);
-        {
-          int tx = 0, ty = 0;
-          sparkyBackLabelCoords(backW, backH, backX, backY, &tx, &ty);
-          tft->setCursor(tx, ty);
-          tft->print("Back");
-        }
+        sparkyDrawTestFlowTopNav(tft, w);
+        int navEx = 0, navBx = 0, navY = 0, navBw = 0, navBh = 0;
+        sparkyTestFlowTopNavLayout(w, &navEx, &navBx, &navY, &navBw, &navBh);
         const bool narrowResult = sparkyTestFlowNarrowHeader(w);
         const char* rt = "Result";
         const int twr = (int)strlen(rt) * 6 * 2;
-        const int yResultTitle = narrowResult ? (backY + backH + 8) : 16;
+        const int yResultTitle = narrowResult ? (navY + navBh + 8) : 16;
         tft->setTextColor(kWhite, kBg);
         tft->setTextSize(2);
         tft->setCursor((w - twr) / 2, yResultTitle);
@@ -2027,24 +2048,13 @@ static void screens_draw_impl(SparkyTft* tft, ScreenId id, bool fullClear) {
       VerificationSteps_getStep((VerifyTestId)s_selectedTestType, s_stepIndex, &step);
       const bool r = sparkyReadableUi(w, h);
       const uint8_t titleTs = r ? 3 : 2;
-      const int backW = 96, backH = 36;
-      const int backX = w - backW - 12;
-      const int backY = 8;
-
-      tft->fillRoundRect(backX, backY, backW, backH, 6, kBtn);
-      tft->drawRoundRect(backX, backY, backW, backH, 6, kWhite);
-      tft->setTextSize(2);
-      tft->setTextColor(kWhite, kBtn);
-      {
-        int tx = 0, ty = 0;
-        sparkyBackLabelCoords(backW, backH, backX, backY, &tx, &ty);
-        tft->setCursor(tx, ty);
-        tft->print("Back");
-      }
+      sparkyDrawTestFlowTopNav(tft, w);
+      int navEx = 0, navBx = 0, navY = 0, navBw = 0, navBh = 0;
+      sparkyTestFlowTopNavLayout(w, &navEx, &navBx, &navY, &navBw, &navBh);
       const bool narrowHeader = sparkyTestFlowNarrowHeader(w);
       int stepProgY;
       if (narrowHeader) {
-        const int titleY0 = backY + backH + 6;
+        const int titleY0 = navY + navBh + 6;
         const int titleEndY = sparkyDrawWrappedWordsCentered(
             tft, step.title, w, titleY0, 20, titleTs, step.type == STEP_SAFETY ? kAccent : kWhite, kBg);
         stepProgY = titleEndY + 8;
@@ -2052,11 +2062,10 @@ static void screens_draw_impl(SparkyTft* tft, ScreenId id, bool fullClear) {
         tft->setTextSize(titleTs);
         tft->setTextColor(step.type == STEP_SAFETY ? kAccent : kWhite, kBg);
         {
-          const int clockReserve = 112;
           const int leftReserve = 24;
+          const int maxRight = navEx - 8;
           int tw = (int)strlen(step.title) * 6 * titleTs;
           int cx = (w - tw) / 2;
-          int maxRight = w - clockReserve;
           if (cx + tw > maxRight) cx = maxRight - tw;
           if (cx < leftReserve) cx = leftReserve;
           tft->setCursor(cx, 14);
@@ -3583,7 +3592,10 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
     }
     case SCREEN_TEST_FLOW: {
       int count = VerificationSteps_getStepCount((VerifyTestId)s_selectedTestType);
-      if (inRect(ix, iy, w - 108, 8, 96, 36)) {
+      int navEx = 0, navBx = 0, navY = 0, navBw = 0, navBh = 0;
+      sparkyTestFlowTopNavLayout(w, &navEx, &navBx, &navY, &navBw, &navBh);
+      if (inRect(ix, iy, navEx, navY, navBw, navBh)) return sparkyTestFlowExitToTestSelect();
+      if (inRect(ix, iy, navBx, navY, navBw, navBh)) {
         if (s_flowPhase == 1) {
           s_flowPhase = 0;
           /* Stay on the step that produced this result (e.g. failed Yes/No), not always the last step. */
@@ -3599,10 +3611,7 @@ ScreenId Screens_handleTouch(SparkyTft* tft, ScreenId current, uint16_t x, uint1
           Screens_draw(tft, current);
           return handled(current);
         }
-        syncTrainingFlowEvent("test_cancelled", false, nullptr);
-        resetResultEntryInput();
-        s_testSelectPage = 0;
-        return handled(SCREEN_TEST_SELECT);
+        return sparkyTestFlowExitToTestSelect();
       }
       if (s_flowPhase == 1) {
         if (inRect(ix, iy, 20, h - 56, w - 40, 48)) {
