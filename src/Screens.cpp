@@ -1237,6 +1237,8 @@ static void resetResultEntryInput(void) {
   s_swpReconnectOnly = false;
 }
 
+static void syncTrainingFlowEvent(const char* event, bool include_result, const char* report_id_or_null);
+
 static ScreenId sparkyTestFlowExitToTestSelect(void) {
   syncTrainingFlowEvent("test_cancelled", false, nullptr);
   resetResultEntryInput();
