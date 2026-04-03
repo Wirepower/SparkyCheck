@@ -27,6 +27,7 @@
 #include <time.h>
 #include <sys/time.h>
 #include <memory>
+#include <new>
 #include <atomic>
 
 #include <freertos/FreeRTOS.h>
@@ -82,7 +83,7 @@ static int s_scanCount = 0;
  * Keep in PSRAM so we can export the complete tests[] tree for the admin UI. */
 static constexpr size_t kTestsJsonCap = 720896;
 /* ArduinoJson pool must hold nested tree — typically > raw file size for large configs. */
-static constexpr size_t kTestsJsonDocCap = 720896;
+static constexpr size_t kTestsJsonDocCap = VERIFICATION_STEPS_JSON_DOC_CAP;
 static char* s_testsJson = nullptr;
 
 static bool ensureTestsJsonBuf(void) {
@@ -113,6 +114,7 @@ static bool testsJsonApplySerializedDoc(DynamicJsonDocument& doc);
 static bool testsJsonOnFsExceedsBuffer(void);
 static bool testsJsonInstallMinimalWithDefaultRules(void);
 static bool getFactoryTestsJson(String* outJson);
+static bool ensureFactoryTestsJsonString(String* factoryJson);
 static bool testsJsonLoadValidatedFactoryIntoBuffer(void);
 
 static const unsigned long kSessionTtlMs = 120UL * 60UL * 1000UL; /* 2 h; PIN pages stay usable while configuring */
@@ -994,9 +996,8 @@ static bool testsJsonDocHasTestsArray(const DynamicJsonDocument& doc) {
 /** Export factory JSON from embedded steps and install only if it parses to an object with tests[]. */
 static bool testsJsonLoadValidatedFactoryIntoBuffer(void) {
   if (!ensureTestsJsonBuf() || !s_testsJson) return false;
-  VerificationSteps_useFactoryDefaults();
   String fac;
-  if (!getFactoryTestsJson(&fac) || fac.length() == 0 || (size_t)fac.length() >= kTestsJsonCap) return false;
+  if (!ensureFactoryTestsJsonString(&fac) || fac.length() == 0 || (size_t)fac.length() >= kTestsJsonCap) return false;
   if (!testsJsonLooksLikeFullConfigObject(fac.c_str())) return false;
   DynamicJsonDocument verify(kTestsJsonDocCap);
   DeserializationError e = deserializeJson(verify, fac);
@@ -1239,7 +1240,10 @@ static String jsonEsc(const char* s) {
 static bool buildTestsJsonFromActive(char* out, unsigned outSize) {
   if (!out || outSize < 512) return false;
   String j;
-  j.reserve(65536);
+  {
+    const size_t want = (size_t)outSize > 4096 ? (size_t)outSize - 2048 : 4096;
+    j.reserve(want > 65536 ? want : 65536);
+  }
   j += "{\"tests\":[";
   const int tc = VerificationSteps_getActiveTestCount();
   for (int i = 0; i < tc; i++) {
@@ -1303,17 +1307,30 @@ static bool getFactoryTestsJson(String* outJson) {
   if (!outJson) return false;
   outJson->remove(0);
   VerificationSteps_useFactoryDefaults();
-  std::unique_ptr<char[]> buf(new char[kTestsJsonCap]);
+  std::unique_ptr<char[]> buf(new (std::nothrow) char[kTestsJsonCap]);
   if (!buf) return false;
   bool ok = false;
   if (VerificationSteps_getConfigJson(buf.get(), kTestsJsonCap) && testsJsonLooksLikeFullConfigObject(buf.get())) ok = true;
   if (!ok && buildTestsJsonFromActive(buf.get(), kTestsJsonCap) && testsJsonLooksLikeFullConfigObject(buf.get())) ok = true;
-  if (ok) {
-    *outJson = String(buf.get());
-    return outJson->length() > 0;
-  }
-  *outJson = "{\"tests\":[],\"rules\":[]}";
-  return true;
+  if (!ok) return false;
+  *outJson = String(buf.get());
+  return outJson->length() > 0;
+}
+
+/** Fills factoryJson from embedded steps; used when getFactoryTestsJson fails (heap fragmentation, etc.). */
+static bool ensureFactoryTestsJsonString(String* factoryJson) {
+  if (!factoryJson) return false;
+  if (getFactoryTestsJson(factoryJson) && factoryJson->length() > 0 &&
+      testsJsonLooksLikeFullConfigObject(factoryJson->c_str()))
+    return true;
+  factoryJson->remove(0);
+  VerificationSteps_useFactoryDefaults();
+  std::unique_ptr<char[]> tmp(new (std::nothrow) char[kTestsJsonCap]);
+  if (!tmp) return false;
+  if (!buildTestsJsonFromActive(tmp.get(), kTestsJsonCap) || !testsJsonLooksLikeFullConfigObject(tmp.get()))
+    return false;
+  *factoryJson = String(tmp.get());
+  return factoryJson->length() > 0;
 }
 
 static String postValue(AsyncWebServerRequest* req, const char* key);
@@ -2092,7 +2109,13 @@ void AdminPortal_init(void) {
     LittleFS.remove(kTestsPath);
     LittleFS.remove(kTestsPrevPath);
     String factoryJson;
-    getFactoryTestsJson(&factoryJson);
+    if (!ensureFactoryTestsJsonString(&factoryJson)) {
+      strncpy(s_flashMsg, "Could not build factory tests (try reboot).", sizeof(s_flashMsg) - 1);
+      s_flashMsg[sizeof(s_flashMsg) - 1] = '\0';
+      s_flashErr = true;
+      req->redirect("/admin/tests-page");
+      return;
+    }
     char err[120] = "";
     VerificationSteps_activateConfigJson(factoryJson.c_str(), err, sizeof(err));
     File fa = LittleFS.open(kTestsPath, "w");
@@ -2107,6 +2130,16 @@ void AdminPortal_init(void) {
 
   s_server.on("/tests-download-live", HTTP_GET, [](AsyncWebServerRequest* req) {
     if (!isAuthorized(req)) { req->send(403, "text/plain", "Forbidden"); return; }
+    /* Same as tests-json-live: full file may not fit s_testsJson — serve from flash. */
+    if (testsJsonOnFsExceedsBuffer()) {
+      AsyncWebServerResponse* resp = req->beginResponse(LittleFS, String(kTestsPath), "application/json", false);
+      if (resp) {
+        resp->addHeader("Content-Disposition", "attachment; filename=\"tests.json\"");
+        resp->addHeader("Cache-Control", "no-store");
+        req->send(resp);
+        return;
+      }
+    }
     ensureTestsJsonLoaded();
     if (!s_testsJson) {
       req->send(500, "text/plain", "tests buffer unavailable");
@@ -2819,13 +2852,20 @@ void AdminPortal_init(void) {
 
   // Build baseline JSON from embedded defaults (firmware baseline).
   String factoryJson;
-  getFactoryTestsJson(&factoryJson);
+  if (!ensureFactoryTestsJsonString(&factoryJson)) {
+    Serial.println("[Admin] factory tests.json export FAILED (out of memory?)");
+  }
   Serial.printf("[Admin] factory tests.json exported length=%u\n", (unsigned)factoryJson.length());
   {
     DynamicJsonDocument fdoc(kTestsJsonDocCap);
     DeserializationError fe = deserializeJson(fdoc, factoryJson);
-    Serial.printf("[Admin] factory tests.json verify parse=%s testsArray=%d overflow=%d\n", fe ? fe.c_str() : "Ok",
-                  (!fe && !fdoc.overflowed() && testsJsonDocHasTestsArray(fdoc)) ? 1 : 0, fdoc.overflowed() ? 1 : 0);
+    size_t nTests = 0;
+    if (!fe && !fdoc.overflowed()) {
+      JsonArrayConst ta = fdoc["tests"].as<JsonArrayConst>();
+      if (!ta.isNull()) nTests = ta.size();
+    }
+    Serial.printf("[Admin] factory tests.json verify parse=%s testsCount=%u overflow=%d\n", fe ? fe.c_str() : "Ok",
+                  (unsigned)nTests, fdoc.overflowed() ? 1 : 0);
   }
 
   /* Single-file model: load /config/tests.json if valid; else install embedded factory baseline (VerificationSteps). */
@@ -2857,15 +2897,18 @@ void AdminPortal_init(void) {
   }
   char err[120] = "";
   if (!flashOk || !VerificationSteps_activateConfigJson(s_testsJson, err, sizeof(err))) {
-    VerificationSteps_activateConfigJson(factoryJson.c_str(), err, sizeof(err));
-    if (!LittleFS.exists("/config")) LittleFS.mkdir("/config");
-    File fw = LittleFS.open(kTestsPath, "w");
-    if (fw) {
-      fw.print(factoryJson);
-      fw.close();
+    if (factoryJson.length() && VerificationSteps_activateConfigJson(factoryJson.c_str(), err, sizeof(err))) {
+      if (!LittleFS.exists("/config")) LittleFS.mkdir("/config");
+      File fw = LittleFS.open(kTestsPath, "w");
+      if (fw) {
+        fw.print(factoryJson);
+        fw.close();
+      }
+      strncpy(s_testsJson, factoryJson.c_str(), kTestsJsonCap - 1);
+      s_testsJson[kTestsJsonCap - 1] = '\0';
+    } else {
+      Serial.printf("[Admin] init: could not activate tests config: %s\n", err[0] ? err : "(no factory JSON)");
     }
-    strncpy(s_testsJson, factoryJson.c_str(), kTestsJsonCap - 1);
-    s_testsJson[kTestsJsonCap - 1] = '\0';
   }
   ensureTestsJsonLoaded();
 

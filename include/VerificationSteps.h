@@ -36,6 +36,9 @@ typedef enum {
 /** Max steps stored per test in runtime config (custom JSON and buffers). */
 #define VERIFY_MAX_STEPS_PER_TEST 30
 
+/** ArduinoJson parse pool for tests.json (nested tree needs more RAM than raw JSON text). */
+#define VERIFICATION_STEPS_JSON_DOC_CAP 1048576
+
 /** Step type – determines UI (safety ack, Yes/No, result entry, or OK). */
 typedef enum {
   STEP_SAFETY,       /* Must acknowledge (e.g. "I have zeroed") */
