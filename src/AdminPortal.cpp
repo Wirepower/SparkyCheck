@@ -44,6 +44,8 @@ static std::atomic<bool> s_emailTestRunning{false};
 static std::atomic<int> s_otaHttpPauseDepth{0};
 /** AsyncWebServer::begin() after OTA must run from the Arduino loop task; worker-thread begin() can leave :80 dead. */
 static std::atomic<bool> s_httpResumePending{false};
+/** WiFi reconnect from admin runs off loopTask; rebind :80 on next tick when OTA is not holding the server down. */
+static std::atomic<bool> s_pendingHttpRebind{false};
 /** Worker-thread pause must not call s_server.end() off loopTask; loop runs end() and signals this sem. */
 static std::atomic<bool> s_httpPausePending{false};
 static SemaphoreHandle_t s_otaPauseDoneSem = nullptr;
@@ -99,6 +101,13 @@ static void tryStartServer(void) {
   s_server.begin();
   Serial.println("[Admin] web server listen on :80");
 }
+
+/** WiFi.mode(AP_STA) / softAP changes can drop :80 binding; end+begin from loop task (see OTA pause comment). */
+static void adminPortalRebindHttpServer(void) {
+  s_server.end();
+  delay(80);
+  tryStartServer();
+}
 static const char* kCss =
   "body{font-family:Arial,sans-serif;background:#102030;color:#fff;margin:0;padding:16px;}"
   ".brand{position:fixed;top:10px;right:12px;text-align:center;z-index:2;pointer-events:auto;}"
@@ -143,7 +152,10 @@ static void startFallbackAp(void) {
     s_apPass[sizeof(s_apPass) - 1] = '\0';
   }
   WiFi.mode(WIFI_AP_STA);
-  if (WiFi.softAP(s_apSsid, s_apPass)) s_apActive = true;
+  if (WiFi.softAP(s_apSsid, s_apPass)) {
+    s_apActive = true;
+    adminPortalRebindHttpServer();
+  }
 }
 
 static void stopFallbackAp(void) {
@@ -153,6 +165,7 @@ static void stopFallbackAp(void) {
   s_apSsid[0] = '\0';
   s_apPass[0] = '\0';
   WiFi.mode(WIFI_STA);
+  adminPortalRebindHttpServer();
 }
 
 static void touchSession(void) {
@@ -2174,6 +2187,7 @@ void AdminPortal_init(void) {
     }
     bool ok = WifiManager_connect(ssid.c_str(), pass.length() ? pass.c_str() : "");
     if (ok) {
+      s_pendingHttpRebind.store(true);
       strncpy(s_flashMsg, "Wi-Fi connected from admin portal.", sizeof(s_flashMsg) - 1);
       s_flashMsg[sizeof(s_flashMsg) - 1] = '\0';
       s_flashErr = false;
@@ -2535,7 +2549,11 @@ static void runPendingHttpPause(void) {
 
 void AdminPortal_pauseForOta(void) {
   const int prev = s_otaHttpPauseDepth.fetch_add(1);
-  if (prev != 0) return;
+  /* Outer pause owns server stop; nested callers must not bump depth or resume never runs (stuck :80 dead). */
+  if (prev != 0) {
+    (void)s_otaHttpPauseDepth.fetch_sub(1);
+    return;
+  }
   if (arduinoOnLoopTask()) {
     s_server.end();
     delay(120);
@@ -2584,6 +2602,10 @@ void AdminPortal_tick(void) {
   }
   runPendingHttpPause();
   runPendingHttpResume();
+  if (s_pendingHttpRebind.load() && s_otaHttpPauseDepth.load() == 0) {
+    (void)s_pendingHttpRebind.exchange(false);
+    adminPortalRebindHttpServer();
+  }
   if (s_webOtaInstallPending.exchange(false)) {
     if (OtaUpdate_hasPendingUpdate()) OtaUpdate_installPending();
   }
