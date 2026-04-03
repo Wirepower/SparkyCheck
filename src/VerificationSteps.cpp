@@ -7,6 +7,9 @@
  * be replaced or overridden by config so new editions ship without full firmware
  * recompile. Bump Standards_getRulesVersion() in StandardsConfig.cpp when you
  * ship updated steps or limits.
+ *
+ * Factory baseline: the static step tables below are the authoritative default test
+ * set; AdminPortal getFactoryTestsJson() / "Restore factory" export this as tests.json.
  */
 
 #include "VerificationSteps.h"

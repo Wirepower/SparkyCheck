@@ -22,6 +22,7 @@
 #include "boot_logo_web_embedded.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <time.h>
 #include <sys/time.h>
@@ -91,6 +92,10 @@ static bool writeWebLogoBmpToFile(void);
 static void handleTestsImportUploadDone(AsyncWebServerRequest* req);
 static void handleTestsImportUploadChunk(AsyncWebServerRequest* req, const String& filename, size_t index, uint8_t* data,
                                          size_t len, bool final);
+static void reloadTestsJsonFileIntoBuffer(void);
+static void normalizeTestsJsonBufferStartInPlace(char* buf);
+static bool testsJsonDocHasTestsArray(const DynamicJsonDocument& doc);
+static void recoverCorruptTestsJsonBuffer(void);
 
 static const unsigned long kSessionTtlMs = 120UL * 60UL * 1000UL; /* 2 h; PIN pages stay usable while configuring */
 static const unsigned long kPortalTickMs = 5000UL;
@@ -806,16 +811,35 @@ static void ensureTestsJsonLoaded(void) {
     }
     s_testsJson[kTestsJsonCap - 1] = '\0';
   }
+  normalizeTestsJsonBufferStartInPlace(s_testsJson);
   /* Always merge default rules when missing/empty — do not skip when buffer was filled earlier. */
   DynamicJsonDocument doc(kTestsJsonDocCap);
   DeserializationError derr = deserializeJson(doc, s_testsJson);
-  if (derr) {
-    Serial.printf("[Admin] ensureTestsJsonLoaded parse error: %s\n", derr.c_str());
-    return;
-  }
   if (doc.overflowed()) {
     Serial.println("[Admin] ensureTestsJsonLoaded: JSON too large for pool (raise kTestsJsonDocCap)");
     return;
+  }
+  if (!derr && !testsJsonDocHasTestsArray(doc)) {
+    Serial.println("[Admin] ensureTestsJsonLoaded: root is not a tests object (truncated File.readString or corrupt file)");
+    derr = DeserializationError::InvalidInput;
+  }
+  if (derr) {
+    Serial.printf("[Admin] ensureTestsJsonLoaded parse error: %s\n", derr.c_str());
+    recoverCorruptTestsJsonBuffer();
+    doc.clear();
+    derr = deserializeJson(doc, s_testsJson);
+    if (doc.overflowed()) {
+      Serial.println("[Admin] ensureTestsJsonLoaded: overflow after recovery");
+      return;
+    }
+    if (derr || !testsJsonDocHasTestsArray(doc)) {
+      Serial.printf("[Admin] ensureTestsJsonLoaded: still bad after recovery: %s\n", derr.c_str());
+      strncpy(s_testsJson, "{\"tests\":[],\"rules\":[]}", kTestsJsonCap - 1);
+      s_testsJson[kTestsJsonCap - 1] = '\0';
+      doc.clear();
+      derr = deserializeJson(doc, s_testsJson);
+      if (derr || doc.overflowed() || !testsJsonDocHasTestsArray(doc)) return;
+    }
   }
   if (ensureDefaultRulesInDoc(doc)) {
     String fixed;
@@ -896,6 +920,40 @@ static void normalizeTestsJsonBufferStartInPlace(char* buf) {
   const char* p = testsJsonContentStart(buf);
   if (p > buf) memmove(buf, p, strlen(p) + 1);
   stripUtf8BomInPlace(buf);
+}
+
+static bool testsJsonDocHasTestsArray(const DynamicJsonDocument& doc) { return doc["tests"].is<JsonArray>(); }
+
+static void recoverCorruptTestsJsonBuffer(void) {
+  if (!ensureTestsJsonBuf() || !s_testsJson) return;
+  Serial.println("[Admin] Recovering tests.json (full read from flash or factory baseline)");
+  reloadTestsJsonFileIntoBuffer();
+  normalizeTestsJsonBufferStartInPlace(s_testsJson);
+  DynamicJsonDocument doc(kTestsJsonDocCap);
+  DeserializationError e = deserializeJson(doc, s_testsJson);
+  if (!e && !doc.overflowed() && testsJsonDocHasTestsArray(doc)) {
+    if (ensureDefaultRulesInDoc(doc)) {
+      String fixed;
+      serializeJsonPretty(doc, fixed);
+      if (fixed.length() < kTestsJsonCap) {
+        strncpy(s_testsJson, fixed.c_str(), kTestsJsonCap - 1);
+        s_testsJson[kTestsJsonCap - 1] = '\0';
+        if (!LittleFS.exists("/config")) LittleFS.mkdir("/config");
+        File fw = LittleFS.open(kTestsPath, "w");
+        if (fw) {
+          fw.print(fixed);
+          fw.close();
+        }
+      }
+    }
+    return;
+  }
+  VerificationSteps_useFactoryDefaults();
+  if (!VerificationSteps_getConfigJson(s_testsJson, kTestsJsonCap)) {
+    strncpy(s_testsJson, "{\"tests\":[],\"rules\":[]}", kTestsJsonCap - 1);
+    s_testsJson[kTestsJsonCap - 1] = '\0';
+  }
+  normalizeTestsJsonBufferStartInPlace(s_testsJson);
 }
 
 static void sendTestsJsonLiveResponse(AsyncWebServerRequest* req) {
@@ -1080,7 +1138,16 @@ static bool buildTestsJsonFromActive(char* out, unsigned outSize) {
       j += jsonEsc(st.resultLabel ? st.resultLabel : "");
       j += "\",\"unit\":\"";
       j += jsonEsc(st.unit ? st.unit : "");
-      j += "\"}";
+      j += "\"";
+      if (st.type == STEP_VERIFY_YESNO) {
+        j += ",\"expectedYesNo\":\"";
+        if (VerificationSteps_yesNoStepIsBranchOnly((VerifyTestId)i, s, &st))
+          j += "branch";
+        else
+          j += VerificationSteps_expectedYesForStep((VerifyTestId)i, s) ? "yes" : "no";
+        j += "\"";
+      }
+      j += "}";
     }
     j += "]}";
   }
@@ -1098,6 +1165,7 @@ static bool buildTestsJsonFromActive(char* out, unsigned outSize) {
   return true;
 }
 
+/* Shipped factory tests + rules: embedded VerificationSteps sequences (useFactoryDefaults), same JSON as "Restore factory" writes. */
 static bool getFactoryTestsJson(String* outJson) {
   if (!outJson) return false;
   outJson->remove(0);
@@ -1252,28 +1320,23 @@ static String trimmedValue(AsyncWebServerRequest* req, const char* key) {
 }
 
 static String testsPage(AsyncWebServerRequest* req) {
-  // Refresh from persisted single-file config so editor reflects live current content.
-  if (LittleFS.exists(kTestsPath)) {
-    File f = LittleFS.open(kTestsPath, "r");
-    if (f) {
-      String fromFs = f.readString();
-      f.close();
-      if (fromFs.length() > 0 && fromFs.length() < kTestsJsonCap) {
-        strncpy(s_testsJson, fromFs.c_str(), kTestsJsonCap - 1);
+  /* Full binary read — File.readString() can truncate large tests.json (Stream timeout) and corrupt RAM. */
+  reloadTestsJsonFileIntoBuffer();
+  normalizeTestsJsonBufferStartInPlace(s_testsJson);
+  if (LittleFS.exists(kTestsPath) && s_testsJson[0]) {
+    DynamicJsonDocument docFix(kTestsJsonDocCap);
+    DeserializationError dfix = deserializeJson(docFix, s_testsJson);
+    if (!dfix && !docFix.overflowed() && testsJsonDocHasTestsArray(docFix) && ensureDefaultRulesInDoc(docFix)) {
+      String fixed;
+      serializeJsonPretty(docFix, fixed);
+      if (fixed.length() < kTestsJsonCap) {
+        strncpy(s_testsJson, fixed.c_str(), kTestsJsonCap - 1);
         s_testsJson[kTestsJsonCap - 1] = '\0';
-        /* If rules are empty/missing, repair and persist so the editor shows rule controls. */
-        DynamicJsonDocument docFix(kTestsJsonDocCap);
-        DeserializationError dfix = deserializeJson(docFix, s_testsJson);
-        if (!dfix && !docFix.overflowed() && ensureDefaultRulesInDoc(docFix)) {
-          String fixed;
-          serializeJsonPretty(docFix, fixed);
-          if (fixed.length() < kTestsJsonCap) {
-            strncpy(s_testsJson, fixed.c_str(), kTestsJsonCap - 1);
-            s_testsJson[kTestsJsonCap - 1] = '\0';
-            if (!LittleFS.exists("/config")) LittleFS.mkdir("/config");
-            File fw = LittleFS.open(kTestsPath, "w");
-            if (fw) { fw.print(fixed); fw.close(); }
-          }
+        if (!LittleFS.exists("/config")) LittleFS.mkdir("/config");
+        File fw = LittleFS.open(kTestsPath, "w");
+        if (fw) {
+          fw.print(fixed);
+          fw.close();
         }
       }
     }
@@ -1857,9 +1920,23 @@ void AdminPortal_init(void) {
       req->redirect("/admin/tests");
       return;
     }
+    String json;
     File fp = LittleFS.open(kTestsPrevPath, "r");
-    String json = fp ? fp.readString() : "";
-    if (fp) fp.close();
+    if (fp && !fp.isDirectory()) {
+      const size_t sz = fp.size();
+      if (sz > 0 && sz < kTestsJsonCap) {
+        char* tmp = (char*)malloc(sz + 1);
+        if (tmp) {
+          const size_t n = fp.read((uint8_t*)tmp, sz);
+          tmp[n < sz ? n : sz] = '\0';
+          json = tmp;
+          free(tmp);
+        }
+      }
+      fp.close();
+    } else if (fp) {
+      fp.close();
+    }
     String err;
     if (!activateAndPersistTestsJson(json, &err)) {
       snprintf(s_flashMsg, sizeof(s_flashMsg), "Rollback failed: %s", err.length() ? err.c_str() : "invalid");
@@ -2608,39 +2685,46 @@ void AdminPortal_init(void) {
   String factoryJson;
   getFactoryTestsJson(&factoryJson);
 
-  // Single-file model: load /config/tests.json if present, else bootstrap from baseline.
+  /* Single-file model: load /config/tests.json if valid; else install embedded factory baseline (VerificationSteps). */
+  bool flashOk = false;
   if (LittleFS.exists(kTestsPath)) {
-    File fa = LittleFS.open(kTestsPath, "r");
-    if (fa) {
-      String json = fa.readString();
-      fa.close();
+    reloadTestsJsonFileIntoBuffer();
+    normalizeTestsJsonBufferStartInPlace(s_testsJson);
+    if (s_testsJson[0]) {
       DynamicJsonDocument d(kTestsJsonDocCap);
-      if (deserializeJson(d, json) == DeserializationError::Ok && ensureDefaultRulesInDoc(d)) {
-        json = "";
-        serializeJsonPretty(d, json);
-        File fw = LittleFS.open(kTestsPath, "w");
-        if (fw) { fw.print(json); fw.close(); }
-      }
-      char err[120] = "";
-      if (!VerificationSteps_activateConfigJson(json.c_str(), err, sizeof(err))) {
-        VerificationSteps_activateConfigJson(factoryJson.c_str(), err, sizeof(err));
-        File fw = LittleFS.open(kTestsPath, "w");
-        if (fw) { fw.print(factoryJson); fw.close(); }
-        strncpy(s_testsJson, factoryJson.c_str(), kTestsJsonCap - 1);
-        s_testsJson[kTestsJsonCap - 1] = '\0';
-      } else {
-        strncpy(s_testsJson, json.c_str(), kTestsJsonCap - 1);
-        s_testsJson[kTestsJsonCap - 1] = '\0';
+      DeserializationError e = deserializeJson(d, s_testsJson);
+      if (!e && !d.overflowed() && testsJsonDocHasTestsArray(d)) {
+        flashOk = true;
+        if (ensureDefaultRulesInDoc(d)) {
+          String repaired;
+          serializeJsonPretty(d, repaired);
+          if (repaired.length() < kTestsJsonCap) {
+            strncpy(s_testsJson, repaired.c_str(), kTestsJsonCap - 1);
+            s_testsJson[kTestsJsonCap - 1] = '\0';
+            if (!LittleFS.exists("/config")) LittleFS.mkdir("/config");
+            File fw = LittleFS.open(kTestsPath, "w");
+            if (fw) {
+              fw.print(repaired);
+              fw.close();
+            }
+          }
+        }
       }
     }
-  } else {
-    char err[120] = "";
+  }
+  char err[120] = "";
+  if (!flashOk || !VerificationSteps_activateConfigJson(s_testsJson, err, sizeof(err))) {
     VerificationSteps_activateConfigJson(factoryJson.c_str(), err, sizeof(err));
+    if (!LittleFS.exists("/config")) LittleFS.mkdir("/config");
     File fw = LittleFS.open(kTestsPath, "w");
-    if (fw) { fw.print(factoryJson); fw.close(); }
+    if (fw) {
+      fw.print(factoryJson);
+      fw.close();
+    }
     strncpy(s_testsJson, factoryJson.c_str(), kTestsJsonCap - 1);
     s_testsJson[kTestsJsonCap - 1] = '\0';
   }
+  ensureTestsJsonLoaded();
 
   if (WifiManager_isConnected()) {
     char ip[20] = "";
