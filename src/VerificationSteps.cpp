@@ -621,8 +621,16 @@ bool VerificationSteps_getConfigJson(char* buf, unsigned buf_size) {
   }
   JsonArray rules = doc.createNestedArray("rules");
   VerificationSteps_appendRulesJsonArray(rules);
-  size_t n = serializeJsonPretty(doc, buf, buf_size);
-  return n > 0 && n < buf_size;
+  /* If the buffer is too small, ArduinoJson truncates but can still return n < buf_size — invalid JSON. */
+  size_t lenP = measureJsonPretty(doc);
+  if (lenP + 1 <= buf_size) {
+    size_t n = serializeJsonPretty(doc, buf, buf_size);
+    return n == lenP;
+  }
+  size_t lenC = measureJson(doc);
+  if (lenC + 1 > buf_size) return false;
+  size_t n = serializeJson(doc, buf, buf_size);
+  return n == lenC;
 }
 
 bool VerificationSteps_activateConfigJson(const char* json, char* err, unsigned err_size) {

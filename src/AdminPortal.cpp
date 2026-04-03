@@ -62,11 +62,6 @@ static void testsJsonMutexGive(void) {
   if (s_testsJsonMutex) (void)xSemaphoreGive(s_testsJsonMutex);
 }
 
-struct TestsJsonMutexGuard {
-  TestsJsonMutexGuard() { testsJsonMutexTake(); }
-  ~TestsJsonMutexGuard() { testsJsonMutexGive(); }
-};
-
 static bool arduinoOnLoopTask(void) {
   TaskHandle_t loop = xTaskGetHandle("loopTask");
   if (!loop) return true;
@@ -819,7 +814,8 @@ static String filesPage(void) {
 
 static void ensureTestsJsonLoaded(void) {
   if (!ensureTestsJsonBuf() || !s_testsJson) return;
-  TestsJsonMutexGuard testsJsonGuard;
+  /* Do not hold a mutex across LittleFS + large JSON here: async web handlers run on async_tcp;
+   * long critical sections have been seen to trip lwIP (sys_untimeout / TCPIP core lock asserts). */
   if (!testsJsonOnFsExceedsBuffer()) reloadTestsJsonFileIntoBuffer();
   if (!s_testsJson[0]) {
     if (!VerificationSteps_getConfigJson(s_testsJson, kTestsJsonCap)) {
@@ -991,10 +987,23 @@ static void recoverCorruptTestsJsonBuffer(void) {
   }
   VerificationSteps_useFactoryDefaults();
   if (!VerificationSteps_getConfigJson(s_testsJson, kTestsJsonCap)) {
-    strncpy(s_testsJson, "{\"tests\":[],\"rules\":[]}", kTestsJsonCap - 1);
-    s_testsJson[kTestsJsonCap - 1] = '\0';
+    if (!buildTestsJsonFromActive(s_testsJson, kTestsJsonCap)) {
+      strncpy(s_testsJson, "{\"tests\":[],\"rules\":[]}", kTestsJsonCap - 1);
+      s_testsJson[kTestsJsonCap - 1] = '\0';
+    }
   }
   normalizeTestsJsonBufferStartInPlace(s_testsJson);
+  doc.clear();
+  e = deserializeJson(doc, s_testsJson);
+  if (e || doc.overflowed() || !testsJsonDocHasTestsArray(doc)) {
+    Serial.println("[Admin] recover: rebuilt buffer invalid; retry buildTestsJsonFromActive");
+    VerificationSteps_useFactoryDefaults();
+    if (!buildTestsJsonFromActive(s_testsJson, kTestsJsonCap) && !VerificationSteps_getConfigJson(s_testsJson, kTestsJsonCap)) {
+      strncpy(s_testsJson, "{\"tests\":[],\"rules\":[]}", kTestsJsonCap - 1);
+      s_testsJson[kTestsJsonCap - 1] = '\0';
+    }
+    normalizeTestsJsonBufferStartInPlace(s_testsJson);
+  }
   testsJsonPersistBufferToFlash();
 }
 
@@ -1017,7 +1026,7 @@ static void sendTestsJsonLiveResponse(AsyncWebServerRequest* req) {
       return;
     }
   }
-  /* Reload + validate + rule merge run inside ensureTestsJsonLoaded (mutex); heals corrupt flash when possible. */
+  /* Reload + validate + rule merge; then short mutex only while copying snapshot for the response. */
   ensureTestsJsonLoaded();
   testsJsonMutexTake();
   stripUtf8BomInPlace(s_testsJson);
@@ -1207,7 +1216,10 @@ static bool buildTestsJsonFromActive(char* out, unsigned outSize) {
     DynamicJsonDocument ruleDoc(6144);
     JsonArray rules = ruleDoc.createNestedArray("rules");
     VerificationSteps_appendRulesJsonArray(rules);
-    serializeJson(rules, j);
+    /* serializeJson(variant, String) replaces the whole String — must append into a temp. */
+    String rulesJson;
+    serializeJson(rules, rulesJson);
+    j += rulesJson;
   }
   j += "}";
   if (j.length() + 1 >= outSize) return false;
