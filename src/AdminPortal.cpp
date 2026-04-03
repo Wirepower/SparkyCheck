@@ -113,6 +113,7 @@ static bool testsJsonApplySerializedDoc(DynamicJsonDocument& doc);
 static bool testsJsonOnFsExceedsBuffer(void);
 static bool testsJsonInstallMinimalWithDefaultRules(void);
 static bool getFactoryTestsJson(String* outJson);
+static bool testsJsonLoadValidatedFactoryIntoBuffer(void);
 
 static const unsigned long kSessionTtlMs = 120UL * 60UL * 1000UL; /* 2 h; PIN pages stay usable while configuring */
 static const unsigned long kPortalTickMs = 5000UL;
@@ -979,6 +980,21 @@ static void normalizeTestsJsonBufferStartInPlace(char* buf) {
 
 static bool testsJsonDocHasTestsArray(const DynamicJsonDocument& doc) { return doc["tests"].is<JsonArray>(); }
 
+/** Export factory JSON from embedded steps and install only if it parses to an object with tests[]. */
+static bool testsJsonLoadValidatedFactoryIntoBuffer(void) {
+  if (!ensureTestsJsonBuf() || !s_testsJson) return false;
+  VerificationSteps_useFactoryDefaults();
+  String fac;
+  if (!getFactoryTestsJson(&fac) || fac.length() == 0 || (size_t)fac.length() >= kTestsJsonCap) return false;
+  DynamicJsonDocument verify(kTestsJsonDocCap);
+  DeserializationError e = deserializeJson(verify, fac);
+  if (e || verify.overflowed() || !testsJsonDocHasTestsArray(verify)) return false;
+  strncpy(s_testsJson, fac.c_str(), kTestsJsonCap - 1);
+  s_testsJson[kTestsJsonCap - 1] = '\0';
+  normalizeTestsJsonBufferStartInPlace(s_testsJson);
+  return true;
+}
+
 static void recoverCorruptTestsJsonBuffer(void) {
   if (!ensureTestsJsonBuf() || !s_testsJson) return;
   Serial.println("[Admin] Recovering tests.json (full read from flash or factory baseline)");
@@ -994,9 +1010,8 @@ static void recoverCorruptTestsJsonBuffer(void) {
     return;
   }
 
-  VerificationSteps_useFactoryDefaults();
   bool haveValid = false;
-  if (VerificationSteps_getConfigJson(s_testsJson, kTestsJsonCap)) {
+  if (testsJsonLoadValidatedFactoryIntoBuffer()) {
     normalizeTestsJsonBufferStartInPlace(s_testsJson);
     doc.clear();
     e = deserializeJson(doc, s_testsJson);
@@ -1011,17 +1026,7 @@ static void recoverCorruptTestsJsonBuffer(void) {
   if (!haveValid) {
     Serial.println("[Admin] recover: factory export invalid; emergency minimal shell + default rules");
     (void)testsJsonInstallMinimalWithDefaultRules();
-    /* With larger JSON pool + relaxed serialize, retry embedded factory export onto RAM + flash. */
-    VerificationSteps_useFactoryDefaults();
-    String fac;
-    if (getFactoryTestsJson(&fac) && fac.length() > 0 && (size_t)fac.length() < kTestsJsonCap) {
-      strncpy(s_testsJson, fac.c_str(), kTestsJsonCap - 1);
-      s_testsJson[kTestsJsonCap - 1] = '\0';
-      normalizeTestsJsonBufferStartInPlace(s_testsJson);
-      doc.clear();
-      e = deserializeJson(doc, s_testsJson);
-      if (!e && !doc.overflowed() && testsJsonDocHasTestsArray(doc)) testsJsonPersistBufferToFlash();
-    }
+    return;
   } else {
     testsJsonPersistBufferToFlash();
   }
@@ -2801,6 +2806,12 @@ void AdminPortal_init(void) {
   String factoryJson;
   getFactoryTestsJson(&factoryJson);
   Serial.printf("[Admin] factory tests.json exported length=%u\n", (unsigned)factoryJson.length());
+  {
+    DynamicJsonDocument fdoc(kTestsJsonDocCap);
+    DeserializationError fe = deserializeJson(fdoc, factoryJson);
+    Serial.printf("[Admin] factory tests.json verify parse=%s testsArray=%d overflow=%d\n", fe ? fe.c_str() : "Ok",
+                  (!fe && !fdoc.overflowed() && testsJsonDocHasTestsArray(fdoc)) ? 1 : 0, fdoc.overflowed() ? 1 : 0);
+  }
 
   /* Single-file model: load /config/tests.json if valid; else install embedded factory baseline (VerificationSteps). */
   bool flashOk = false;
