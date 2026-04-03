@@ -1,9 +1,9 @@
 {
   "channel": "stable",
-  "version": "2026.04.03.66",
-  "firmware_url": "https://github.com/Wirepower/SparkyCheck/releases/download/fw-2026.04.03.66/sparkycheck-2026.04.03.66.bin",
-  "md5": "eea027d645b46a93b6994341a7f91197",
+  "version": "2026.04.03.67",
+  "firmware_url": "https://github.com/Wirepower/SparkyCheck/releases/download/fw-2026.04.03.67/sparkycheck-2026.04.03.67.bin",
+  "md5": "cde93a3edc73175da1be3f04718c03aa",
   "rollout_pct": 100,
   "force": false,
-  "notes": "Auto OTA release from commit 71b898f"
+  "notes": "Auto OTA release from commit 9ec4b96"
 }
