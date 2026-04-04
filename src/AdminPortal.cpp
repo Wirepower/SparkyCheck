@@ -118,6 +118,7 @@ static bool testsJsonInstallMinimalWithDefaultRules(void);
 static bool getFactoryTestsJson(String* outJson);
 static bool ensureFactoryTestsJsonString(String* factoryJson);
 static bool testsJsonLoadValidatedFactoryIntoBuffer(void);
+static String testsJsonPrettyForAdmin(const char* jsonStart);
 
 static const unsigned long kSessionTtlMs = 120UL * 60UL * 1000UL; /* 2 h; PIN pages stay usable while configuring */
 static const unsigned long kPortalTickMs = 5000UL;
@@ -1096,6 +1097,19 @@ static void recoverCorruptTestsJsonBuffer(void) {
   }
 }
 
+/** Indented JSON for admin live editor / download (falls back to compact if parse or heap fails). */
+static String testsJsonPrettyForAdmin(const char* jsonStart) {
+  if (!jsonStart || !jsonStart[0]) return String();
+  VerificationJsonDocument doc(kTestsJsonDocCap);
+  DeserializationError e = deserializeJson(doc, jsonStart);
+  if (e || doc.overflowed()) return String();
+  size_t need = measureJsonPretty(doc);
+  if (need == 0 || need > (size_t)kTestsJsonCap * 2u) return String();
+  String out;
+  serializeJsonPretty(doc, out);
+  return out.length() > 0 ? out : String();
+}
+
 static void sendTestsJsonLiveResponse(AsyncWebServerRequest* req) {
   if (!isAuthorized(req)) {
     req->send(403, "application/json", "{\"error\":\"not authorized\"}");
@@ -1127,10 +1141,13 @@ static void sendTestsJsonLiveResponse(AsyncWebServerRequest* req) {
                     jsonLen ? (unsigned)(uint8_t)jsonStart[0] : 0u);
       return false;
     }
-    String payload(jsonStart);
-    if ((size_t)payload.length() != jsonLen) {
-      Serial.println("[Admin] tests-json-live: could not copy JSON snapshot (out of memory?)");
-      return false;
+    String payload = testsJsonPrettyForAdmin(jsonStart);
+    if (!payload.length()) {
+      payload = String(jsonStart);
+      if ((size_t)payload.length() != jsonLen) {
+        Serial.println("[Admin] tests-json-live: could not copy JSON snapshot (out of memory?)");
+        return false;
+      }
     }
     testsJsonMutexGive();
     AsyncWebServerResponse* resp = r->beginResponse(200, "application/json", payload);
@@ -1822,6 +1839,9 @@ static String testsPage(AsyncWebServerRequest* req) {
        "}\n"
        "</textarea></details>";
   b += "<form method='post' action='/admin/tests/activate'><label>Live JSON config (current tests.json)</label>";
+  b += "<p class='small' style='margin:6px 0 8px'>This file has two parts: <strong>tests</strong> — each verification flow (name, steps, clauses); "
+       "<strong>rules</strong> — numeric pass/fail limits for measurement steps (continuity, insulation, EFLI, RCD trip time, etc.). "
+       "The live view is pretty-printed when the device has enough memory.</p>";
   b += "<textarea id='liveJsonEditor' name='json' style='width:100%;min-height:380px;border-radius:8px;background:#0f172a;color:#fff;border:1px solid #8ecae6;' placeholder='Loading JSON from device…'></textarea>";
   b += "<script>(function(){var e=document.getElementById('liveJsonEditor');var btn=document.getElementById('liveJsonActivateBtn');if(!e)return;"
        "var url=(window.location.origin||'')+'/admin/tests-json-live';"
@@ -2221,7 +2241,12 @@ void AdminPortal_init(void) {
       req->send(500, "text/plain", "tests buffer unavailable");
       return;
     }
-    AsyncWebServerResponse* resp = req->beginResponse(200, "application/json", s_testsJson);
+    stripUtf8BomInPlace(s_testsJson);
+    const char* js = testsJsonContentStart(s_testsJson);
+    String prettyDl = testsJsonPrettyForAdmin(js);
+    AsyncWebServerResponse* resp =
+        prettyDl.length() ? req->beginResponse(200, "application/json", prettyDl)
+                          : req->beginResponse(200, "application/json", s_testsJson);
     resp->addHeader("Content-Disposition", "attachment; filename=\"tests.json\"");
     resp->addHeader("Cache-Control", "no-store");
     req->send(resp);
