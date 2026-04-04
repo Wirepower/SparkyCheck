@@ -2201,9 +2201,7 @@ void AdminPortal_init(void) {
 
   s_server.on("/admin/tests/factory", HTTP_POST, [](AsyncWebServerRequest* req) {
     if (!isAuthorized(req)) { req->send(403, "text/plain", "Forbidden"); return; }
-    if (!LittleFS.exists("/config")) LittleFS.mkdir("/config");
-    LittleFS.remove(kTestsPath);
-    LittleFS.remove(kTestsPrevPath);
+    /* Same baseline as firmware: VerificationSteps_useFactoryDefaults + export (see getFactoryTestsJson). */
     String factoryJson;
     if (!ensureFactoryTestsJsonString(&factoryJson)) {
       strncpy(s_flashMsg, "Could not build factory tests (try reboot).", sizeof(s_flashMsg) - 1);
@@ -2212,12 +2210,14 @@ void AdminPortal_init(void) {
       req->redirect("/admin/tests-page");
       return;
     }
-    char err[120] = "";
-    VerificationSteps_activateConfigJson(factoryJson.c_str(), err, sizeof(err));
-    File fa = LittleFS.open(kTestsPath, "w");
-    if (fa) { fa.print(factoryJson); fa.close(); }
-    strncpy(s_testsJson, factoryJson.c_str(), kTestsJsonCap - 1);
-    s_testsJson[kTestsJsonCap - 1] = '\0';
+    String err;
+    if (!activateAndPersistTestsJson(factoryJson, &err)) {
+      snprintf(s_flashMsg, sizeof(s_flashMsg), "Factory restore failed: %s", err.length() ? err.c_str() : "invalid config");
+      s_flashMsg[sizeof(s_flashMsg) - 1] = '\0';
+      s_flashErr = true;
+      req->redirect("/admin/tests-page");
+      return;
+    }
     strncpy(s_flashMsg, "Factory defaults restored (built-in tests).", sizeof(s_flashMsg) - 1);
     s_flashMsg[sizeof(s_flashMsg) - 1] = '\0';
     s_flashErr = false;
