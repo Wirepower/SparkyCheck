@@ -593,7 +593,7 @@ void VerificationSteps_appendRulesJsonArray(JsonArray rules) {
 bool VerificationSteps_getConfigJson(char* buf, unsigned buf_size) {
   if (!buf || buf_size < 64) return false;
   /* Pool must match large admin configs (many steps); keep in sync with VERIFICATION_STEPS_JSON_DOC_CAP. */
-  DynamicJsonDocument doc(VERIFICATION_STEPS_JSON_DOC_CAP);
+  VerificationJsonDocument doc(VERIFICATION_STEPS_JSON_DOC_CAP);
   JsonArray tests = doc.createNestedArray("tests");
   for (int i = 0; i < VerificationSteps_getActiveTestCount(); i++) {
     JsonObject t = tests.createNestedObject();
@@ -649,7 +649,7 @@ bool VerificationSteps_activateConfigJson(const char* json, char* err, unsigned 
     return false;
   }
   /* Large embedded tests.json (many steps) needs a big pool; keep in sync with VERIFICATION_STEPS_JSON_DOC_CAP. */
-  DynamicJsonDocument doc(VERIFICATION_STEPS_JSON_DOC_CAP);
+  VerificationJsonDocument doc(VERIFICATION_STEPS_JSON_DOC_CAP);
   auto de = deserializeJson(doc, json);
   if (de) {
     if (err && err_size) snprintf(err, err_size, "JSON parse error: %s", de.c_str());

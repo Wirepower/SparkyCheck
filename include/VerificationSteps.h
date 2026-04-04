@@ -129,6 +129,32 @@ bool VerificationSteps_isFactoryDefaultsActive(void);
 }
 
 #include <ArduinoJson.h>
+#include <esp_heap_caps.h>
+
+/**
+ * Large tests.json trees (~1 MiB pool) must not use DynamicJsonDocument (malloc → internal DRAM).
+ * After LVGL/WiFi/admin, only ~100 KiB DRAM may be free; PSRAM holds the pool instead.
+ */
+struct SpiRamJsonAllocator {
+  void* allocate(size_t size) {
+    void* p = heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!p) p = heap_caps_malloc(size, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    if (!p) p = malloc(size);
+    return p;
+  }
+  void deallocate(void* ptr) {
+    if (ptr) heap_caps_free(ptr);
+  }
+  void* reallocate(void* ptr, size_t new_size) {
+    if (!ptr) return allocate(new_size);
+    void* p = heap_caps_realloc(ptr, new_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!p) p = heap_caps_realloc(ptr, new_size, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    if (!p) p = realloc(ptr, new_size);
+    return p;
+  }
+};
+
+using VerificationJsonDocument = BasicJsonDocument<SpiRamJsonAllocator>;
 
 /** Fill `rules` with comparator rules for export (custom overrides + firmware defaults). */
 void VerificationSteps_appendRulesJsonArray(JsonArray rules);

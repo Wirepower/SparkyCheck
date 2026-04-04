@@ -99,18 +99,18 @@ static const char* kTestsPath = "/config/tests.json";
 static const char* kTestsPrevPath = "/config/tests_prev.json";
 static const char kWebLogoBmpPath[] = "/config/web_logo.bmp";
 static bool buildTestsJsonFromActive(char* out, unsigned outSize);
-static void upsertRuleForKind(DynamicJsonDocument& doc, const char* kind, const char* op, float val, float valMax);
-static bool ensureDefaultRulesInDoc(DynamicJsonDocument& doc);
+static void upsertRuleForKind(JsonDocument& doc, const char* kind, const char* op, float val, float valMax);
+static bool ensureDefaultRulesInDoc(JsonDocument& doc);
 static bool writeWebLogoBmpToFile(void);
 static void handleTestsImportUploadDone(AsyncWebServerRequest* req);
 static void handleTestsImportUploadChunk(AsyncWebServerRequest* req, const String& filename, size_t index, uint8_t* data,
                                          size_t len, bool final);
 static void reloadTestsJsonFileIntoBuffer(void);
 static void normalizeTestsJsonBufferStartInPlace(char* buf);
-static bool testsJsonDocHasTestsArray(const DynamicJsonDocument& doc);
+static bool testsJsonDocHasTestsArray(const JsonDocument& doc);
 static void recoverCorruptTestsJsonBuffer(void);
 static void testsJsonPersistBufferToFlash(void);
-static bool testsJsonApplySerializedDoc(DynamicJsonDocument& doc);
+static bool testsJsonApplySerializedDoc(JsonDocument& doc);
 static bool testsJsonOnFsExceedsBuffer(void);
 static bool testsJsonInstallMinimalWithDefaultRules(void);
 static bool getFactoryTestsJson(String* outJson);
@@ -836,18 +836,18 @@ static void ensureTestsJsonLoaded(void) {
   }
   normalizeTestsJsonBufferStartInPlace(s_testsJson);
   /* Always merge default rules when missing/empty — do not skip when buffer was filled earlier. */
-  DynamicJsonDocument doc(kTestsJsonDocCap);
+  VerificationJsonDocument doc(kTestsJsonDocCap);
   DeserializationError derr = deserializeJson(doc, s_testsJson);
   if (doc.overflowed()) {
     Serial.println("[Admin] ensureTestsJsonLoaded: JSON too large for pool (raise kTestsJsonDocCap)");
     return;
   }
-  if (!derr && !testsJsonDocHasTestsArray(doc)) {
-    Serial.println("[Admin] ensureTestsJsonLoaded: invalid tests root (truncated file, corrupt JSON, or tests[] empty)");
-    derr = DeserializationError::InvalidInput;
+  const bool testsRootBad = !derr && !testsJsonDocHasTestsArray(doc);
+  if (testsRootBad) {
+    Serial.println("[Admin] ensureTestsJsonLoaded: tests[] missing, not an array, or empty — running recovery");
   }
-  if (derr) {
-    Serial.printf("[Admin] ensureTestsJsonLoaded parse error: %s\n", derr.c_str());
+  if (derr || testsRootBad) {
+    if (derr) Serial.printf("[Admin] ensureTestsJsonLoaded: JSON parse error: %s\n", derr.c_str());
     recoverCorruptTestsJsonBuffer();
     doc.clear();
     derr = deserializeJson(doc, s_testsJson);
@@ -928,7 +928,7 @@ static void testsJsonPersistBufferToFlash(void) {
 }
 
 /** Pretty, then compact if needed, into s_testsJson + flash. Returns false if doc cannot fit kTestsJsonCap. */
-static bool testsJsonApplySerializedDoc(DynamicJsonDocument& doc) {
+static bool testsJsonApplySerializedDoc(JsonDocument& doc) {
   if (!ensureTestsJsonBuf() || !s_testsJson) return false;
   String fixed;
   serializeJsonPretty(doc, fixed);
@@ -988,7 +988,7 @@ static void normalizeTestsJsonBufferStartInPlace(char* buf) {
 }
 
 /** True when config has at least one test (empty tests[] is not valid — same as VerificationSteps_activateConfigJson). */
-static bool testsJsonDocHasTestsArray(const DynamicJsonDocument& doc) {
+static bool testsJsonDocHasTestsArray(const JsonDocument& doc) {
   JsonArrayConst tests = doc["tests"].as<JsonArrayConst>();
   return !tests.isNull() && tests.size() > 0;
 }
@@ -999,7 +999,7 @@ static bool testsJsonLoadValidatedFactoryIntoBuffer(void) {
   String fac;
   if (!ensureFactoryTestsJsonString(&fac) || fac.length() == 0 || (size_t)fac.length() >= kTestsJsonCap) return false;
   if (!testsJsonLooksLikeFullConfigObject(fac.c_str())) return false;
-  DynamicJsonDocument verify(kTestsJsonDocCap);
+  VerificationJsonDocument verify(kTestsJsonDocCap);
   DeserializationError e = deserializeJson(verify, fac);
   if (e || verify.overflowed() || !testsJsonDocHasTestsArray(verify)) return false;
   strncpy(s_testsJson, fac.c_str(), kTestsJsonCap - 1);
@@ -1013,14 +1013,19 @@ static void recoverCorruptTestsJsonBuffer(void) {
   Serial.println("[Admin] Recovering tests.json (full read from flash or factory baseline)");
   reloadTestsJsonFileIntoBuffer();
   normalizeTestsJsonBufferStartInPlace(s_testsJson);
-  DynamicJsonDocument doc(kTestsJsonDocCap);
+  VerificationJsonDocument doc(kTestsJsonDocCap);
   DeserializationError e = deserializeJson(doc, s_testsJson);
   if (!e && !doc.overflowed() && testsJsonDocHasTestsArray(doc)) {
     if (ensureDefaultRulesInDoc(doc)) {
-      if (!testsJsonApplySerializedDoc(doc))
-        Serial.println("[Admin] recover: merged rules exceed buffer after compact serialize");
+      if (!testsJsonApplySerializedDoc(doc)) {
+        Serial.println("[Admin] recover: merged rules exceed buffer — rebuilding from factory");
+        /* Do not return: s_testsJson may still be an oversized pretty JSON from flash. */
+      } else {
+        return;
+      }
+    } else {
+      return;
     }
-    return;
   }
 
   bool haveValid = false;
@@ -1099,7 +1104,7 @@ static void sendTestsJsonLiveResponse(AsyncWebServerRequest* req) {
   req->send(resp);
 }
 
-static bool docHasRuleKind(DynamicJsonDocument& doc, const char* kind) {
+static bool docHasRuleKind(JsonDocument& doc, const char* kind) {
   if (!kind || !kind[0]) return false;
   JsonArray rules = doc["rules"].as<JsonArray>();
   if (rules.isNull()) return false;
@@ -1109,7 +1114,7 @@ static bool docHasRuleKind(DynamicJsonDocument& doc, const char* kind) {
   return false;
 }
 
-static bool ensureDefaultRulesInDoc(DynamicJsonDocument& doc) {
+static bool ensureDefaultRulesInDoc(JsonDocument& doc) {
   if (doc.containsKey("rules") && !doc["rules"].is<JsonArray>()) {
     doc.remove("rules");
   }
@@ -1168,7 +1173,7 @@ static bool testsJsonInstallMinimalWithDefaultRules(void) {
 
 static bool activateAndPersistTestsJson(const String& json, String* outErr) {
   String jsonFixed = json;
-  DynamicJsonDocument doc(kTestsJsonDocCap);
+  VerificationJsonDocument doc(kTestsJsonDocCap);
   if (deserializeJson(doc, jsonFixed) == DeserializationError::Ok) {
     if (ensureDefaultRulesInDoc(doc)) {
       jsonFixed = "";
@@ -1351,7 +1356,7 @@ static const char* ruleOpOrDefault(const char* op) {
   return "<=";
 }
 
-static bool getRuleForKind(DynamicJsonDocument& doc, const char* kind, String* outOp, float* outVal, float* outValMax) {
+static bool getRuleForKind(JsonDocument& doc, const char* kind, String* outOp, float* outVal, float* outValMax) {
   if (!kind || !kind[0] || strcmp(kind, "none") == 0) return false;
   JsonArray rules = doc["rules"].as<JsonArray>();
   if (rules.isNull()) return false;
@@ -1373,7 +1378,7 @@ static bool getRuleForKind(DynamicJsonDocument& doc, const char* kind, String* o
   return false;
 }
 
-static void upsertRuleForKind(DynamicJsonDocument& doc, const char* kind, const char* op, float val, float valMax) {
+static void upsertRuleForKind(JsonDocument& doc, const char* kind, const char* op, float val, float valMax) {
   if (!kind || !kind[0] || strcmp(kind, "none") == 0) return;
   JsonArray rules = doc["rules"].as<JsonArray>();
   if (rules.isNull()) rules = doc.createNestedArray("rules");
@@ -1477,7 +1482,7 @@ static String testsPage(AsyncWebServerRequest* req) {
   reloadTestsJsonFileIntoBuffer();
   normalizeTestsJsonBufferStartInPlace(s_testsJson);
   if (LittleFS.exists(kTestsPath) && s_testsJson[0]) {
-    DynamicJsonDocument docFix(kTestsJsonDocCap);
+    VerificationJsonDocument docFix(kTestsJsonDocCap);
     DeserializationError dfix = deserializeJson(docFix, s_testsJson);
     if (!dfix && !docFix.overflowed() && testsJsonDocHasTestsArray(docFix) && ensureDefaultRulesInDoc(docFix)) {
       String fixed;
@@ -1495,7 +1500,7 @@ static String testsPage(AsyncWebServerRequest* req) {
     }
   }
   ensureTestsJsonLoaded();
-  DynamicJsonDocument doc(kTestsJsonDocCap);
+  VerificationJsonDocument doc(kTestsJsonDocCap);
   auto de = deserializeJson(doc, s_testsJson);
   if (!de && doc.overflowed()) {
     de = DeserializationError::NoMemory;
@@ -2164,7 +2169,7 @@ void AdminPortal_init(void) {
   s_server.on("/admin/tests/create", HTTP_POST, [](AsyncWebServerRequest* req) {
     if (!isAuthorized(req)) { req->send(403, "text/plain", "Forbidden"); return; }
     ensureTestsJsonLoaded();
-    DynamicJsonDocument doc(kTestsJsonDocCap);
+    VerificationJsonDocument doc(kTestsJsonDocCap);
     deserializeJson(doc, s_testsJson);
     JsonArray tests = doc["tests"].as<JsonArray>();
     if (tests.isNull()) tests = doc.createNestedArray("tests");
@@ -2212,7 +2217,7 @@ void AdminPortal_init(void) {
   s_server.on("/admin/tests/rename", HTTP_POST, [](AsyncWebServerRequest* req) {
     if (!isAuthorized(req)) { req->send(403, "text/plain", "Forbidden"); return; }
     ensureTestsJsonLoaded();
-    DynamicJsonDocument doc(kTestsJsonDocCap);
+    VerificationJsonDocument doc(kTestsJsonDocCap);
     deserializeJson(doc, s_testsJson);
     JsonArray tests = doc["tests"].as<JsonArray>();
     int id = postValue(req, "id").toInt();
@@ -2248,7 +2253,7 @@ void AdminPortal_init(void) {
   s_server.on("/admin/tests/add_step", HTTP_POST, [](AsyncWebServerRequest* req) {
     if (!isAuthorized(req)) { req->send(403, "text/plain", "Forbidden"); return; }
     ensureTestsJsonLoaded();
-    DynamicJsonDocument doc(kTestsJsonDocCap);
+    VerificationJsonDocument doc(kTestsJsonDocCap);
     deserializeJson(doc, s_testsJson);
     JsonArray tests = doc["tests"].as<JsonArray>();
     int id = postValue(req, "id").toInt();
@@ -2296,7 +2301,7 @@ void AdminPortal_init(void) {
   s_server.on("/admin/tests/reorder", HTTP_POST, [](AsyncWebServerRequest* req) {
     if (!isAuthorized(req)) { req->send(403, "text/plain", "Forbidden"); return; }
     ensureTestsJsonLoaded();
-    DynamicJsonDocument doc(kTestsJsonDocCap);
+    VerificationJsonDocument doc(kTestsJsonDocCap);
     deserializeJson(doc, s_testsJson);
     JsonArray tests = doc["tests"].as<JsonArray>();
     int id = postValue(req, "id").toInt();
@@ -2327,7 +2332,7 @@ void AdminPortal_init(void) {
   s_server.on("/admin/tests/delete", HTTP_POST, [](AsyncWebServerRequest* req) {
     if (!isAuthorized(req)) { req->send(403, "text/plain", "Forbidden"); return; }
     ensureTestsJsonLoaded();
-    DynamicJsonDocument doc(kTestsJsonDocCap);
+    VerificationJsonDocument doc(kTestsJsonDocCap);
     deserializeJson(doc, s_testsJson);
     JsonArray tests = doc["tests"].as<JsonArray>();
     int id = postValue(req, "id").toInt();
@@ -2349,7 +2354,7 @@ void AdminPortal_init(void) {
   s_server.on("/admin/tests/step_update", HTTP_POST, [](AsyncWebServerRequest* req) {
     if (!isAuthorized(req)) { req->send(403, "text/plain", "Forbidden"); return; }
     ensureTestsJsonLoaded();
-    DynamicJsonDocument doc(kTestsJsonDocCap);
+    VerificationJsonDocument doc(kTestsJsonDocCap);
     deserializeJson(doc, s_testsJson);
     JsonArray tests = doc["tests"].as<JsonArray>();
     int testId = postValue(req, "test_id").toInt();
@@ -2421,7 +2426,7 @@ void AdminPortal_init(void) {
   s_server.on("/admin/tests/step_reorder", HTTP_POST, [](AsyncWebServerRequest* req) {
     if (!isAuthorized(req)) { req->send(403, "text/plain", "Forbidden"); return; }
     ensureTestsJsonLoaded();
-    DynamicJsonDocument doc(kTestsJsonDocCap);
+    VerificationJsonDocument doc(kTestsJsonDocCap);
     deserializeJson(doc, s_testsJson);
     JsonArray tests = doc["tests"].as<JsonArray>();
     int testId = postValue(req, "test_id").toInt();
@@ -2460,7 +2465,7 @@ void AdminPortal_init(void) {
   s_server.on("/admin/tests/step_delete", HTTP_POST, [](AsyncWebServerRequest* req) {
     if (!isAuthorized(req)) { req->send(403, "text/plain", "Forbidden"); return; }
     ensureTestsJsonLoaded();
-    DynamicJsonDocument doc(kTestsJsonDocCap);
+    VerificationJsonDocument doc(kTestsJsonDocCap);
     deserializeJson(doc, s_testsJson);
     JsonArray tests = doc["tests"].as<JsonArray>();
     int testId = postValue(req, "test_id").toInt();
@@ -2497,7 +2502,7 @@ void AdminPortal_init(void) {
   s_server.on("/admin/tests/step_move", HTTP_POST, [](AsyncWebServerRequest* req) {
     if (!isAuthorized(req)) { req->send(403, "text/plain", "Forbidden"); return; }
     ensureTestsJsonLoaded();
-    DynamicJsonDocument doc(kTestsJsonDocCap);
+    VerificationJsonDocument doc(kTestsJsonDocCap);
     deserializeJson(doc, s_testsJson);
     JsonArray tests = doc["tests"].as<JsonArray>();
     int testId = postValue(req, "test_id").toInt();
@@ -2857,7 +2862,7 @@ void AdminPortal_init(void) {
   }
   Serial.printf("[Admin] factory tests.json exported length=%u\n", (unsigned)factoryJson.length());
   {
-    DynamicJsonDocument fdoc(kTestsJsonDocCap);
+    VerificationJsonDocument fdoc(kTestsJsonDocCap);
     DeserializationError fe = deserializeJson(fdoc, factoryJson);
     size_t nTests = 0;
     if (!fe && !fdoc.overflowed()) {
@@ -2874,7 +2879,7 @@ void AdminPortal_init(void) {
     reloadTestsJsonFileIntoBuffer();
     normalizeTestsJsonBufferStartInPlace(s_testsJson);
     if (s_testsJson[0]) {
-      DynamicJsonDocument d(kTestsJsonDocCap);
+      VerificationJsonDocument d(kTestsJsonDocCap);
       DeserializationError e = deserializeJson(d, s_testsJson);
       if (!e && !d.overflowed() && testsJsonDocHasTestsArray(d)) {
         flashOk = true;
