@@ -967,9 +967,15 @@ static bool testsJsonApplySerializedDoc(JsonDocument& doc) {
     size_t n = serializeJson(doc, s_testsJson, kTestsJsonCap);
     if (n == 0 || n >= kTestsJsonCap) return false;
     s_testsJson[n] = '\0';
-  } else {
+  } else if (fixed.length() > 0) {
     strncpy(s_testsJson, fixed.c_str(), kTestsJsonCap - 1);
     s_testsJson[kTestsJsonCap - 1] = '\0';
+  } else {
+    /* Pretty/compact into String can yield empty on heap pressure — serialize directly to buffer. */
+    if (measureJson(doc) + 1 > kTestsJsonCap) return false;
+    size_t n = serializeJson(doc, s_testsJson, kTestsJsonCap);
+    if (n == 0 || n >= kTestsJsonCap) return false;
+    s_testsJson[n] = '\0';
   }
   testsJsonPersistBufferToFlash();
   return true;
@@ -1271,7 +1277,7 @@ static bool activateAndPersistTestsJson(const String& json, String* outErr) {
   }
   if (!LittleFS.exists("/config")) LittleFS.mkdir("/config");
   if (LittleFS.exists(kTestsPath)) {
-    LittleFS.remove(kTestsPrevPath);
+    if (LittleFS.exists(kTestsPrevPath)) (void)LittleFS.remove(kTestsPrevPath);
     LittleFS.rename(kTestsPath, kTestsPrevPath);
   }
   File fa = LittleFS.open(kTestsPath, "w");
