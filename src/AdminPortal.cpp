@@ -107,6 +107,7 @@ static void handleTestsImportUploadChunk(AsyncWebServerRequest* req, const Strin
                                          size_t len, bool final);
 static void reloadTestsJsonFileIntoBuffer(void);
 static void normalizeTestsJsonBufferStartInPlace(char* buf);
+static bool testsJsonBufferStartsWithObject(const char* buf);
 static bool testsJsonLooksLikeFullConfigObject(const char* json);
 static bool testsJsonDocHasTestsArray(const JsonDocument& doc);
 static void recoverCorruptTestsJsonBuffer(void);
