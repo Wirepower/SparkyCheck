@@ -838,22 +838,22 @@ static void ensureTestsJsonLoaded(void) {
   /* Always merge default rules when missing/empty — do not skip when buffer was filled earlier. */
   VerificationJsonDocument doc(kTestsJsonDocCap);
   DeserializationError derr = deserializeJson(doc, s_testsJson);
-  if (doc.overflowed()) {
-    Serial.println("[Admin] ensureTestsJsonLoaded: JSON too large for pool (raise kTestsJsonDocCap)");
-    return;
+  const bool poolOverflow = doc.overflowed();
+  if (poolOverflow) {
+    Serial.println("[Admin] ensureTestsJsonLoaded: parse pool overflow (JSON truncated — often rules only) — recovering");
   }
-  const bool testsRootBad = !derr && !testsJsonDocHasTestsArray(doc);
+  const bool testsRootBad = !derr && !poolOverflow && !testsJsonDocHasTestsArray(doc);
   if (testsRootBad) {
     Serial.println("[Admin] ensureTestsJsonLoaded: tests[] missing, not an array, or empty — running recovery");
   }
-  if (derr || testsRootBad) {
+  if (derr || poolOverflow || testsRootBad) {
     if (derr) Serial.printf("[Admin] ensureTestsJsonLoaded: JSON parse error: %s\n", derr.c_str());
     recoverCorruptTestsJsonBuffer();
     doc.clear();
     derr = deserializeJson(doc, s_testsJson);
     if (doc.overflowed()) {
       Serial.println("[Admin] ensureTestsJsonLoaded: overflow after recovery");
-      return;
+      derr = DeserializationError::NoMemory;
     }
     if (derr || !testsJsonDocHasTestsArray(doc)) {
       if (!derr)
@@ -865,7 +865,17 @@ static void ensureTestsJsonLoaded(void) {
       doc.clear();
       derr = deserializeJson(doc, s_testsJson);
       if (derr || doc.overflowed() || !testsJsonDocHasTestsArray(doc)) {
-        testsJsonInstallMinimalWithDefaultRules();
+        /* Coach must work even when JSON parse keeps failing: embedded tables + try string-built JSON on flash. */
+        VerificationSteps_useFactoryDefaults();
+        if (buildTestsJsonFromActive(s_testsJson, kTestsJsonCap) &&
+            testsJsonLooksLikeFullConfigObject(s_testsJson)) {
+          testsJsonPersistBufferToFlash();
+          char actErr[120];
+          if (!VerificationSteps_activateConfigJson(s_testsJson, actErr, sizeof(actErr)))
+            Serial.printf("[Admin] ensureTestsJsonLoaded: flash rebuilt from embedded steps but activate failed: %s\n", actErr);
+        } else {
+          testsJsonInstallMinimalWithDefaultRules();
+        }
         return;
       }
       testsJsonPersistBufferToFlash();
@@ -1174,7 +1184,7 @@ static bool testsJsonInstallMinimalWithDefaultRules(void) {
 static bool activateAndPersistTestsJson(const String& json, String* outErr) {
   String jsonFixed = json;
   VerificationJsonDocument doc(kTestsJsonDocCap);
-  if (deserializeJson(doc, jsonFixed) == DeserializationError::Ok) {
+  if (deserializeJson(doc, jsonFixed) == DeserializationError::Ok && !doc.overflowed()) {
     if (ensureDefaultRulesInDoc(doc)) {
       jsonFixed = "";
       serializeJsonPretty(doc, jsonFixed);
@@ -1502,25 +1512,22 @@ static String testsPage(AsyncWebServerRequest* req) {
   ensureTestsJsonLoaded();
   VerificationJsonDocument doc(kTestsJsonDocCap);
   auto de = deserializeJson(doc, s_testsJson);
-  if (!de && doc.overflowed()) {
-    de = DeserializationError::NoMemory;
-  }
+  /* Ok + overflowed() = truncated tree (e.g. rules kept, tests[] dropped) — treat as failure. */
+  if (doc.overflowed() && de == DeserializationError::Ok) de = DeserializationError::NoMemory;
   if (de) {
-    /* Repair rules inside the currently loaded JSON (even if the JSON came in large/truncated). */
-    if (ensureDefaultRulesInDoc(doc)) {
-      String fixed;
-      serializeJsonPretty(doc, fixed);
-      strncpy(s_testsJson, fixed.c_str(), kTestsJsonCap - 1);
-      s_testsJson[kTestsJsonCap - 1] = '\0';
-      if (!LittleFS.exists("/config")) LittleFS.mkdir("/config");
-      File fw = LittleFS.open(kTestsPath, "w");
-      if (fw) { fw.print(fixed); fw.close(); }
-    }
+    /* Do not persist a truncated/partial doc (overflow) — rebuild from embedded steps. */
     VerificationSteps_useFactoryDefaults();
     if (!VerificationSteps_getConfigJson(s_testsJson, kTestsJsonCap))
       buildTestsJsonFromActive(s_testsJson, kTestsJsonCap);
     doc.clear();
     deserializeJson(doc, s_testsJson);
+    if (doc.overflowed()) {
+      VerificationSteps_useFactoryDefaults();
+      if (buildTestsJsonFromActive(s_testsJson, kTestsJsonCap)) {
+        doc.clear();
+        deserializeJson(doc, s_testsJson);
+      }
+    }
   }
   if (!doc.overflowed() && !doc.isNull() && ensureDefaultRulesInDoc(doc)) {
     String fixed;
@@ -1540,6 +1547,13 @@ static String testsPage(AsyncWebServerRequest* req) {
       buildTestsJsonFromActive(s_testsJson, kTestsJsonCap);
     doc.clear();
     deserializeJson(doc, s_testsJson);
+    if (doc.overflowed()) {
+      VerificationSteps_useFactoryDefaults();
+      if (buildTestsJsonFromActive(s_testsJson, kTestsJsonCap)) {
+        doc.clear();
+        deserializeJson(doc, s_testsJson);
+      }
+    }
     tests = doc["tests"].as<JsonArray>();
   }
   String b;
@@ -2869,6 +2883,9 @@ void AdminPortal_init(void) {
       JsonArrayConst ta = fdoc["tests"].as<JsonArrayConst>();
       if (!ta.isNull()) nTests = ta.size();
     }
+    if (fdoc.overflowed() && !fe) {
+      Serial.println("[Admin] factory tests.json verify: pool overflow (export string too large for parser)");
+    }
     Serial.printf("[Admin] factory tests.json verify parse=%s testsCount=%u overflow=%d\n", fe ? fe.c_str() : "Ok",
                   (unsigned)nTests, fdoc.overflowed() ? 1 : 0);
   }
@@ -2913,6 +2930,7 @@ void AdminPortal_init(void) {
       s_testsJson[kTestsJsonCap - 1] = '\0';
     } else {
       Serial.printf("[Admin] init: could not activate tests config: %s\n", err[0] ? err : "(no factory JSON)");
+      VerificationSteps_useFactoryDefaults();
     }
   }
   ensureTestsJsonLoaded();

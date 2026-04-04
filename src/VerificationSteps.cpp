@@ -655,6 +655,11 @@ bool VerificationSteps_activateConfigJson(const char* json, char* err, unsigned 
     if (err && err_size) snprintf(err, err_size, "JSON parse error: %s", de.c_str());
     return false;
   }
+  /* ArduinoJson can return Ok while the pool ran out — document is truncated (often tests[] gone, rules ok). */
+  if (doc.overflowed()) {
+    if (err && err_size) snprintf(err, err_size, "JSON larger than parse pool (increase VERIFICATION_STEPS_JSON_DOC_CAP)");
+    return false;
+  }
   JsonArray tests = doc["tests"].as<JsonArray>();
   if (tests.isNull()) {
     if (err && err_size) snprintf(err, err_size, "Missing tests[]");
