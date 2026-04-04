@@ -1640,6 +1640,18 @@ static String testsPage(AsyncWebServerRequest* req) {
   /* Per-step easy editor: ~1.5-4 KiB/step (escaped text); max VERIFY_MAX_STEPS_PER_TEST steps + cards/JSON UI. Live JSON is fetched (not inlined). */
   b.reserve(589824);
   b += "<h1>Tests & Questions</h1><p><a href='/admin' style='color:#93c5fd'>Back to admin</a></p>";
+  if (s_flashMsg[0]) {
+    b += "<div class='card' style='border-color:";
+    b += s_flashErr ? "#f87171" : "#4ade80";
+    b += ";'><p style='margin:0;font-weight:700;'>";
+    b += esc(s_flashMsg);
+    b += "</p></div>";
+    s_flashMsg[0] = '\0';
+    s_flashErr = false;
+  }
+  if (req && req->hasParam("factory_restored") && req->getParam("factory_restored")->value() == "1") {
+    b += "<script>(function(){alert('Factory restore successful. Built-in tests and rules are now active.');var u;try{u=new URL(location.href);u.searchParams.delete('factory_restored');history.replaceState(null,'',u.pathname+(u.search||'')+(u.hash||''));}catch(e){history.replaceState(null,'','/admin/tests-page');}})();</script>";
+  }
   b += "<div class='card'><h2>Easy editor</h2>";
   b += "<p class='small'>Use this page to build and maintain tests. You do not need JSON or IT knowledge.</p>";
   int selectedTest = 0;
@@ -2224,10 +2236,10 @@ void AdminPortal_init(void) {
       req->redirect("/admin/tests-page");
       return;
     }
-    strncpy(s_flashMsg, "Factory defaults restored (built-in tests).", sizeof(s_flashMsg) - 1);
+    strncpy(s_flashMsg, "Factory restore successful - built-in tests and rules are active.", sizeof(s_flashMsg) - 1);
     s_flashMsg[sizeof(s_flashMsg) - 1] = '\0';
     s_flashErr = false;
-    req->redirect("/admin/tests-page");
+    req->redirect("/admin/tests-page?factory_restored=1");
   });
 
   s_server.on("/tests-download-live", HTTP_GET, [](AsyncWebServerRequest* req) {
