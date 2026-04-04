@@ -886,6 +886,19 @@ static void ensureTestsJsonLoaded(void) {
     if (!testsJsonApplySerializedDoc(doc))
       Serial.printf("[Admin] ensureTestsJsonLoaded: merged rules JSON exceeds kTestsJsonCap after compact serialize\n");
   }
+  s_testsJson[kTestsJsonCap - 1] = '\0';
+  if (!testsJsonBufferStartsWithObject(s_testsJson)) {
+    Serial.println("[Admin] ensureTestsJsonLoaded: RAM buffer not a JSON object — rebuilding from embedded steps");
+    VerificationSteps_useFactoryDefaults();
+    if (buildTestsJsonFromActive(s_testsJson, kTestsJsonCap) && testsJsonLooksLikeFullConfigObject(s_testsJson)) {
+      testsJsonPersistBufferToFlash();
+      char actErr[120];
+      if (!VerificationSteps_activateConfigJson(s_testsJson, actErr, sizeof(actErr)))
+        Serial.printf("[Admin] ensureTestsJsonLoaded: post-guard activate failed: %s\n", actErr);
+    } else {
+      testsJsonInstallMinimalWithDefaultRules();
+    }
+  }
 }
 
 /** True if tests.json on flash is too large to hold in s_testsJson (must stream). */
@@ -980,6 +993,27 @@ static const char* testsJsonContentStart(const char* buf) {
     break;
   }
   return p;
+}
+
+/** True if buffer (after leading BOM/whitespace) begins with a JSON object. */
+static bool testsJsonBufferStartsWithObject(const char* buf) {
+  const char* p = testsJsonContentStart(buf);
+  return p && p[0] == '{' && p[1] != '\0';
+}
+
+/** Peek start of /config/tests.json on flash (for live download when RAM snapshot is corrupt). */
+static bool testsJsonDiskStartsWithObject(void) {
+  if (!LittleFS.exists(kTestsPath)) return false;
+  File f = LittleFS.open(kTestsPath, "r");
+  if (!f || f.isDirectory()) {
+    if (f) f.close();
+    return false;
+  }
+  char probe[48];
+  size_t n = f.read((uint8_t*)probe, sizeof(probe) - 1);
+  f.close();
+  probe[n] = '\0';
+  return testsJsonBufferStartsWithObject(probe);
 }
 
 /** Lightweight shape check for full config object (tests + steps + rules). */
@@ -1080,39 +1114,60 @@ static void sendTestsJsonLiveResponse(AsyncWebServerRequest* req) {
       return;
     }
   }
-  /* Reload + validate + rule merge; then short mutex only while copying snapshot for the response. */
+  /* Caller holds s_testsJsonMutex; releases it before send on success. Returns false if RAM snapshot unusable (mutex still held). */
+  auto trySendRamSnapshotWhileLocked = [&](AsyncWebServerRequest* r) -> bool {
+    stripUtf8BomInPlace(s_testsJson);
+    s_testsJson[kTestsJsonCap - 1] = '\0';
+    const char* jsonStart = testsJsonContentStart(s_testsJson);
+    if (!jsonStart || !jsonStart[0]) return false;
+    const size_t jsonLen = strlen(jsonStart);
+    if (!testsJsonBufferStartsWithObject(s_testsJson)) {
+      Serial.printf("[Admin] tests-json-live: RAM not object JSON (len=%u first=0x%02x)\n", (unsigned)jsonLen,
+                    jsonLen ? (unsigned)(uint8_t)jsonStart[0] : 0u);
+      return false;
+    }
+    String payload(jsonStart);
+    if ((size_t)payload.length() != jsonLen) {
+      Serial.println("[Admin] tests-json-live: could not copy JSON snapshot (out of memory?)");
+      return false;
+    }
+    testsJsonMutexGive();
+    AsyncWebServerResponse* resp = r->beginResponse(200, "application/json", payload);
+    if (!resp) {
+      r->send(500, "text/plain", "out of memory building response");
+      return true;
+    }
+    resp->addHeader("Cache-Control", "no-store");
+    r->send(resp);
+    return true;
+  };
+
   ensureTestsJsonLoaded();
   testsJsonMutexTake();
-  stripUtf8BomInPlace(s_testsJson);
-  const char* jsonStart = testsJsonContentStart(s_testsJson);
-  if (!jsonStart || !jsonStart[0]) {
-    testsJsonMutexGive();
-    req->send(500, "application/json", "{\"error\":\"tests buffer empty\"}");
-    return;
-  }
-  const size_t jsonLen = strlen(jsonStart);
-  if (jsonLen < 2 || jsonStart[0] != '{') {
-    Serial.printf("[Admin] tests-json-live: not object JSON (len=%u first=0x%02x)\n", (unsigned)jsonLen,
-                  jsonLen ? (unsigned)(uint8_t)jsonStart[0] : 0u);
-    testsJsonMutexGive();
-    req->send(500, "application/json", "{\"error\":\"tests json invalid or empty in RAM\"}");
-    return;
-  }
-  /* Copy while locked so another handler cannot mutate s_testsJson during String allocation. */
-  String payload(jsonStart);
+  if (trySendRamSnapshotWhileLocked(req)) return;
   testsJsonMutexGive();
-  if ((size_t)payload.length() != jsonLen) {
-    Serial.println("[Admin] tests-json-live: could not copy JSON snapshot (out of memory?)");
-    req->send(500, "application/json", "{\"error\":\"tests json snapshot failed\"}");
-    return;
+  recoverCorruptTestsJsonBuffer();
+  ensureTestsJsonLoaded();
+  testsJsonMutexTake();
+  if (trySendRamSnapshotWhileLocked(req)) return;
+  testsJsonMutexGive();
+  reloadTestsJsonFileIntoBuffer();
+  normalizeTestsJsonBufferStartInPlace(s_testsJson);
+  ensureTestsJsonLoaded();
+  testsJsonMutexTake();
+  if (trySendRamSnapshotWhileLocked(req)) return;
+  testsJsonMutexGive();
+
+  /* RAM still bad but on-disk file is a JSON object — stream flash (same path as oversized file). */
+  if (testsJsonDiskStartsWithObject()) {
+    AsyncWebServerResponse* resp = req->beginResponse(LittleFS, String(kTestsPath), "application/json", false);
+    if (resp) {
+      resp->addHeader("Cache-Control", "no-store");
+      req->send(resp);
+      return;
+    }
   }
-  AsyncWebServerResponse* resp = req->beginResponse(200, "application/json", payload);
-  if (!resp) {
-    req->send(500, "text/plain", "out of memory building response");
-    return;
-  }
-  resp->addHeader("Cache-Control", "no-store");
-  req->send(resp);
+  req->send(500, "application/json", "{\"error\":\"tests json invalid or empty in RAM\"}");
 }
 
 static bool docHasRuleKind(JsonDocument& doc, const char* kind) {
