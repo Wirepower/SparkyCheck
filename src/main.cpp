@@ -13,6 +13,7 @@
 #include "AdminPortal.h"
 #include "SparkyRtc.h"
 #include "SparkyNtp.h"
+#include "BatteryStatus.h"
 #include <time.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -42,6 +43,7 @@ void setup() {
   OtaUpdate_setInstallDisplay(&tft);
   SdConfig_initAndApply();
   SparkyRtc_init();
+  BatteryStatus_init(); /* After RTC: GPIO6 shared with PCF85063 /INT + VBAT sense */
   /* NVS wall_utc first: CPU time resets every boot/OTA; restore last saved instant before optional RTC. */
   AppState_applySavedWallClockIfInvalid();
   if (time(nullptr) < (time_t)100000 && SparkyRtc_isPresent()) SparkyRtc_syncSystemFromRtc();

@@ -119,6 +119,9 @@ static bool getFactoryTestsJson(String* outJson);
 static bool ensureFactoryTestsJsonString(String* factoryJson);
 static bool testsJsonLoadValidatedFactoryIntoBuffer(void);
 static String testsJsonPrettyForAdmin(const char* jsonStart);
+#if BATTERY_ADC_DIAG_SCAN
+static String batteryAdcScanPage(void);
+#endif
 
 static const unsigned long kSessionTtlMs = 120UL * 60UL * 1000UL; /* 2 h; PIN pages stay usable while configuring */
 static const unsigned long kPortalTickMs = 5000UL;
@@ -383,6 +386,79 @@ static String loginPage(const char* msg) {
 
 static String boolSelected(bool v) { return v ? " selected" : ""; }
 
+#ifndef BATTERY_SCALE_NUM
+#define BATTERY_SCALE_NUM 1
+#endif
+#ifndef BATTERY_SCALE_DEN
+#define BATTERY_SCALE_DEN 1
+#endif
+
+#if BATTERY_ADC_DIAG_SCAN
+/** One-shot ADC read table for finding which GPIO carries the VBAT divider (build with -DBATTERY_ADC_DIAG_SCAN=1). */
+static String batteryAdcScanPage(void) {
+  struct AdcScanRow {
+    int pin;
+    const char* note;
+  };
+  static const AdcScanRow kRows[] = {
+      {6, "Schematic: VBAT divider tap + PCF85063 /INT"},
+      {4, "GT911 TP_IRQ (digital input)"},
+      {3, "LCD VSYNC (sampling may glitch picture)"},
+      {2, "LCD R4"},
+      {1, "LCD R3"},
+      {5, "LCD DE (output — often nonsense mV; may flicker)"},
+      {7, "LCD PCLK (output)"},
+      {10, "LCD B7 (output)"},
+      {8, "I2C SDA (shared) — expect garbage / brief touch-I2C glitch; last resort"},
+      {9, "I2C SCL (shared) — expect garbage / brief touch-I2C glitch; last resort"},
+  };
+
+  analogSetAttenuation(ADC_11db);
+#if defined(SPARKYCHECK_PANEL_43B)
+  SparkyRtc_releaseBatteryAdcSharedPin();
+#endif
+
+  String b;
+  b.reserve(6144);
+  b += "<h1>Battery ADC pin scan</h1>";
+  b += "<p><a href='/admin' style='color:#93c5fd'>Back to admin</a></p>";
+  b += "<div class='card'><p class='small' style='color:#fecaca'><strong>Temporary diagnostic.</strong> ";
+  b += "With a 1S pack and typical 2×100k divider, the <em>real</em> sense pin usually reads about <strong>1000–2100 mV</strong> at the ESP pin ";
+  b += "(scaled column uses current <code>BATTERY_SCALE_NUM/DEN</code> from the build). ";
+  b += "Rows on LCD RGB outputs can flicker or show garbage — that is expected. ";
+  b += "If <strong>no</strong> row is ~1000–2100 mV at the pin with the battery switch ON and a charged cell, the divider may not be wired to the ESP on this PCB rev — check the module pin with a meter, or set <code>BATTERY_ADC_PIN=-1</code> until sense is routed. ";
+  b += "When you find the winning row, set <code>BATTERY_ADC_PIN</code> in <code>platformio.ini</code> and disable this scan.</p>";
+  b += "<table style='width:100%;border-collapse:collapse;font-size:14px'><tr><th style='text-align:left'>#</th>";
+  b += "<th style='text-align:left'>GPIO</th><th style='text-align:left'>Note (Waveshare 4.3B)</th>";
+  b += "<th style='text-align:right'>Pin mV</th><th style='text-align:right'>Scaled mV</th></tr>";
+  for (unsigned i = 0; i < sizeof(kRows) / sizeof(kRows[0]); i++) {
+    const int pin = kRows[i].pin;
+    analogSetPinAttenuation((uint8_t)pin, ADC_11db);
+    delay(4);
+    uint32_t sum = 0;
+    for (int s = 0; s < 10; s++) {
+      sum += (uint32_t)analogReadMilliVolts(pin);
+      delayMicroseconds(350);
+    }
+    const uint32_t pinMv = sum / 10u;
+    const uint32_t scaled = (pinMv * (uint32_t)BATTERY_SCALE_NUM) / (uint32_t)BATTERY_SCALE_DEN;
+    b += "<tr><td>";
+    b += String((int)(i + 1));
+    b += "</td><td>GPIO ";
+    b += String(pin);
+    b += "</td><td class='small' style='max-width:280px'>";
+    b += esc(kRows[i].note);
+    b += "</td><td style='text-align:right;font-weight:700'>";
+    b += String((unsigned long)pinMv);
+    b += "</td><td style='text-align:right'>";
+    b += String((unsigned long)scaled);
+    b += "</td></tr>";
+  }
+  b += "</table></div>";
+  return htmlPage("Battery ADC scan", b);
+}
+#endif
+
 static String settingsPage(void) {
   const bool fieldMode = AppState_isFieldMode();
   char smtpServer[APP_STATE_EMAIL_STR_LEN] = "", smtpPort[APP_STATE_EMAIL_STR_LEN] = "";
@@ -445,9 +521,19 @@ static String settingsPage(void) {
   b += esc(ip[0] ? ip : "(n/a)");
   int batteryPct = 0;
   if (BatteryStatus_getPercent(&batteryPct)) {
-    b += " | Battery: ";
-    b += String(batteryPct);
-    b += "%";
+    uint32_t batMv = 0;
+    (void)BatteryStatus_getLastScaledMillivolts(&batMv);
+    if (BatteryStatus_isSenseLikelyFault()) {
+      b += " | Battery: <span style='color:#fbbf24'>sense fault</span> (~";
+      b += String((unsigned long)batMv);
+      b += " mV — GPIO6 not at divider voltage; check wiring / board rev)";
+    } else {
+      b += " | Battery: ";
+      b += String(batteryPct);
+      b += "% (~";
+      b += String((unsigned long)batMv);
+      b += " mV est.)";
+    }
   } else {
     b += " | Battery: (not configured)";
   }
@@ -459,6 +545,9 @@ static String settingsPage(void) {
   b += "<a href='/admin/logout' style='color:#93c5fd'>Logout</a>";
   b += "<a href='/admin/files' style='color:#93c5fd'>Browse & download reports</a>";
   b += "<form method='get' action='/admin/tests-page' style='margin:0'><button class='btn' style='margin-top:0' type='submit' onclick='window.location.href=\"/admin/tests-page\";return false;'>Edit tests / questions</button></form>";
+#if BATTERY_ADC_DIAG_SCAN
+  b += "<a href='/admin/battery-adc-scan' style='color:#fbbf24;margin-left:8px'>Battery ADC scan (diag)</a>";
+#endif
   b += "</div>";
 
   b += "<div class='card'><h2>Wi-Fi Connection</h2>";
@@ -2142,6 +2231,16 @@ void AdminPortal_init(void) {
     if (!isAuthorized(req)) { req->redirect("/admin/login"); return; }
     sendHtmlNoCache(req, filesPage());
   });
+
+#if BATTERY_ADC_DIAG_SCAN
+  s_server.on("/admin/battery-adc-scan", HTTP_GET, [](AsyncWebServerRequest* req) {
+    if (!isAuthorized(req)) {
+      req->redirect("/admin/login");
+      return;
+    }
+    sendHtmlNoCache(req, batteryAdcScanPage());
+  });
+#endif
 
   s_server.on("/admin/tests", HTTP_GET, [](AsyncWebServerRequest* req) {
     if (!isAuthorized(req)) { req->redirect("/admin/login"); return; }

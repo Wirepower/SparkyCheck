@@ -108,6 +108,17 @@ static bool rtcApplyWaveshareCtrl1Init(void) {
   return Wire.endTransmission() == 0;
 }
 
+/**
+ * Waveshare 4.3B: PCF85063 /INT and the VBAT divider both tie to GPIO6. If Control_2 enables an alarm,
+ * minute IRQ, or CLKOUT on that pin, it pulls the line and battery ADC reads ~0% while the pack is fine.
+ * We only use I2C for time — force Control_2 = 0 (defaults: no IRQ, no CLKOUT on /INT).
+ */
+static bool rtcIntPinHighZForSharedBatterySense(void) {
+  if (!s_i2cAddr) return false;
+  const uint8_t ctrl2Off = 0x00u;
+  return i2cBurstWrite(0x01, &ctrl2Off, 1);
+}
+
 static void rtcBusProbe(void) {
   Wire.setPins(SPARKY_RTC_SDA, SPARKY_RTC_SCL);
 #if defined(SPARKYCHECK_PANEL_43B)
@@ -119,7 +130,17 @@ static void rtcBusProbe(void) {
   delay(4);
   pickRtcAddress();
   s_present = (s_i2cAddr != 0);
-  if (s_present) rtcApplyWaveshareCtrl1Init();
+  if (s_present) {
+    rtcApplyWaveshareCtrl1Init();
+    (void)rtcIntPinHighZForSharedBatterySense();
+  }
+}
+
+extern "C" void SparkyRtc_releaseBatteryAdcSharedPin(void) {
+  if (!s_inited || !s_i2cAddr) return;
+  Wire.setPins(SPARKY_RTC_SDA, SPARKY_RTC_SCL);
+  Wire.setClock(SPARKY_RTC_I2C_HZ);
+  (void)rtcIntPinHighZForSharedBatterySense();
 }
 
 #endif

@@ -1463,6 +1463,13 @@ static void drawBatteryStatusIcon(SparkyTft* tft) {
     tft->drawLine(x + 3, y + bh - 3, x + bw - 4, y + 2, kAccent);
     return;
   }
+  if (BatteryStatus_isSenseLikelyFault()) {
+    tft->setTextColor(kAccent, kBg);
+    tft->setTextSize(1);
+    tft->setCursor(x + 5, y + 2);
+    tft->print('?');
+    return;
+  }
   int fillW = (pct * (bw - 4)) / 100;
   uint16_t fill = pct > 50 ? kGreen : (pct > 20 ? kAccent : kRed);
   tft->fillRect(x + 2, y + 2, fillW, bh - 4, fill);

@@ -3,8 +3,8 @@
  * year encoding as Waveshare 04_RTC_Test (year register = calendar year − 1970).
  * This is separate from the ESP32’s internal RTC (sleep / low-power); the external
  * chip keeps time across main power loss when a coin cell is fitted.
- * RTC_INT is GPIO6 on the schematic; GPIO6 is also used for battery ADC on this build —
- * use I2C polling only (no interrupt line required for clock read/write).
+ * RTC /INT is GPIO6 on the schematic; the same pin shares the VBAT divider tap for ADC.
+ * Firmware uses I2C only and clears PCF85063 Control_2 so /INT is high-Z and battery sense works.
  */
 #pragma once
 
@@ -19,6 +19,8 @@ extern "C" {
 #if defined(SPARKYCHECK_PANEL_43B)
 /** Call before tft.init(): starts Wire on GPIO8/9 so ESP_Display_Panel can skip I2C host init (RTC + touch + CH422G). */
 void SparkyRtc_earlyInitSharedI2c(void);
+/** PCF85063 /INT shares GPIO6 with VBAT ADC; call before sampling battery to clear IRQ/CLKOUT on that pin (no-op if RTC missing). */
+void SparkyRtc_releaseBatteryAdcSharedPin(void);
 #endif
 
 void SparkyRtc_init(void);
